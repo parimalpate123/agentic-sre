@@ -12,6 +12,7 @@ from typing import Dict, Any
 # Import both handlers
 from handler_incident_only import lambda_handler as incident_handler
 from chat_handler import chat_handler
+from log_groups_handler import list_log_groups_handler
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -21,6 +22,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Route requests to appropriate handler
 
+    - GET request with path /log-groups → List log groups handler
     - If request contains "question" → Chat handler (log queries)
     - If request contains "detail" → Incident handler (CloudWatch alarm)
     - Otherwise → Try to infer from structure
@@ -37,9 +39,23 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     logger.info(f"Router received event: {json.dumps(event, default=str)[:500]}")
 
     try:
+        # Check for GET request to list log groups
+        # Lambda Function URL uses requestContext.http.method
+        request_context = event.get('requestContext', {})
+        http_method = request_context.get('http', {}).get('method') or event.get('httpMethod')
+        query_params = event.get('queryStringParameters') or {}
+        
+        # Check if this is a GET request for log groups
+        # Use query parameter 'action=list_log_groups' to identify the request
+        if http_method == 'GET' and query_params.get('action') == 'list_log_groups':
+            logger.info("Routing to list_log_groups_handler (GET request for log groups)")
+            return list_log_groups_handler(event, context)
+        
         # Parse body if it's a string
-        if isinstance(event.get('body'), str):
-            body = json.loads(event['body'])
+        body = event.get('body')
+        if body:
+            if isinstance(body, str):
+                body = json.loads(body)
         else:
             body = event
 

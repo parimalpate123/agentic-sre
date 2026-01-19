@@ -71,7 +71,49 @@ export async function checkHealth() {
   }
 }
 
+/**
+ * Fetch CloudWatch log groups for dropdown
+ * @param {string} prefix - Optional prefix to filter log groups (default: '/aws/')
+ * @param {number} limit - Maximum number of log groups to return (default: 100)
+ * @returns {Promise<Object>} - Response with logGroups array and grouped object
+ */
+export async function fetchLogGroups(prefix = '/aws/', limit = 100) {
+  try {
+    const params = new URLSearchParams({
+      action: 'list_log_groups',  // Required for router to identify this request
+      prefix: prefix,
+      limit: limit.toString()
+    });
+    
+    const url = `${API_ENDPOINT}?${params.toString()}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // Parse the body if it's a string (Lambda response format)
+    if (typeof data.body === 'string') {
+      return JSON.parse(data.body);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error fetching log groups:', error);
+    throw error;
+  }
+}
+
 export default {
   askQuestion,
   checkHealth,
+  fetchLogGroups,
 };

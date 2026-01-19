@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
-import { askQuestion } from '../services/api';
+import { askQuestion, fetchLogGroups } from '../services/api';
 
 export default function ChatWindow({ isFullScreen = false, onToggleFullScreen }) {
   const [messages, setMessages] = useState([
@@ -25,9 +25,17 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const [selectedService, setSelectedService] = useState(''); // Empty = auto-detect from question
   const [timeRange, setTimeRange] = useState('2h'); // Default 2 hours
   const messagesEndRef = useRef(null);
+  
+  // Log groups state
+  const [logGroups, setLogGroups] = useState([]);
+  const [isLoadingLogGroups, setIsLoadingLogGroups] = useState(false);
+  const [logGroupSearch, setLogGroupSearch] = useState('');
+  const [logGroupsCache, setLogGroupsCache] = useState(null);
+  const [logGroupsCacheTime, setLogGroupsCacheTime] = useState(0);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  // Available services for dropdown
-  const services = [
+  // Available services for dropdown (fallback if log groups not loaded)
+  const defaultServices = [
     { value: '', label: 'Auto-detect' },
     { value: 'payment-service', label: 'Payment Service' },
     { value: 'order-service', label: 'Order Service' },
@@ -53,6 +61,48 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Fetch log groups on mount (CloudWatch is always selected for now)
+  useEffect(() => {
+    const loadLogGroups = async () => {
+      // Check cache
+      const now = Date.now();
+      if (logGroupsCache && (now - logGroupsCacheTime) < CACHE_DURATION) {
+        setLogGroups(logGroupsCache);
+        return;
+      }
+
+      setIsLoadingLogGroups(true);
+      try {
+        console.log('Fetching log groups...');
+        const response = await fetchLogGroups('/aws/', 100);
+        console.log('Log groups response:', response);
+        
+        const groups = response.logGroups || [];
+        console.log(`Found ${groups.length} log groups`);
+        
+        // Add "Auto-detect" option at the beginning
+        const groupsWithAuto = [
+          { value: '', label: 'Auto-detect', fullName: '', category: 'Default' },
+          ...groups
+        ];
+        
+        console.log('Setting log groups:', groupsWithAuto.length);
+        setLogGroups(groupsWithAuto);
+        setLogGroupsCache(groupsWithAuto);
+        setLogGroupsCacheTime(now);
+      } catch (error) {
+        console.error('Failed to fetch log groups:', error);
+        console.error('Error details:', error.message, error.stack);
+        // Fallback to default services on error
+        setLogGroups(defaultServices);
+      } finally {
+        setIsLoadingLogGroups(false);
+      }
+    };
+
+    loadLogGroups();
+  }, []); // Run once on mount
 
   const handleSendMessage = async (question) => {
     // Add user message
@@ -248,19 +298,31 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
             </div>
           </div>
 
-          {/* Service Dropdown */}
+          {/* Service/Log Group Dropdown */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 font-medium">Service:</span>
             <select
               value={selectedService}
               onChange={(e) => setSelectedService(e.target.value)}
-              className="text-xs bg-gray-100 border-0 rounded-lg px-2 py-1.5 text-gray-700 focus:ring-2 focus:ring-blue-500"
+              disabled={isLoadingLogGroups}
+              className="text-xs bg-gray-100 border-0 rounded-lg px-2 py-1.5 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:opacity-50 min-w-[180px]"
+              title={selectedService || 'Auto-detect'}
             >
-              {services.map((service) => (
-                <option key={service.value} value={service.value}>
-                  {service.label}
-                </option>
-              ))}
+              {isLoadingLogGroups ? (
+                <option>Loading log groups...</option>
+              ) : logGroups.length > 0 ? (
+                logGroups.map((group) => (
+                  <option key={group.value || group.fullName} value={group.fullName || group.value} title={group.fullName}>
+                    {group.label}
+                  </option>
+                ))
+              ) : (
+                defaultServices.map((service) => (
+                  <option key={service.value} value={service.value}>
+                    {service.label}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 

@@ -70,7 +70,7 @@ resource "aws_lambda_function_url" "incident_handler" {
 
   cors {
     allow_origins = ["*"]
-    allow_methods = ["POST"]
+    allow_methods = ["GET", "POST"]
     allow_headers = ["content-type"]
     max_age       = 86400
   }
