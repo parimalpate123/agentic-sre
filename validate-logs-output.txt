@@ -1,0 +1,210 @@
+CloudWatch Logs Validation Report
+Generated: Sat Jan 17 21:41:31 EST 2026
+
+
+═══════════════════════════════════════════════════════════════
+1. Log Group Check
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/payment-service" --output table
+
+--------------------------------------------------------------------------------------------------------
+|                                           DescribeLogGroups                                          |
++------------------------------------------------------------------------------------------------------+
+||                                              logGroups                                             ||
+|+-------------------+--------------------------------------------------------------------------------+|
+||  arn              |  arn:aws:logs:us-east-1:551481644633:log-group:/aws/lambda/payment-service:*   ||
+||  creationTime     |  1768702741590                                                                 ||
+||  logGroupArn      |  arn:aws:logs:us-east-1:551481644633:log-group:/aws/lambda/payment-service     ||
+||  logGroupClass    |  STANDARD                                                                      ||
+||  logGroupName     |  /aws/lambda/payment-service                                                   ||
+||  metricFilterCount|  0                                                                             ||
+||  storedBytes      |  0                                                                             ||
+|+-------------------+--------------------------------------------------------------------------------+|
+
+
+═══════════════════════════════════════════════════════════════
+2. Log Streams Check
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs describe-log-streams --log-group-name "/aws/lambda/payment-service" --order-by LastEventTime --descending --max-items 5 --output table
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|                                                                                                                                                   DescribeLogStreams                                                                                                                                                    |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+||                                                                                                                                                      logStreams                                                                                                                                                       ||
+|+----------------------------------------------------------------------------------------------------------------------+----------------+----------------------+---------------------+--------------------+---------------------------------+--------------+------------------------------------------------------------+|
+||                                                          arn                                                         | creationTime   | firstEventTimestamp  | lastEventTimestamp  | lastIngestionTime  |          logStreamName          | storedBytes  |                    uploadSequenceToken                     ||
+|+----------------------------------------------------------------------------------------------------------------------+----------------+----------------------+---------------------+--------------------+---------------------------------+--------------+------------------------------------------------------------+|
+||  arn:aws:logs:us-east-1:551481644633:log-group:/aws/lambda/payment-service:log-stream:2026/01/17/deployment/F9C55F92 |  1768702753909 |  1768699873000       |  1768700833000      |  1768702754364     |  2026/01/17/deployment/F9C55F92 |  0           |  49039859658717660789987204421575060262029332292586135988  ||
+||  arn:aws:logs:us-east-1:551481644633:log-group:/aws/lambda/payment-service:log-stream:2026/01/17/prod/4EA717EF       |  1768702742163 |                      |                     |                    |  2026/01/17/prod/4EA717EF       |  0           |                                                            ||
+|+----------------------------------------------------------------------------------------------------------------------+----------------+----------------------+---------------------+--------------------+---------------------------------+--------------+------------------------------------------------------------+|
+
+
+═══════════════════════════════════════════════════════════════
+3. ERROR Logs (Last Hour - Direct Filter)
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs filter-log-events --log-group-name "/aws/lambda/payment-service" --start-time 1768700493000 --end-time 1768704093000 --filter-pattern "ERROR" --max-items 10
+
+{
+    "events": [
+        {
+            "logStreamName": "2026/01/17/deployment/F9C55F92",
+            "timestamp": 1768700833000,
+            "message": "ERROR: [DEPLOYMENT] Error rate exceeded threshold - 15% (threshold: 5%) - investigating",
+            "ingestionTime": 1768702754364,
+            "eventId": "39443346609161863528581532235060817385456297000823029765"
+        }
+    ],
+    "searchedLogStreams": []
+}
+
+
+═══════════════════════════════════════════════════════════════
+4. All Logs (Last Hour - No Filter)
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs filter-log-events --log-group-name "/aws/lambda/payment-service" --start-time 1768700493000 --end-time 1768704093000 --max-items 10
+
+{
+    "events": [
+        {
+            "logStreamName": "2026/01/17/deployment/F9C55F92",
+            "timestamp": 1768700653000,
+            "message": "WARN: [DEPLOYMENT] Elevated error rate detected post-deployment - monitoring",
+            "ingestionTime": 1768702754364,
+            "eventId": "39443342595027727793069366758631528308751225924348149764"
+        },
+        {
+            "logStreamName": "2026/01/17/deployment/F9C55F92",
+            "timestamp": 1768700833000,
+            "message": "ERROR: [DEPLOYMENT] Error rate exceeded threshold - 15% (threshold: 5%) - investigating",
+            "ingestionTime": 1768702754364,
+            "eventId": "39443346609161863528581532235060817385456297000823029765"
+        }
+    ],
+    "searchedLogStreams": []
+}
+
+
+═══════════════════════════════════════════════════════════════
+5. CloudWatch Logs Insights Query Results
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs get-query-results --query-id "7da1268e-02f9-47e9-a57d-c20507e42676"
+
+{
+    "queryLanguage": "CWLI",
+    "results": [],
+    "statistics": {
+        "recordsMatched": 0.0,
+        "recordsScanned": 0.0,
+        "estimatedRecordsSkipped": 0.0,
+        "bytesScanned": 0.0,
+        "estimatedBytesSkipped": 0.0,
+        "logGroupsScanned": 1.0
+    },
+    "status": "Complete"
+}
+
+
+═══════════════════════════════════════════════════════════════
+6. CloudWatch Logs Insights Query (2-hour range)
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs get-query-results --query-id "aad2ddc5-518f-4863-9396-80435c777bbf"
+
+{
+    "queryLanguage": "CWLI",
+    "results": [],
+    "statistics": {
+        "recordsMatched": 0.0,
+        "recordsScanned": 0.0,
+        "estimatedRecordsSkipped": 0.0,
+        "bytesScanned": 0.0,
+        "estimatedBytesSkipped": 0.0,
+        "logGroupsScanned": 1.0
+    },
+    "status": "Complete"
+}
+
+
+═══════════════════════════════════════════════════════════════
+7. Log Group: /aws/lambda/payment-service
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/payment-service" --query 'logGroups[0].{Name:logGroupName,StoredBytes:storedBytes}' --output table
+
+------------------------------------------------
+|               DescribeLogGroups              |
++------------------------------+---------------+
+|             Name             |  StoredBytes  |
++------------------------------+---------------+
+|  /aws/lambda/payment-service |  0            |
++------------------------------+---------------+
+
+
+═══════════════════════════════════════════════════════════════
+7. Log Group: /aws/lambda/order-service
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/order-service" --query 'logGroups[0].{Name:logGroupName,StoredBytes:storedBytes}' --output table
+
+----------------------------------------------
+|              DescribeLogGroups             |
++----------------------------+---------------+
+|            Name            |  StoredBytes  |
++----------------------------+---------------+
+|  /aws/lambda/order-service |  0            |
++----------------------------+---------------+
+
+
+═══════════════════════════════════════════════════════════════
+7. Log Group: /aws/lambda/api-gateway
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/api-gateway" --query 'logGroups[0].{Name:logGroupName,StoredBytes:storedBytes}' --output table
+
+--------------------------------------------
+|             DescribeLogGroups            |
++--------------------------+---------------+
+|           Name           |  StoredBytes  |
++--------------------------+---------------+
+|  /aws/lambda/api-gateway |  0            |
++--------------------------+---------------+
+
+
+═══════════════════════════════════════════════════════════════
+7. Log Group: /aws/lambda/user-service
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/user-service" --query 'logGroups[0].{Name:logGroupName,StoredBytes:storedBytes}' --output table
+
+---------------------------------------------
+|             DescribeLogGroups             |
++---------------------------+---------------+
+|           Name            |  StoredBytes  |
++---------------------------+---------------+
+|  /aws/lambda/user-service |  0            |
++---------------------------+---------------+
+
+
+═══════════════════════════════════════════════════════════════
+7. Log Group: /aws/lambda/inventory-service
+═══════════════════════════════════════════════════════════════
+
+Command: aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/inventory-service" --query 'logGroups[0].{Name:logGroupName,StoredBytes:storedBytes}' --output table
+
+--------------------------------------------------
+|                DescribeLogGroups               |
++--------------------------------+---------------+
+|              Name              |  StoredBytes  |
++--------------------------------+---------------+
+|  /aws/lambda/inventory-service |  0            |
++--------------------------------+---------------+
+
+
+═══════════════════════════════════════════════════════════════
+Validation Complete - Sat Jan 17 21:41:52 EST 2026
+═══════════════════════════════════════════════════════════════

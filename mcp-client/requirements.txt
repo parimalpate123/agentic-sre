@@ -1,0 +1,7 @@
+# MCP Client Dependencies
+
+# HTTP client
+aiohttp==3.11.14
+
+# Logging
+python-json-logger==3.3.0

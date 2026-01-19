@@ -1,0 +1,451 @@
+{
+  "info": {
+    "name": "Log Analyzer Chat API",
+    "description": "Chat-style interface for conversational log analysis\n\n## How it works\n1. Ask a natural language question about logs\n2. Claude generates appropriate CloudWatch Logs Insights queries\n3. Queries are executed via MCP server\n4. Claude synthesizes a conversational answer\n\n## Perfect for\n- Quick log investigation\n- Root cause analysis discussions\n- Building a chat interface\n- Testing MCP integration\n\n## No incident creation, no DynamoDB storage",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "lambda_url",
+      "value": "https://42ncxigsnq34qhl7mibjqgt76y0stobv.lambda-url.us-east-1.on.aws/",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Getting Started",
+      "item": [
+        {
+          "name": "Simple Error Search",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Response is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Has answer\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('answer');",
+                  "    console.log('Answer:', jsonData.answer);",
+                  "});",
+                  "",
+                  "pm.test(\"Has insights\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('insights');",
+                  "    console.log('Insights:', JSON.stringify(jsonData.insights, null, 2));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What errors occurred in the last hour?\",\n  \"time_range\": \"1h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Simple question - searches for any errors in the last hour.\n\n**What happens:**\n1. Claude generates CloudWatch Logs Insights query\n2. MCP server executes query\n3. Claude analyzes results and provides conversational answer\n\n**Expected:** Description of errors found with insights"
+          },
+          "response": []
+        },
+        {
+          "name": "Service-Specific Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What errors occurred in payment-service?\",\n  \"service\": \"payment-service\",\n  \"time_range\": \"2h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Query a specific service's logs.\n\nThe `service` parameter helps target the correct log group:\n- /aws/lambda/{service}\n- /aws/ecs/{service}\n\nClaude can also infer the service from the question."
+          },
+          "response": []
+        }
+      ],
+      "description": "Basic chat queries to get started"
+    },
+    {
+      "name": "2. Root Cause Analysis",
+      "item": [
+        {
+          "name": "Identify Error Patterns",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What are the most common error patterns in the last 6 hours?\",\n  \"time_range\": \"6h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Ask about patterns and trends.\n\nClaude will:\n1. Generate aggregation queries\n2. Group errors by type\n3. Identify patterns\n4. Provide insights on root causes"
+          },
+          "response": []
+        },
+        {
+          "name": "Database Connection Issues",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Are there any database connection errors or timeouts?\",\n  \"service\": \"api-service\",\n  \"time_range\": \"3h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Specific issue investigation - database connectivity.\n\nClaude understands common issues and generates targeted queries:\n- Connection timeout\n- Connection pool exhaustion\n- Slow queries"
+          },
+          "response": []
+        },
+        {
+          "name": "Deployment Correlation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Did errors spike after the recent deployment?\",\n  \"service\": \"order-service\",\n  \"time_range\": \"24h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Correlate errors with deployments.\n\nUseful for identifying deployment-related issues."
+          },
+          "response": []
+        },
+        {
+          "name": "Memory or Performance Issues",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Are there any out of memory errors or performance warnings?\",\n  \"time_range\": \"12h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Search for resource-related issues:\n- OutOfMemoryError\n- High CPU warnings\n- Timeout messages"
+          },
+          "response": []
+        }
+      ],
+      "description": "Root cause analysis questions"
+    },
+    {
+      "name": "3. Specific Log Searches",
+      "item": [
+        {
+          "name": "Search by Exception Type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Show me all NullPointerException errors\",\n  \"time_range\": \"6h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Search for specific exception types.\n\nClaude generates filter queries like:\n`filter @message like /NullPointerException/`"
+          },
+          "response": []
+        },
+        {
+          "name": "Search by Status Code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"How many 5xx errors occurred in API gateway?\",\n  \"service\": \"api-gateway\",\n  \"time_range\": \"1h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Query by HTTP status codes.\n\nUseful for API monitoring."
+          },
+          "response": []
+        },
+        {
+          "name": "Search by Request ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Show me all logs for request ID abc-123-def\",\n  \"time_range\": \"24h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Trace specific request through logs.\n\nGreat for debugging individual transactions."
+          },
+          "response": []
+        }
+      ],
+      "description": "Specific log queries"
+    },
+    {
+      "name": "4. Time-Based Analysis",
+      "item": [
+        {
+          "name": "Recent Activity (1 hour)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What's happening right now? Any issues?\",\n  \"time_range\": \"1h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Real-time monitoring - last hour.\n\nQuick health check on current system state."
+          },
+          "response": []
+        },
+        {
+          "name": "Trend Analysis (24 hours)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Show me error trends over the last 24 hours\",\n  \"time_range\": \"24h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Long-term trend analysis.\n\nIdentify patterns over time."
+          },
+          "response": []
+        }
+      ],
+      "description": "Time-based queries"
+    },
+    {
+      "name": "5. Complex Questions",
+      "item": [
+        {
+          "name": "Multi-Service Correlation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Are errors in payment-service related to database-service issues?\",\n  \"time_range\": \"2h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Correlate issues across multiple services.\n\nClaude can query multiple log groups and identify relationships."
+          },
+          "response": []
+        },
+        {
+          "name": "Comparative Analysis",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Compare error rates today vs yesterday\",\n  \"time_range\": \"24h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Comparative analysis between time periods.\n\nIdentify anomalies."
+          },
+          "response": []
+        },
+        {
+          "name": "What Changed Recently",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What changed in the system in the last 3 hours? Any new errors?\",\n  \"time_range\": \"3h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Broad change detection.\n\nUseful for catching unexpected changes."
+          },
+          "response": []
+        }
+      ],
+      "description": "Complex multi-part questions"
+    },
+    {
+      "name": "6. Follow-Up Conversations",
+      "item": [
+        {
+          "name": "Initial Question",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What errors are happening in payment-service?\",\n  \"service\": \"payment-service\",\n  \"time_range\": \"1h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Step 1: Ask initial question.\n\nCheck the response for `follow_up_questions` - these are suggested next questions."
+          },
+          "response": []
+        },
+        {
+          "name": "Follow-Up: Root Cause",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What's causing those connection timeout errors?\",\n  \"service\": \"payment-service\",\n  \"time_range\": \"1h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Step 2: Ask follow-up based on initial response.\n\nThis simulates a conversation flow."
+          },
+          "response": []
+        },
+        {
+          "name": "Follow-Up: When Did It Start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"When did these errors start occurring?\",\n  \"service\": \"payment-service\",\n  \"time_range\": \"6h\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Step 3: Dig deeper with timeline questions.\n\nExpand time range to identify when issue started."
+          },
+          "response": []
+        }
+      ],
+      "description": "Simulates conversational flow with follow-up questions"
+    }
+  ]
+}

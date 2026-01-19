@@ -1,0 +1,15 @@
+# Agent Core Dependencies
+
+# Core frameworks
+pydantic==2.10.6
+langgraph==0.2.60
+langchain-core==0.3.40
+
+# AWS SDK
+boto3==1.35.97
+
+# Async support
+aiohttp==3.11.14
+
+# Logging
+python-json-logger==3.3.0

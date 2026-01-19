@@ -1,0 +1,124 @@
+name: Deploy Lambda Function
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'agent-core/**'
+      - 'mcp-client/**'
+      - 'storage/**'
+      - 'lambda-handler/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  LAMBDA_FUNCTION_NAME: sre-poc-investigation-lambda
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  deploy:
+    name: Build and Deploy Lambda
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Lambda deployment package
+        working-directory: lambda-handler
+        run: |
+          # Clean previous builds
+          rm -rf package lambda-deployment.zip
+
+          # Create package directory
+          mkdir -p package
+
+          # Install dependencies
+          pip install -r requirements.txt -t package/
+
+          # Copy our modules
+          mkdir -p package/python/agent-core
+          cp -r ../agent-core/src/* package/python/agent-core/
+
+          mkdir -p package/python/mcp-client
+          cp -r ../mcp-client/src/* package/python/mcp-client/
+
+          mkdir -p package/python/storage
+          cp -r ../storage/src/* package/python/storage/
+
+          # Copy handler
+          cp handler.py package/
+
+          # Create zip
+          cd package
+          zip -r ../lambda-deployment.zip . -q
+          cd ..
+
+          echo "Package size: $(du -h lambda-deployment.zip | cut -f1)"
+
+      - name: Update Lambda function code
+        working-directory: lambda-handler
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://lambda-deployment.zip \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Wait for Lambda update to complete
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Get Lambda function info
+        run: |
+          aws lambda get-function \
+            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Configuration.[FunctionName,Runtime,MemorySize,Timeout,LastModified]' \
+            --output table
+
+      - name: Test Lambda function
+        run: |
+          # Create test event
+          cat > test-event.json << 'EOF'
+          {
+            "version": "0",
+            "id": "test-ci-cd-001",
+            "detail-type": "CloudWatch Alarm State Change",
+            "source": "aws.cloudwatch",
+            "time": "2025-01-10T10:00:00Z",
+            "region": "us-east-1",
+            "account": "123456789012",
+            "detail": {
+              "alarmName": "test-service-error-rate",
+              "state": {
+                "value": "ALARM",
+                "reason": "Threshold Crossed: 1 datapoint [10.5] was greater than the threshold (5.0)"
+              }
+            }
+          }
+          EOF
+
+          # Invoke Lambda
+          aws lambda invoke \
+            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --payload file://test-event.json \
+            --region ${{ env.AWS_REGION }} \
+            response.json
+
+          # Show response
+          cat response.json | jq .

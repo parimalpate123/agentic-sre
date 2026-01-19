@@ -1,0 +1,392 @@
+{
+  "info": {
+    "name": "Log Analyzer POC",
+    "description": "Test collection for Agentic SRE Log Analyzer with MCP\n\n## Architecture\n- Lambda (agent-core + mcp-client)\n- MCP Server (ECS Fargate)\n- CloudWatch Logs\n- DynamoDB Storage\n\n## Setup\n1. Import this collection into Postman\n2. Update environment variables if needed\n3. Run tests in order",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "log-analyzer-poc"
+  },
+  "variable": [
+    {
+      "key": "lambda_url",
+      "value": "https://42ncxigsnq34qhl7mibjqgt76y0stobv.lambda-url.us-east-1.on.aws/",
+      "type": "string"
+    },
+    {
+      "key": "aws_region",
+      "value": "us-east-1",
+      "type": "string"
+    },
+    {
+      "key": "aws_account",
+      "value": "551481644633",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health Checks",
+      "item": [
+        {
+          "name": "Lambda Health Check (Simple)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has body\", function () {",
+                  "    pm.response.to.have.jsonBody();",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains message\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('statusCode');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"health-check-001\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"test-health-check\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [2.0] was greater than the threshold (1.0)\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Simple health check to verify Lambda is responding.\n\nExpected: 200 OK with investigation results"
+          },
+          "response": []
+        }
+      ],
+      "description": "Basic health checks to verify the system is operational"
+    },
+    {
+      "name": "2. Incident Investigation Tests",
+      "item": [
+        {
+          "name": "P1 - Critical Payment Service Failure",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Investigation completed\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.statusCode).to.eql(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Has root cause\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    var body = JSON.parse(jsonData.body);",
+                  "    pm.expect(body).to.have.property('root_cause');",
+                  "    console.log('Root Cause:', body.root_cause);",
+                  "});",
+                  "",
+                  "pm.test(\"Has confidence score\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    var body = JSON.parse(jsonData.body);",
+                  "    pm.expect(body).to.have.property('confidence');",
+                  "    console.log('Confidence:', body.confidence + '%');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"inc-payment-critical-001\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"payment-service-error-rate-high\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [45.8] was greater than the threshold (5.0)\"\n    },\n    \"configuration\": {\n      \"description\": \"Payment service experiencing critical error rate\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Critical P1 incident - Payment service with very high error rate (45.8% vs 5% threshold)\n\nThis should trigger:\n1. Triage: P1 severity, INVESTIGATE decision\n2. Analysis: Query CloudWatch logs for payment-service\n3. Diagnosis: Identify root cause with high confidence\n4. Remediation: Recommend immediate action"
+          },
+          "response": []
+        },
+        {
+          "name": "P2 - API Gateway High Latency",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Investigation completed\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Has recommended action\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    var body = JSON.parse(jsonData.body);",
+                  "    pm.expect(body).to.have.property('recommended_action');",
+                  "    console.log('Recommended Action:', body.recommended_action);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"inc-api-latency-002\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"api-gateway-p95-latency-high\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [2500.0] was greater than the threshold (1000.0)\"\n    },\n    \"configuration\": {\n      \"description\": \"API Gateway p95 latency exceeding SLA\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "P2 incident - API Gateway latency degradation\n\nLatency: 2500ms vs 1000ms threshold (2.5x breach)\n\nExpected to analyze performance issues and recommend scaling or optimization."
+          },
+          "response": []
+        },
+        {
+          "name": "P3 - Database Connection Warnings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"inc-db-connections-003\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"database-connection-pool-utilization\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [82.3] was greater than the threshold (75.0)\"\n    },\n    \"configuration\": {\n      \"description\": \"Database connection pool utilization high\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "P3 incident - Database connection pool utilization warning\n\n82.3% vs 75% threshold - Minor degradation, may trigger MONITOR action instead of full investigation."
+          },
+          "response": []
+        },
+        {
+          "name": "P4 - Minor CPU Spike",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"inc-cpu-spike-004\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"worker-service-cpu-utilization\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [62.0] was greater than the threshold (60.0)\"\n    },\n    \"configuration\": {\n      \"description\": \"Worker service CPU slightly elevated\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "P4 incident - Minor CPU elevation\n\n62% vs 60% threshold - Likely to be triaged as P4 with MONITOR decision (no full investigation)."
+          },
+          "response": []
+        },
+        {
+          "name": "Deployment Related Error Spike",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"inc-deployment-errors-005\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"order-service-5xx-errors-post-deployment\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 3 datapoints [18.5, 22.3, 19.7] were greater than the threshold (5.0)\"\n    },\n    \"configuration\": {\n      \"description\": \"Order service 5xx errors spiked after recent deployment\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Deployment-related incident - Error spike after deployment\n\nThis should correlate errors with deployment timing and recommend rollback."
+          },
+          "response": []
+        }
+      ],
+      "description": "Various incident scenarios testing different severity levels and issue types"
+    },
+    {
+      "name": "3. Edge Cases & Error Handling",
+      "item": [
+        {
+          "name": "Malformed Event (Missing Detail)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"malformed-001\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\"\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Test error handling with malformed event (missing detail field)\n\nExpected: Graceful error handling, 500 response with error message"
+          },
+          "response": []
+        },
+        {
+          "name": "Empty Alarm Name",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"empty-alarm-002\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Unknown\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Test handling of empty alarm name\n\nShould handle gracefully with default values"
+          },
+          "response": []
+        }
+      ],
+      "description": "Test error handling and edge cases"
+    },
+    {
+      "name": "4. Performance Tests",
+      "item": [
+        {
+          "name": "Concurrent Incidents (Run 5x)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"perf-test-{{$randomInt}}\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"service-{{$randomInt}}-error-rate\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [12.5] was greater than the threshold (5.0)\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Performance test - Run this 5 times concurrently using Postman Collection Runner\n\nTests Lambda concurrency and MCP server handling multiple requests"
+          },
+          "response": []
+        }
+      ],
+      "description": "Performance and load testing scenarios"
+    },
+    {
+      "name": "5. Integration Verification",
+      "item": [
+        {
+          "name": "Test - Verify Agent-Core Integration",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"integration-agent-core-001\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"test-agent-core-integration\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [10.0] was greater than the threshold (5.0)\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Verify agent-core is properly integrated and all 4 agents execute:\n\n1. Triage Agent\n2. Analysis Agent (uses MCP client)\n3. Diagnosis Agent\n4. Remediation Agent\n\nCheck Lambda logs to verify all agents ran:\naws logs tail /aws/lambda/sre-poc-incident-handler --follow --region us-east-1"
+          },
+          "response": []
+        },
+        {
+          "name": "Test - Verify MCP Client Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"integration-mcp-002\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"test-mcp-connectivity\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [8.0] was greater than the threshold (5.0)\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Verify MCP client can connect to MCP server on ECS\n\nCheck MCP server logs:\naws logs tail /ecs/sre-poc-mcp-server --follow --region us-east-1\n\nLook for incoming HTTP requests from Lambda"
+          },
+          "response": []
+        },
+        {
+          "name": "Test - Verify DynamoDB Storage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"0\",\n  \"id\": \"integration-dynamodb-003\",\n  \"detail-type\": \"CloudWatch Alarm State Change\",\n  \"source\": \"aws.cloudwatch\",\n  \"time\": \"{{$timestamp}}\",\n  \"region\": \"{{aws_region}}\",\n  \"account\": \"{{aws_account}}\",\n  \"detail\": {\n    \"alarmName\": \"test-dynamodb-storage\",\n    \"state\": {\n      \"value\": \"ALARM\",\n      \"reason\": \"Threshold Crossed: 1 datapoint [7.5] was greater than the threshold (5.0)\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{lambda_url}}",
+              "host": ["{{lambda_url}}"]
+            },
+            "description": "Verify investigation results are saved to DynamoDB\n\nAfter running this, check DynamoDB:\naws dynamodb get-item --table-name sre-poc-incidents --key '{\"incident_id\": {\"S\": \"integration-dynamodb-003\"}}' --region us-east-1"
+          },
+          "response": []
+        }
+      ],
+      "description": "Tests to verify each component integration"
+    }
+  ]
+}

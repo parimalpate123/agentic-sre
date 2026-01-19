@@ -1,0 +1,56 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform-outputs.json
+outputs.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Lambda build artifacts
+lambda-handler/package/
+lambda-handler/lambda-deployment.zip
+test-event.json
+response.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Secrets
+*.pem
+*.key
+secrets.txt
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary/Reference directories
+temp-setup/
+ai-generated-md/
+
+# Documentation (exclude for now, will commit selectively later)
+docs/

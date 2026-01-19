@@ -1,0 +1,7 @@
+# Storage Layer Dependencies
+
+# AWS SDK
+boto3==1.35.97
+
+# Logging
+python-json-logger==3.3.0
