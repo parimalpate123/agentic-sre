@@ -31,6 +31,7 @@ resource "aws_lambda_function" "incident_handler" {
     variables = {
       # Bedrock Configuration
       BEDROCK_MODEL_ID = var.bedrock_model_id
+      BEDROCK_MODEL_ID_DIAGNOSIS = var.bedrock_model_id_diagnosis
       BEDROCK_REGION   = var.aws_region
 
       # DynamoDB Tables

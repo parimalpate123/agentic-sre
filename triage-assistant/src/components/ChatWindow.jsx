@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
-import { askQuestion, fetchLogGroups } from '../services/api';
+import { askQuestion, fetchLogGroups, requestDiagnosis } from '../services/api';
 
 export default function ChatWindow({ isFullScreen = false, onToggleFullScreen }) {
   const [messages, setMessages] = useState([
@@ -24,6 +24,7 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const [searchMode, setSearchMode] = useState('quick'); // 'quick' = real-time, 'deep' = Logs Insights
   const [selectedService, setSelectedService] = useState(''); // Empty = auto-detect from question
   const [timeRange, setTimeRange] = useState('2h'); // Default 2 hours
+  const [diagnosingMessageId, setDiagnosingMessageId] = useState(null); // Track which message is being diagnosed
   const messagesEndRef = useRef(null);
   
   // Log groups state
@@ -75,7 +76,7 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       setIsLoadingLogGroups(true);
       try {
         console.log('Fetching log groups...');
-        const response = await fetchLogGroups('/aws/', 100);
+        const response = await fetchLogGroups('/aws/', 50);
         console.log('Log groups response:', response);
         
         const groups = response.logGroups || [];
@@ -103,6 +104,41 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
 
     loadLogGroups();
   }, []); // Run once on mount
+
+  const handleDiagnose = async (message) => {
+    setDiagnosingMessageId(message.id);
+    try {
+      // Build log_data from message
+      const logData = {
+        log_entries: message.logEntries || [],
+        insights: message.insights || [],
+        total_results: message.totalResults || 0,
+        pattern_data: message.patternData || null,
+        correlation_data: message.correlationData || null,
+        recommendations: message.recommendations || [],
+      };
+
+      // Extract service name from message or use selected service
+      const serviceName = selectedService || 'unknown-service';
+      
+      // Call diagnosis API
+      const diagnosisResult = await requestDiagnosis(logData, serviceName);
+
+      // Update the message with diagnosis data
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === message.id
+            ? { ...msg, diagnosis: diagnosisResult }
+            : msg
+        )
+      );
+    } catch (error) {
+      console.error('Diagnosis failed:', error);
+      // You could add an error message here if needed
+    } finally {
+      setDiagnosingMessageId(null);
+    }
+  };
 
   const handleSendMessage = async (question) => {
     // Add user message
@@ -364,7 +400,13 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
           {/* Messages area */}
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} isUser={message.isUser} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                isUser={message.isUser}
+                onDiagnose={handleDiagnose}
+                isDiagnosing={diagnosingMessageId === message.id}
+              />
             ))}
 
             {/* Loading indicator */}

@@ -36,7 +36,7 @@ def list_log_groups_handler(event: Dict[str, Any], context: Any) -> Dict[str, An
             query_params = event.get('queryStringParameters', {})
         
         prefix = query_params.get('prefix', '/aws/')  # Default to AWS services
-        limit = int(query_params.get('limit', '100'))  # Default limit
+        limit = min(int(query_params.get('limit', '50')), 50)  # Default 50, max 50 (CloudWatch API limit)
         
         logger.info(f"Listing log groups with prefix: {prefix}, limit: {limit}")
         
@@ -83,7 +83,7 @@ def list_log_groups_handler(event: Dict[str, Any], context: Any) -> Dict[str, An
             'statusCode': 200,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',  # CORS - Lambda Function URL also handles this
+                # CORS headers are handled by Lambda Function URL configuration, not here
             },
             'body': json.dumps({
                 'logGroups': formatted_groups,
@@ -99,7 +99,7 @@ def list_log_groups_handler(event: Dict[str, Any], context: Any) -> Dict[str, An
             'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
+                # CORS headers are handled by Lambda Function URL configuration, not here
             },
             'body': json.dumps({
                 'error': 'Failed to list log groups',

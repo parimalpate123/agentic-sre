@@ -5,8 +5,9 @@
 
 import CorrelationView from './CorrelationView';
 import ErrorPatternsView from './ErrorPatternsView';
+import DiagnosisView from './DiagnosisView';
 
-export default function MessageBubble({ message, isUser }) {
+export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosing = false }) {
   // Get search mode badge text and styles
   const getSearchModeBadge = () => {
     switch (message.searchMode) {
@@ -145,6 +146,37 @@ export default function MessageBubble({ message, isUser }) {
               ))}
             </ul>
           </div>
+        )}
+
+        {/* Diagnose Button (for assistant messages with log data) */}
+        {!isUser && onDiagnose && (message.logEntries?.length > 0 || message.patternData || message.correlationData) && !message.diagnosis && (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <button
+              onClick={() => onDiagnose(message)}
+              disabled={isDiagnosing}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDiagnosing ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <span>🔍</span>
+                  Diagnose Root Cause
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Diagnosis View (if diagnosis is available) */}
+        {!isUser && message.diagnosis && (
+          <DiagnosisView diagnosis={message.diagnosis} />
         )}
 
         {/* Timestamp */}

@@ -31,9 +31,15 @@ variable "lambda_memory" {
 
 # Bedrock Configuration
 variable "bedrock_model_id" {
-  description = "AWS Bedrock model ID for Claude"
+  description = "AWS Bedrock model ID for Claude (chat operations)"
   type        = string
   default     = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+}
+
+variable "bedrock_model_id_diagnosis" {
+  description = "AWS Bedrock model ID for diagnosis (default: Claude 3 Haiku for higher quota - 100 req/min)"
+  type        = string
+  default     = "anthropic.claude-3-haiku-20240307-v1:0"
 }
 
 # MCP Server Configuration
