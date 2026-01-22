@@ -200,9 +200,22 @@ class InvestigationOrchestrator:
         updates = {"current_step": "diagnosis"}
 
         try:
+            # Safely extract analysis result - LangGraph might pass it as dict or object
+            analysis = state.analysis
+            if analysis is None:
+                logger.error("[DIAGNOSIS] No analysis result available, cannot diagnose")
+                raise ValueError("Analysis result is missing")
+            
+            # Log the type for debugging
+            logger.debug(f"[DIAGNOSIS] analysis type: {type(analysis)}")
+            
+            # Ensure incident is properly typed
+            incident = state.incident
+            logger.debug(f"[DIAGNOSIS] incident type: {type(incident)}")
+            
             diagnosis_result = self.diagnosis_agent.diagnose(
-                state.incident,
-                state.analysis
+                incident,
+                analysis
             )
             updates["diagnosis"] = diagnosis_result
 

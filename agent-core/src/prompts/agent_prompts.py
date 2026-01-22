@@ -202,7 +202,7 @@ TASK:
 Based on the ANALYSIS FINDINGS and LOG EVIDENCE above, you have clear evidence of what went wrong:
 - {error_count} errors were found
 - Error patterns: {error_patterns}
-- Detailed log analysis shows: {log_evidence_summary[:500]}...
+- Detailed log analysis shows: {log_evidence_summary_preview}
 
 You MUST provide a specific root cause diagnosis. "Insufficient information" is NOT acceptable when errors and patterns are clearly identified.
 
@@ -386,11 +386,23 @@ def format_analysis_prompt(incident: dict, triage_result: dict) -> str:
 
 def format_diagnosis_prompt(incident: dict, analysis_result: dict) -> str:
     """Format diagnosis prompt with all available evidence"""
+    # Validate inputs are dicts
+    if not isinstance(incident, dict):
+        logger.error(f"incident is not a dict: {type(incident)}")
+        incident = {}
+    if not isinstance(analysis_result, dict):
+        logger.error(f"analysis_result is not a dict: {type(analysis_result)}")
+        analysis_result = {}
+    
     # Safely extract and format error patterns
     error_patterns = analysis_result.get('error_patterns', [])
     if not isinstance(error_patterns, list):
         # If it's a string or other type, convert to list
-        error_patterns = [str(error_patterns)] if error_patterns else []
+        if isinstance(error_patterns, str):
+            # If it's a string, try to parse it or use as single item
+            error_patterns = [error_patterns] if error_patterns else []
+        else:
+            error_patterns = [str(error_patterns)] if error_patterns else []
     error_patterns_str = ', '.join(str(p) for p in error_patterns) if error_patterns else 'None found'
     
     # Safely extract and format key findings
@@ -401,7 +413,17 @@ def format_diagnosis_prompt(incident: dict, analysis_result: dict) -> str:
     key_findings_str = '\n'.join([f"- {str(finding)}" for finding in key_findings]) if key_findings else 'None provided'
     
     # Get log evidence summary - check both incident and analysis_result
-    log_evidence_summary = incident.get('log_evidence_summary') or analysis_result.get('summary', 'No log evidence provided')
+    try:
+        if isinstance(incident, dict) and isinstance(analysis_result, dict):
+            log_evidence_summary = incident.get('log_evidence_summary') or analysis_result.get('summary', 'No log evidence provided')
+        elif isinstance(analysis_result, dict):
+            log_evidence_summary = analysis_result.get('summary', 'No log evidence provided')
+        else:
+            log_evidence_summary = 'No log evidence provided'
+    except (TypeError, AttributeError) as e:
+        logger.error(f"Error getting log_evidence_summary: {e}, incident type: {type(incident)}, analysis_result type: {type(analysis_result)}")
+        log_evidence_summary = 'No log evidence provided'
+    
     if not isinstance(log_evidence_summary, str):
         log_evidence_summary = str(log_evidence_summary) if log_evidence_summary else 'No log evidence provided'
     
@@ -421,18 +443,51 @@ def format_diagnosis_prompt(incident: dict, analysis_result: dict) -> str:
     if not isinstance(incident_start, str):
         incident_start = str(incident_start) if incident_start else 'unknown'
     
+    # Safely extract incident fields
+    try:
+        if isinstance(incident, dict):
+            service_name = incident.get('service_name') or incident.get('service', 'unknown')
+            severity = incident.get('severity', 'unknown')
+            metric_name = incident.get('metric_name') or incident.get('metric', 'unknown')
+            recent_deployments = incident.get('recent_deployments', 'none')
+            service_dependencies = incident.get('service_dependencies', 'unknown')
+        else:
+            service_name = 'unknown'
+            severity = 'unknown'
+            metric_name = 'unknown'
+            recent_deployments = 'none'
+            service_dependencies = 'unknown'
+    except (TypeError, AttributeError) as e:
+        logger.error(f"Error extracting incident fields: {e}, incident type: {type(incident)}")
+        service_name = 'unknown'
+        severity = 'unknown'
+        metric_name = 'unknown'
+        recent_deployments = 'none'
+        service_dependencies = 'unknown'
+    
+    # Safely preview log_evidence_summary (first 500 chars)
+    try:
+        if isinstance(log_evidence_summary, str):
+            log_evidence_summary_preview = log_evidence_summary[:500] + ('...' if len(log_evidence_summary) > 500 else '')
+        else:
+            log_evidence_summary_preview = str(log_evidence_summary)[:500] if log_evidence_summary else 'No log evidence provided'
+    except Exception as e:
+        logger.error(f"Error creating log_evidence_summary preview: {e}")
+        log_evidence_summary_preview = 'No log evidence provided'
+    
     return DIAGNOSIS_USER_PROMPT_TEMPLATE.format(
-        service_name=incident.get('service_name', incident.get('service', 'unknown')),
-        severity=incident.get('severity', 'unknown'),
-        metric_name=incident.get('metric_name', 'unknown'),
+        service_name=service_name,
+        severity=severity,
+        metric_name=metric_name,
         error_patterns=error_patterns_str,
         error_count=error_count,
         deployment_correlation=deployment_correlation,
         incident_start=incident_start,
         key_findings=key_findings_str,
         log_evidence_summary=log_evidence_summary,
-        recent_deployments=incident.get('recent_deployments', 'none'),
-        service_dependencies=incident.get('service_dependencies', 'unknown')
+        log_evidence_summary_preview=log_evidence_summary_preview,
+        recent_deployments=recent_deployments,
+        service_dependencies=service_dependencies
     )
 
 

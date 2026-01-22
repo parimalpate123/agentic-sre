@@ -45,55 +45,191 @@ class DiagnosisAgent:
 
         Args:
             incident: Incident event
-            analysis_result: Result from analysis agent
+            analysis_result: Result from analysis agent (may be AnalysisResult or dict)
 
         Returns:
             DiagnosisResult with root cause hypothesis
         """
-        logger.info(f"Diagnosing root cause for incident {incident.incident_id}")
+        # Safely get incident_id for logging
+        try:
+            if isinstance(incident, dict):
+                incident_id = incident.get('incident_id', 'unknown')
+            elif hasattr(incident, 'incident_id'):
+                incident_id = incident.incident_id
+            else:
+                incident_id = 'unknown'
+        except Exception as e:
+            logger.warning(f"Error getting incident_id: {e}")
+            incident_id = 'unknown'
+        
+        logger.info(f"Diagnosing root cause for incident {incident_id}")
+        
+        # Log types for debugging
+        logger.debug(f"analysis_result type: {type(analysis_result)}")
+        logger.debug(f"incident type: {type(incident)}")
+        if isinstance(analysis_result, dict):
+            logger.debug(f"analysis_result keys: {list(analysis_result.keys()) if analysis_result else 'None'}")
+        if isinstance(incident, dict):
+            logger.debug(f"incident keys: {list(incident.keys()) if incident else 'None'}")
 
         try:
-            # Prepare data for prompt formatting
-            # Split into incident data and analysis data as expected by format_diagnosis_prompt
+            # Handle case where analysis_result might be a dict (from LangGraph state)
+            # First, ensure analysis_result is not a string
+            if isinstance(analysis_result, str):
+                logger.error(f"analysis_result is a string (unexpected): {analysis_result[:200]}")
+                try:
+                    import json
+                    analysis_result = json.loads(analysis_result)
+                except:
+                    analysis_result = {}
             
-            # Safely handle tags - ensure it's a dict
-            tags = incident.tags if isinstance(incident.tags, dict) else {}
-            logger.debug(f"Tags type: {type(incident.tags)}, value: {incident.tags}")
+            if isinstance(analysis_result, dict):
+                logger.debug("analysis_result is a dict, converting to AnalysisResult-like access")
+                # Convert dict access to safe extraction
+                def get_field(field_name, default=None):
+                    try:
+                        if not isinstance(analysis_result, dict):
+                            logger.error(f"Cannot get field '{field_name}': analysis_result is {type(analysis_result)}")
+                            return default
+                        value = analysis_result.get(field_name, default)
+                        # If value is a dict or list, return as-is, otherwise convert
+                        if isinstance(value, (dict, list, str, int, float, type(None))):
+                            return value
+                        logger.warning(f"Field '{field_name}' has unexpected type {type(value)}, using default")
+                        return default
+                    except TypeError as e:
+                        logger.error(f"TypeError getting field '{field_name}': {e}, analysis_result type: {type(analysis_result)}")
+                        return default
+                    except Exception as e:
+                        logger.error(f"Error getting field '{field_name}': {e}")
+                        return default
+                
+                error_patterns = get_field('error_patterns', [])
+                key_findings = get_field('key_findings', [])
+                error_count = get_field('error_count', 0)
+                deployment_correlation = get_field('deployment_correlation')
+                incident_start = get_field('incident_start')
+                summary = get_field('summary', 'No analysis summary available')
+            elif hasattr(analysis_result, 'error_patterns'):
+                # It's an AnalysisResult object - use attribute access
+                error_patterns = analysis_result.error_patterns
+                key_findings = analysis_result.key_findings
+                error_count = analysis_result.error_count
+                deployment_correlation = analysis_result.deployment_correlation
+                incident_start = analysis_result.incident_start
+                summary = analysis_result.summary
+            else:
+                logger.error(f"analysis_result is unexpected type: {type(analysis_result)}, using defaults")
+                error_patterns = []
+                key_findings = []
+                error_count = 0
+                deployment_correlation = None
+                incident_start = None
+                summary = 'No analysis summary available'
             
-            # Safely extract analysis result fields
-            error_patterns = analysis_result.error_patterns
+            # Safely handle incident - could be IncidentEvent, dict, or even string (shouldn't happen but be defensive)
+            if isinstance(incident, str):
+                logger.error(f"incident is a string (unexpected): {incident[:100] if len(incident) > 100 else incident}")
+                # Try to parse as JSON or use defaults
+                try:
+                    import json
+                    incident = json.loads(incident)
+                except:
+                    incident = {}
+            
+            if isinstance(incident, dict):
+                service_name = incident.get('service', 'unknown')
+                service_tier = incident.get('service_tier', 'standard')
+                metric = incident.get('metric', 'unknown')
+                tags = incident.get('tags', {})
+                if not isinstance(tags, dict):
+                    tags = {}
+            elif hasattr(incident, 'service'):
+                # It's an IncidentEvent object
+                service_name = incident.service
+                service_tier = incident.service_tier
+                metric = incident.metric
+                tags = incident.tags if isinstance(incident.tags, dict) else {}
+            else:
+                logger.error(f"incident is unexpected type: {type(incident)}, using defaults")
+                service_name = 'unknown'
+                service_tier = 'standard'
+                metric = 'unknown'
+                tags = {}
+            
+            logger.debug(f"Tags type: {type(tags)}, value: {tags}")
+            
+            # Safely extract and validate analysis result fields
             if not isinstance(error_patterns, list):
                 logger.warning(f"error_patterns is not a list: {type(error_patterns)}, value: {error_patterns}")
                 error_patterns = [str(error_patterns)] if error_patterns else []
             
-            key_findings = analysis_result.key_findings
             if not isinstance(key_findings, list):
                 logger.warning(f"key_findings is not a list: {type(key_findings)}, value: {key_findings}")
                 key_findings = [str(key_findings)] if key_findings else []
             
+            if not isinstance(error_count, (int, float)):
+                try:
+                    error_count = int(error_count) if error_count else 0
+                except (ValueError, TypeError):
+                    error_count = 0
+            
+            if not isinstance(summary, str):
+                summary = str(summary) if summary else 'No analysis summary available'
+            
+            # Handle deployment_correlation - could be None, string, or dict
+            if deployment_correlation is None:
+                deployment_correlation = 'none'
+            elif isinstance(deployment_correlation, dict):
+                deployment_correlation = str(deployment_correlation)
+            elif not isinstance(deployment_correlation, str):
+                deployment_correlation = str(deployment_correlation) if deployment_correlation else 'none'
+            
+            # Handle incident_start - could be datetime, string, or None
+            if incident_start is None:
+                incident_start_str = 'unknown'
+            elif hasattr(incident_start, 'isoformat'):
+                incident_start_str = incident_start.isoformat()
+            elif isinstance(incident_start, str):
+                incident_start_str = incident_start
+            else:
+                incident_start_str = str(incident_start)
+            
             incident_data = {
-                'service_name': incident.service,
-                'severity': incident.service_tier,  # Using service_tier as severity proxy
-                'metric_name': incident.metric,
-                'log_evidence_summary': analysis_result.summary,  # Include summary in incident_data for prompt
+                'service_name': service_name,
+                'severity': service_tier,  # Using service_tier as severity proxy
+                'metric_name': metric,
+                'log_evidence_summary': summary,  # Include summary in incident_data for prompt
                 'recent_deployments': tags.get('deployment', 'none') if isinstance(tags, dict) else 'none',
                 'service_dependencies': tags.get('dependencies', 'unknown') if isinstance(tags, dict) else 'unknown'
             }
             
             analysis_data = {
                 'error_patterns': error_patterns,
-                'error_count': analysis_result.error_count,
-                'deployment_correlation': analysis_result.deployment_correlation or 'none',
-                'incident_start': analysis_result.incident_start.isoformat() if analysis_result.incident_start else 'unknown',
+                'error_count': error_count,
+                'deployment_correlation': deployment_correlation,
+                'incident_start': incident_start_str,
                 'key_findings': key_findings,
-                'summary': analysis_result.summary  # Also include in analysis_data as fallback
+                'summary': summary  # Also include in analysis_data as fallback
             }
             
             logger.debug(f"Prepared incident_data: {list(incident_data.keys())}")
             logger.debug(f"Prepared analysis_data: {list(analysis_data.keys())}")
 
-            # Generate prompt
-            user_prompt = format_diagnosis_prompt(incident_data, analysis_data)
+            # Generate prompt with error handling
+            try:
+                user_prompt = format_diagnosis_prompt(incident_data, analysis_data)
+            except TypeError as e:
+                if "string indices must be integers" in str(e):
+                    logger.error(f"TypeError in format_diagnosis_prompt: {e}")
+                    logger.error(f"incident_data type: {type(incident_data)}, keys: {list(incident_data.keys()) if isinstance(incident_data, dict) else 'N/A'}")
+                    logger.error(f"analysis_data type: {type(analysis_data)}, keys: {list(analysis_data.keys()) if isinstance(analysis_data, dict) else 'N/A'}")
+                    # Log the actual values
+                    for key, value in incident_data.items():
+                        logger.error(f"incident_data['{key}'] = {type(value)}: {str(value)[:100]}")
+                    for key, value in analysis_data.items():
+                        logger.error(f"analysis_data['{key}'] = {type(value)}: {str(value)[:100]}")
+                raise
             
             # Log the prompt for debugging (first 2000 chars)
             logger.debug(f"Diagnosis prompt (first 2000 chars): {user_prompt[:2000]}")
