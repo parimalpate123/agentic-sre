@@ -14,9 +14,14 @@ NC='\033[0m'
 
 AWS_REGION="us-east-1"
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LAMBDA_DIR="$PROJECT_ROOT/lambda-handler"
+
 # Build Lambda package
 echo "1. Building Lambda deployment package..."
-cd lambda-handler
+cd "$LAMBDA_DIR"
 
 if [ -f "./build.sh" ]; then
     ./build.sh
@@ -25,7 +30,7 @@ else
     exit 1
 fi
 
-cd ..
+cd "$PROJECT_ROOT"
 
 # Check if Lambda exists
 echo ""
@@ -37,7 +42,7 @@ LAMBDA_EXISTS=$(aws lambda get-function \
   --output text 2>&1)
 
 if [[ "$LAMBDA_EXISTS" == *"ResourceNotFoundException"* ]]; then
-    echo -e "${YELLOW}⚠️  Lambda function not found. Run ./deploy-infrastructure.sh first${NC}"
+    echo -e "${YELLOW}⚠️  Lambda function not found. Run ./scripts/deploy-infrastructure.sh first${NC}"
     exit 1
 fi
 
@@ -46,7 +51,7 @@ echo ""
 echo "3. Updating Lambda function code..."
 aws lambda update-function-code \
   --function-name sre-poc-incident-handler \
-  --zip-file fileb://lambda-handler/lambda-deployment.zip \
+  --zip-file "fileb://$LAMBDA_DIR/lambda-deployment.zip" \
   --region $AWS_REGION \
   --no-cli-pager
 
@@ -58,15 +63,11 @@ aws lambda wait function-updated \
 
 echo -e "${GREEN}✅ Lambda function deployed!${NC}"
 
-# Optional: Test
+# Test Lambda function
 echo ""
-read -p "Test the Lambda function? (yes/no): " TEST
+echo "5. Testing Lambda function..."
 
-if [ "$TEST" == "yes" ]; then
-    echo ""
-    echo "Testing Lambda..."
-
-    cat > test-event.json << 'EOF'
+cat > "$PROJECT_ROOT/test-event.json" << 'EOF'
 {
   "version": "0",
   "id": "test-lambda-deploy",
@@ -85,23 +86,25 @@ if [ "$TEST" == "yes" ]; then
 }
 EOF
 
-    aws lambda invoke \
-      --function-name sre-poc-incident-handler \
-      --cli-binary-format raw-in-base64-out \
-      --payload file://test-event.json \
-      --region $AWS_REGION \
-      response.json \
-      --no-cli-pager
+aws lambda invoke \
+  --function-name sre-poc-incident-handler \
+  --cli-binary-format raw-in-base64-out \
+  --payload file://"$PROJECT_ROOT/test-event.json" \
+  --region $AWS_REGION \
+  "$PROJECT_ROOT/response.json" \
+  --no-cli-pager
 
-    if command -v jq &> /dev/null; then
-        echo ""
-        echo "Response:"
-        cat response.json | jq .
-    else
-        echo ""
-        cat response.json
-    fi
+if command -v jq &> /dev/null; then
+    echo ""
+    echo "Response:"
+    cat "$PROJECT_ROOT/response.json" | jq .
+else
+    echo ""
+    cat "$PROJECT_ROOT/response.json"
 fi
 
 echo ""
-echo "Check status: ./check-status.sh"
+echo -e "${GREEN}✅ Lambda test completed!${NC}"
+
+echo ""
+echo "Check status: ./scripts/check-status.sh"

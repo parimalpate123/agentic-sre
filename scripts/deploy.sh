@@ -29,21 +29,24 @@ AWS_REGION="us-east-1"
 DEPLOY_INFRA=true
 DEPLOY_MCP=true
 DEPLOY_LAMBDA=true
+DEPLOY_UI=false
 RUN_TEST=true
 
 show_help() {
     echo "Usage: ./scripts/deploy.sh [options]"
     echo ""
     echo "Options:"
-    echo "  --all              Deploy everything (default)"
+    echo "  --all              Deploy everything (default: infra, MCP, Lambda)"
     echo "  --infra            Deploy only infrastructure (Terraform)"
     echo "  --mcp              Deploy only MCP server (Docker + ECS)"
     echo "  --lambda           Deploy only Lambda function"
+    echo "  --ui               Deploy UI to CloudFront/S3"
     echo "  --skip-test        Skip test invocation"
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/deploy.sh                    # Deploy everything"
+    echo "  ./scripts/deploy.sh                    # Deploy everything (infra, MCP, Lambda)"
+    echo "  ./scripts/deploy.sh --ui               # Deploy everything including UI"
     echo "  ./scripts/deploy.sh --infra            # Deploy only Terraform"
     echo "  ./scripts/deploy.sh --mcp --lambda     # Deploy MCP and Lambda, skip Terraform"
     echo "  ./scripts/deploy.sh --lambda --skip-test   # Deploy Lambda without testing"
@@ -72,6 +75,9 @@ if [ $# -gt 0 ]; then
             --lambda)
                 DEPLOY_LAMBDA=true
                 ;;
+            --ui)
+                DEPLOY_UI=true
+                ;;
             --skip-test)
                 RUN_TEST=false
                 ;;
@@ -94,6 +100,7 @@ echo -e "${BLUE}Deployment Plan:${NC}"
 echo "  • Infrastructure (Terraform): $([ "$DEPLOY_INFRA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • MCP Server (Docker+ECS): $([ "$DEPLOY_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Lambda Function: $([ "$DEPLOY_LAMBDA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
+echo "  • UI (CloudFront/S3): $([ "$DEPLOY_UI" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Test Invocation: $([ "$RUN_TEST" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo ""
 
@@ -113,6 +120,18 @@ fi
 if ! command -v docker &> /dev/null; then
     echo -e "${RED}❌ Docker not found. Please install it.${NC}"
     exit 1
+fi
+
+if [ "$DEPLOY_UI" = true ]; then
+    if ! command -v node &> /dev/null; then
+        echo -e "${RED}❌ Node.js not found. Please install it for UI deployment.${NC}"
+        exit 1
+    fi
+
+    if ! command -v npm &> /dev/null; then
+        echo -e "${RED}❌ npm not found. Please install it for UI deployment.${NC}"
+        exit 1
+    fi
 fi
 
 # Check AWS credentials
@@ -442,6 +461,110 @@ else
     echo ""
 fi
 
+# Step 6: Deploy UI
+if [ "$DEPLOY_UI" = true ]; then
+    echo "🌐 Step 6/6: Deploying UI to CloudFront..."
+    
+    UI_DIR="$PROJECT_ROOT/triage-assistant"
+    
+    # Get Terraform outputs
+    cd "$PROJECT_ROOT/infrastructure"
+    
+    BUCKET_NAME=$(terraform output -raw ui_s3_bucket_name 2>/dev/null || echo "")
+    DISTRIBUTION_ID=$(terraform output -raw ui_cloudfront_distribution_id 2>/dev/null || echo "")
+    LAMBDA_URL=$(terraform output -raw lambda_function_url 2>/dev/null || echo "")
+    
+    if [ -z "$BUCKET_NAME" ] || [ -z "$DISTRIBUTION_ID" ]; then
+        echo -e "${RED}❌ Error: Terraform outputs not found.${NC}"
+        echo "Please run infrastructure deployment first to create S3 bucket and CloudFront distribution."
+        echo "⏭️  Skipping UI deployment"
+    else
+        echo "  S3 Bucket: $BUCKET_NAME"
+        echo "  CloudFront Distribution ID: $DISTRIBUTION_ID"
+        echo ""
+        
+        # Build UI
+        echo "  Building UI..."
+        cd "$UI_DIR"
+        
+        # Check if .env.production exists, if not create from template or use Lambda URL
+        if [ ! -f ".env.production" ]; then
+            if [ -n "$LAMBDA_URL" ]; then
+                echo "  Creating .env.production with Lambda URL..."
+                echo "VITE_API_ENDPOINT=$LAMBDA_URL" > .env.production
+            else
+                echo -e "${YELLOW}⚠️  Warning: .env.production not found and Lambda URL not available${NC}"
+                echo "   Creating .env.production - you may need to update VITE_API_ENDPOINT manually"
+                echo "VITE_API_ENDPOINT=" > .env.production
+            fi
+        fi
+        
+        # Install dependencies if node_modules doesn't exist
+        if [ ! -d "node_modules" ]; then
+            echo "  Installing dependencies..."
+            npm install
+        fi
+        
+        # Build
+        npm run build
+        
+        if [ ! -d "dist" ]; then
+            echo -e "${RED}❌ Error: Build failed - dist/ directory not found${NC}"
+            echo "⏭️  Skipping UI deployment"
+        else
+            echo "  ✅ Build complete"
+            echo ""
+            
+            # Upload to S3
+            echo "  Uploading to S3..."
+            
+            # Upload static assets with long cache (JS, CSS, images)
+            aws s3 sync dist/ "s3://$BUCKET_NAME" \
+              --delete \
+              --cache-control "public, max-age=31536000, immutable" \
+              --exclude "*.html" \
+              --exclude "index.html" \
+              --exclude "*.map" \
+              --quiet
+            
+            # Upload HTML files with no cache
+            aws s3 sync dist/ "s3://$BUCKET_NAME" \
+              --delete \
+              --cache-control "public, max-age=0, must-revalidate" \
+              --include "*.html" \
+              --quiet
+            
+            echo "  ✅ Upload complete"
+            echo ""
+            
+            # Invalidate CloudFront cache
+            echo "  Invalidating CloudFront cache..."
+            INVALIDATION_ID=$(aws cloudfront create-invalidation \
+              --distribution-id "$DISTRIBUTION_ID" \
+              --paths "/*" \
+              --query 'Invalidation.Id' \
+              --output text)
+            
+            echo "  ✅ Cache invalidation initiated (ID: $INVALIDATION_ID)"
+            
+            # Get CloudFront URL
+            CLOUDFRONT_DOMAIN=$(aws cloudfront get-distribution --id "$DISTRIBUTION_ID" --query 'Distribution.DomainName' --output text)
+            CLOUDFRONT_URL="https://$CLOUDFRONT_DOMAIN"
+            
+            echo ""
+            echo -e "${GREEN}✅ UI deployed!${NC}"
+            echo -e "${BLUE}🌐 CloudFront URL:${NC} $CLOUDFRONT_URL"
+            echo ""
+        fi
+    fi
+    
+    cd "$PROJECT_ROOT"
+    echo ""
+else
+    echo "⏭️  Step 6/6: Skipping UI deployment"
+    echo ""
+fi
+
 echo ""
 echo "======================================"
 echo -e "${GREEN}🎉 Deployment Complete!${NC}"
@@ -452,6 +575,9 @@ echo "  • Infrastructure: Deployed (~35 resources)"
 echo "  • MCP Server: Running on ECS Fargate"
 echo "  • Lambda Function: Deployed and tested"
 echo "  • DynamoDB Tables: Created"
+if [ "$DEPLOY_UI" = true ]; then
+    echo "  • UI: Deployed to CloudFront"
+fi
 echo ""
 echo "📝 Next Steps:"
 echo "  1. View Lambda logs:"
@@ -475,3 +601,8 @@ echo "   ./scripts/deploy-mcp.sh"
 echo "   ./scripts/deploy-lambda.sh"
 echo "   ./scripts/deploy-ui.sh"
 echo ""
+if [ "$DEPLOY_UI" = true ] && [ -n "${CLOUDFRONT_URL:-}" ]; then
+    echo "🌐 Access your UI at: $CLOUDFRONT_URL"
+    echo "   (Note: CloudFront may take a few minutes to update)"
+    echo ""
+fi

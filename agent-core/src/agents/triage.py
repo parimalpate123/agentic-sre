@@ -52,7 +52,8 @@ class TriageAgent:
                 'alert_description': incident.alert_description or "No description",
                 'timestamp': incident.timestamp.isoformat(),
                 'recent_deployments': self._get_recent_deployments(incident),
-                'similar_incidents': self._get_similar_incidents(incident)
+                'similar_incidents': self._get_similar_incidents(incident),
+                'raw_event': incident.raw_event  # Include raw_event so format_triage_prompt can detect chat queries
             }
 
             # Generate prompt

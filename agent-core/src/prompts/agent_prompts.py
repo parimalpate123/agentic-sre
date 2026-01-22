@@ -37,11 +37,14 @@ INCIDENT DETAILS:
 - Alert: {alert_name}
 - Metric: {metric_name} = {current_value} (threshold: {threshold})
 - Description: {alert_description}
+{chat_context_note}
 
 CONTEXT:
 - Recent deployments: {recent_deployments}
 - Similar incidents in last 24h: {similar_incidents}
 - Time: {timestamp}
+
+{chat_investigation_guidance}
 
 Provide your assessment in JSON format:
 {{
@@ -93,29 +96,46 @@ INCIDENT:
 TRIAGE FINDINGS:
 {triage_reasoning}
 
+{chat_context_section}
+
 TASK:
 1. Generate 2-4 CloudWatch Logs Insights queries to investigate this issue
 2. I will execute these queries via MCP and provide results
 3. Then analyze the results to identify patterns and correlations
 
-First, provide the queries you want to run in this format:
-{{
-  "queries": [
-    {{
-      "name": "error_spike_detection",
-      "query": "fields @timestamp, @message | filter level = 'ERROR' | ...",
-      "purpose": "Identify error patterns"
-    }},
-    ...
-  ]
-}}"""
+       {chat_context_guidance}
+
+       IMPORTANT QUERY REQUIREMENTS:
+       - If a correlation_id is provided in CHAT CONTEXT, you MUST include it in your queries
+       - Use filter @message like /CORRELATION_ID/ to trace the correlation ID across services
+       - Generate queries for ALL services mentioned in services_involved (not just the primary service)
+       - Each query should target a specific service or pattern
+
+       First, provide the queries you want to run in this format:
+       {{
+         "queries": [
+           {{
+             "name": "error_spike_detection",
+             "query": "fields @timestamp, @message | filter level = 'ERROR' | ...",
+             "purpose": "Identify error patterns"
+           }},
+           ...
+         ]
+       }}"""
 
 ANALYSIS_RESULTS_PROMPT_TEMPLATE = """Now analyze these log query results:
 
 QUERY RESULTS:
 {query_results}
 
-Based on these findings, provide your analysis:
+IMPORTANT: 
+- Look carefully for ERROR, EXCEPTION, FAILED, HTTP error codes (500, 502, 503), and SERVICE_UNAVAILABLE patterns
+- Count ALL errors found across all log entries
+- Identify specific error messages and their patterns
+- Note which services are affected
+- Provide a detailed summary of what you found
+
+Based on these findings, provide your analysis in valid JSON format (no control characters, escape newlines in strings):
 {{
   "error_patterns": ["pattern1", "pattern2", ...],
   "error_count": total_errors,
@@ -123,8 +143,10 @@ Based on these findings, provide your analysis:
   "deployment_correlation": "description if found",
   "incident_start": "estimated timestamp",
   "key_findings": ["finding1", "finding2", ...],
-  "summary": "Overall summary of what you found"
-}}"""
+  "summary": "Detailed summary of what you found, including specific errors, affected services, and potential root causes"
+}}
+
+CRITICAL: Return ONLY valid JSON. Escape all newlines in string values as \\n. Do not include any control characters."""
 
 # ============================================
 # Diagnosis Agent Prompts
@@ -166,25 +188,41 @@ ANALYSIS FINDINGS:
 - Error Count: {error_count}
 - Deployment Correlation: {deployment_correlation}
 - Incident Start: {incident_start}
-- Key Findings: {key_findings}
+- Key Findings:
+{key_findings}
 
-LOG EVIDENCE:
+LOG EVIDENCE SUMMARY:
 {log_evidence_summary}
 
 CONTEXT:
 - Recent Deployments: {recent_deployments}
 - Service Dependencies: {service_dependencies}
 
-Based on this evidence, diagnose the root cause:
+TASK:
+Based on the ANALYSIS FINDINGS and LOG EVIDENCE above, you have clear evidence of what went wrong:
+- {error_count} errors were found
+- Error patterns: {error_patterns}
+- Detailed log analysis shows: {log_evidence_summary[:500]}...
+
+You MUST provide a specific root cause diagnosis. "Insufficient information" is NOT acceptable when errors and patterns are clearly identified.
+
+Provide your diagnosis in valid JSON format (no control characters, escape newlines in strings):
 {{
-  "root_cause": "Clear, specific description of what went wrong",
-  "confidence": 0-100,
+  "root_cause": "Specific, actionable root cause based on the evidence (e.g., 'API Gateway returned 502 errors due to inventory-service and order-service being temporarily unavailable')",
+  "confidence": 50-100,
   "category": "DEPLOYMENT|CONFIGURATION|RESOURCE|CODE|DEPENDENCY|LOAD",
-  "component": "Specific component or change involved",
+  "component": "Specific component involved (e.g., 'inventory-service', 'order-service', 'api-gateway')",
   "supporting_evidence": ["evidence1", "evidence2", ...],
   "alternative_causes": ["other possibility1", ...],
-  "reasoning": "Detailed explanation of your diagnostic process"
-}}"""
+  "reasoning": "Detailed explanation connecting the evidence to your root cause diagnosis"
+}}
+
+CRITICAL: 
+- Return ONLY valid JSON. All fields must be strings (not null). 
+- Escape all newlines in string values as \\n. 
+- Do not include any control characters.
+- Confidence should be 50-100% when errors are clearly identified.
+- Root cause must be specific, not "Insufficient information"."""
 
 # ============================================
 # Remediation Agent Prompts
@@ -266,6 +304,21 @@ Propose a remediation plan:
 
 def format_triage_prompt(incident: dict) -> str:
     """Format triage prompt with incident details"""
+    # Check if this is a chat-triggered incident
+    raw_event = incident.get('raw_event', {})
+    is_chat_query = raw_event.get('source') == 'chat_query'
+    
+    chat_context_note = ""
+    chat_investigation_guidance = ""
+    
+    if is_chat_query:
+        chat_context_note = "\n- Source: User-initiated investigation from chat query"
+        chat_investigation_guidance = """
+IMPORTANT: This incident was triggered by a user's explicit request for investigation from the chat interface. 
+The user has already identified issues in logs and requested a full investigation. 
+You should set decision to "INVESTIGATE" to ensure the user's request is fulfilled, even if the service tier suggests lower priority.
+"""
+    
     return TRIAGE_USER_PROMPT_TEMPLATE.format(
         service_name=incident.get('service', 'unknown'),
         service_tier=incident.get('service_tier', 'standard'),
@@ -276,12 +329,46 @@ def format_triage_prompt(incident: dict) -> str:
         alert_description=incident.get('alert_description', 'none provided'),
         recent_deployments=incident.get('recent_deployments', 'none found'),
         similar_incidents=incident.get('similar_incidents', 'none found'),
-        timestamp=incident.get('timestamp', 'now')
+        timestamp=incident.get('timestamp', 'now'),
+        chat_context_note=chat_context_note,
+        chat_investigation_guidance=chat_investigation_guidance
     )
 
 
 def format_analysis_prompt(incident: dict, triage_result: dict) -> str:
     """Format analysis prompt with incident and triage details"""
+    # Check for chat context
+    chat_context = incident.get('chat_context')
+    
+    # Build chat context section if available
+    chat_context_section = ""
+    chat_context_guidance = ""
+    
+    if chat_context:
+        correlation_id = chat_context.get('correlation_id')
+        services_involved = chat_context.get('services_involved', [])
+        log_entries_count = chat_context.get('log_entries_count', 0)
+        insights = chat_context.get('insights', [])
+        
+        chat_context_section = "\nEXISTING CONTEXT (from chat query):\n"
+        if correlation_id:
+            chat_context_section += f"- Correlation ID: {correlation_id}\n"
+        if services_involved:
+            chat_context_section += f"- Services involved: {', '.join(services_involved)}\n"
+        if log_entries_count > 0:
+            chat_context_section += f"- Log entries already found: {log_entries_count}\n"
+        if insights:
+            chat_context_section += f"- Key insights: {', '.join(insights[:3])}\n"
+        
+        chat_context_guidance = "\nNOTE: This incident was created from a chat query. "
+        if correlation_id:
+            chat_context_guidance += f"IMPORTANT: You MUST include correlation ID '{correlation_id}' in your queries using: filter @message like /{correlation_id}/. "
+            chat_context_guidance += f"This will trace the request flow across all services. "
+        if services_involved:
+            chat_context_guidance += f"Generate queries for ALL services: {', '.join(services_involved)}. "
+            chat_context_guidance += f"Each query should target a specific service log group. "
+        chat_context_guidance += "Generate queries that will find the same issues that were identified in the chat, but from the incident investigation perspective."
+    
     return ANALYSIS_USER_PROMPT_TEMPLATE.format(
         service_name=incident.get('service', 'unknown'),
         severity=triage_result.get('severity', 'unknown'),
@@ -291,22 +378,59 @@ def format_analysis_prompt(incident: dict, triage_result: dict) -> str:
         threshold=incident.get('threshold', 'unknown'),
         log_group=incident.get('log_group', 'unknown'),
         time_window_hours=2,  # Default 2 hours
-        triage_reasoning=triage_result.get('reasoning', 'none provided')
+        triage_reasoning=triage_result.get('reasoning', 'none provided'),
+        chat_context_section=chat_context_section,
+        chat_context_guidance=chat_context_guidance
     )
 
 
 def format_diagnosis_prompt(incident: dict, analysis_result: dict) -> str:
     """Format diagnosis prompt with all available evidence"""
+    # Safely extract and format error patterns
+    error_patterns = analysis_result.get('error_patterns', [])
+    if not isinstance(error_patterns, list):
+        # If it's a string or other type, convert to list
+        error_patterns = [str(error_patterns)] if error_patterns else []
+    error_patterns_str = ', '.join(str(p) for p in error_patterns) if error_patterns else 'None found'
+    
+    # Safely extract and format key findings
+    key_findings = analysis_result.get('key_findings', [])
+    if not isinstance(key_findings, list):
+        # If it's a string or other type, convert to list
+        key_findings = [str(key_findings)] if key_findings else []
+    key_findings_str = '\n'.join([f"- {str(finding)}" for finding in key_findings]) if key_findings else 'None provided'
+    
+    # Get log evidence summary - check both incident and analysis_result
+    log_evidence_summary = incident.get('log_evidence_summary') or analysis_result.get('summary', 'No log evidence provided')
+    if not isinstance(log_evidence_summary, str):
+        log_evidence_summary = str(log_evidence_summary) if log_evidence_summary else 'No log evidence provided'
+    
+    # Safely extract other fields
+    error_count = analysis_result.get('error_count', 0)
+    if not isinstance(error_count, (int, float)):
+        try:
+            error_count = int(error_count)
+        except (ValueError, TypeError):
+            error_count = 0
+    
+    deployment_correlation = analysis_result.get('deployment_correlation', 'none')
+    if not isinstance(deployment_correlation, str):
+        deployment_correlation = str(deployment_correlation) if deployment_correlation else 'none'
+    
+    incident_start = analysis_result.get('incident_start', 'unknown')
+    if not isinstance(incident_start, str):
+        incident_start = str(incident_start) if incident_start else 'unknown'
+    
     return DIAGNOSIS_USER_PROMPT_TEMPLATE.format(
-        service_name=incident.get('service', 'unknown'),
-        severity=analysis_result.get('severity', 'unknown'),
-        metric_name=incident.get('metric', 'unknown'),
-        error_patterns=analysis_result.get('error_patterns', []),
-        error_count=analysis_result.get('error_count', 0),
-        deployment_correlation=analysis_result.get('deployment_correlation', 'none'),
-        incident_start=analysis_result.get('incident_start', 'unknown'),
-        key_findings=analysis_result.get('key_findings', []),
-        log_evidence_summary=analysis_result.get('summary', 'none'),
+        service_name=incident.get('service_name', incident.get('service', 'unknown')),
+        severity=incident.get('severity', 'unknown'),
+        metric_name=incident.get('metric_name', 'unknown'),
+        error_patterns=error_patterns_str,
+        error_count=error_count,
+        deployment_correlation=deployment_correlation,
+        incident_start=incident_start,
+        key_findings=key_findings_str,
+        log_evidence_summary=log_evidence_summary,
         recent_deployments=incident.get('recent_deployments', 'none'),
         service_dependencies=incident.get('service_dependencies', 'unknown')
     )

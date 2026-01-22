@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
-import { askQuestion, fetchLogGroups, requestDiagnosis, manageSampleLogs } from '../services/api';
+import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs } from '../services/api';
 
 export default function ChatWindow({ isFullScreen = false, onToggleFullScreen }) {
   const [messages, setMessages] = useState([
@@ -25,7 +25,10 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const [selectedService, setSelectedService] = useState(''); // Empty = auto-detect from question
   const [timeRange, setTimeRange] = useState('24h'); // Default 24 hours
   const [diagnosingMessageId, setDiagnosingMessageId] = useState(null); // Track which message is being diagnosed
+  const [creatingIncidentMessageId, setCreatingIncidentMessageId] = useState(null); // Track which message is creating incident
   const [isManagingLogs, setIsManagingLogs] = useState(false); // Track log management operations
+  const [showIncidentDialog, setShowIncidentDialog] = useState(false); // Show incident creation confirmation dialog
+  const [pendingIncidentMessage, setPendingIncidentMessage] = useState(null); // Store message while waiting for confirmation
   const [showPasswordDialog, setShowPasswordDialog] = useState(false); // Show password input dialog
   const [passwordInput, setPasswordInput] = useState(''); // Password input value
   const [passwordError, setPasswordError] = useState(''); // Password validation error
@@ -149,6 +152,128 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
     } finally {
       setDiagnosingMessageId(null);
     }
+  };
+
+  const handleCreateIncident = (message) => {
+    // Store the message and show confirmation dialog
+    setPendingIncidentMessage(message);
+    setShowIncidentDialog(true);
+  };
+
+  const handleIncidentConfirm = async () => {
+    if (!pendingIncidentMessage) return;
+
+    const message = pendingIncidentMessage;
+    setCreatingIncidentMessageId(message.id);
+    setShowIncidentDialog(false);
+
+    try {
+      // Build log_data from message
+      const logData = {
+        log_entries: message.logEntries || [],
+        insights: message.insights || [],
+        total_results: message.totalResults || 0,
+        pattern_data: message.patternData || null,
+        correlation_data: message.correlationData || null,
+        recommendations: message.recommendations || [],
+      };
+
+      // Extract service name from message or use selected service
+      // Priority: 1) selectedService, 2) correlation_data.services_found, 3) log entries, 4) default
+      let serviceName = selectedService;
+      if (!serviceName || serviceName === '') {
+        // Try to extract from correlation data
+        if (message.correlationData?.services_found?.length > 0) {
+          serviceName = message.correlationData.services_found[0];
+        } else if (message.logEntries?.length > 0) {
+          // Extract from first log entry
+          const firstEntry = message.logEntries[0];
+          if (firstEntry.service) {
+            serviceName = firstEntry.service;
+          } else if (firstEntry.log_group) {
+            // Extract service name from log group path (e.g., /aws/lambda/payment-service -> payment-service)
+            const parts = firstEntry.log_group.split('/');
+            serviceName = parts[parts.length - 1] || 'unknown-service';
+          }
+        }
+      }
+      // Fallback to unknown-service if still empty
+      if (!serviceName || serviceName === '') {
+        serviceName = 'unknown-service';
+      }
+      
+      // Extract log group from message
+      // Priority: 1) message.logGroup, 2) correlation_data.log_group, 3) first log entry, 4) construct from service
+      let logGroup = message.logGroup;
+      if (!logGroup) {
+        if (message.correlationData?.log_group) {
+          logGroup = message.correlationData.log_group;
+        } else if (message.logEntries?.length > 0 && message.logEntries[0].log_group) {
+          logGroup = message.logEntries[0].log_group;
+        } else if (serviceName && serviceName !== 'unknown-service') {
+          logGroup = `/aws/lambda/${serviceName}`;
+        }
+      }
+      
+      // Extract question from the user message that triggered this response
+      const userMessage = messages.find(m => m.id < message.id && m.isUser);
+      const question = userMessage?.text || 'Incident from chat analysis';
+
+      // Call createIncident API
+      // API signature: createIncident(logData, service, question, logGroup = null, alertName = null, context = null)
+      const result = await createIncident(
+        logData,
+        serviceName,
+        question,
+        logGroup, // Pass extracted log group
+        null, // alertName
+        null  // context
+      );
+
+      // Update the message with incident creation result
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === message.id
+            ? { 
+                ...msg, 
+                incident: {
+                  incident_id: result.incident_id,
+                  root_cause: result.root_cause,
+                  confidence: result.confidence,
+                  recommended_action: result.recommended_action,
+                  executive_summary: result.executive_summary,
+                }
+              }
+            : msg
+        )
+      );
+
+      // Add a success message
+      const successMessage = {
+        id: `incident-created-${Date.now()}`,
+        text: `✅ Incident created successfully!\n\nIncident ID: ${result.incident_id}\nRoot Cause: ${result.root_cause}\nConfidence: ${result.confidence}%\n\n${result.executive_summary || ''}`,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, successMessage]);
+    } catch (error) {
+      console.error('Incident creation failed:', error);
+      const errorMessage = {
+        id: `incident-error-${Date.now()}`,
+        text: `❌ Failed to create incident: ${error.message}`,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setCreatingIncidentMessageId(null);
+      setPendingIncidentMessage(null);
+    }
+  };
+
+  const handleIncidentCancel = () => {
+    setShowIncidentDialog(false);
+    setPendingIncidentMessage(null);
   };
 
   const handleManageLogs = async (operation) => {
@@ -275,6 +400,7 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         totalResults: response.total_results || 0,
         searchMode: response.search_mode || searchMode,  // Store search mode used for this query
         cloudwatchUrl: response.cloudwatch_url || null,  // CloudWatch Logs Console URL
+        logGroup: response.log_group || null,  // Store log group for incident creation
         // Cross-service correlation data
         correlationData: response.correlation_data || null,
         requestFlow: response.request_flow || null,
@@ -534,6 +660,8 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                 isUser={message.isUser}
                 onDiagnose={handleDiagnose}
                 isDiagnosing={diagnosingMessageId === message.id}
+                onCreateIncident={handleCreateIncident}
+                isCreatingIncident={creatingIncidentMessageId === message.id}
               />
             ))}
 
@@ -631,6 +759,50 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Incident Creation Confirmation Dialog */}
+      {showIncidentDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Create Incident & Run Full Investigation
+            </h3>
+            
+            {/* Information Message */}
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-blue-800 mb-1">
+                    This will create a formal incident record
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    This triggers a complete AgentCore investigation workflow (Triage → Analysis → Diagnosis → Remediation). The incident will be saved to DynamoDB and may send notifications. This process may take several minutes.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={handleIncidentCancel}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleIncidentConfirm}
+                disabled={creatingIncidentMessageId !== null}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {creatingIncidentMessageId !== null ? 'Creating...' : 'Create Incident'}
               </button>
             </div>
           </div>

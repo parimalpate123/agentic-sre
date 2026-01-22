@@ -63,16 +63,91 @@ class AnalysisAgent:
         logger.info(f"Analyzing logs for incident {incident.incident_id}")
 
         try:
-            # Step 1: Generate log queries based on incident
+            # Always generate and execute queries for consistency and quality
+            # Even if we have chat context, we still query logs to ensure:
+            # 1. Fresh data (logs may have changed)
+            # 2. Different query perspectives (incident flow may need different queries)
+            # 3. Consistency between alarm-triggered and chat-triggered incidents
+            
+            # Check if this is from chat query (for context enhancement)
+            raw_event = incident.raw_event or {}
+            is_chat_query = raw_event.get('source') == 'chat_query'
+            correlation_id = raw_event.get('correlation_id')
+            
+            if is_chat_query:
+                logger.info(
+                    f"Incident from chat query - using context to enhance queries: "
+                    f"correlation_id={correlation_id}"
+                )
+            
+            # Step 1: Generate log queries (will use chat context if available)
             queries = await self._generate_queries(incident, triage_result)
 
-            # Step 2: Execute queries via MCP
-            query_results = await self._execute_queries(
-                incident,
-                queries
-            )
+            # Step 2: Execute queries via MCP (always execute for quality)
+            query_results = await self._execute_queries(incident, queries)
+            
+            # If chat query had existing logs, ALWAYS add them to query results
+            # This ensures we have the original context from the chat, even if queries return different results
+            if is_chat_query:
+                existing_log_entries = raw_event.get('log_entries', [])
+                if existing_log_entries:
+                    # Check if we have any actual log data in query results
+                    total_query_records = sum(qr.record_count for qr in query_results)
+                    
+                    logger.info(f"Chat query detected: {len(existing_log_entries)} log entries available, {total_query_records} records from queries")
+                    
+                    # Always add chat logs - they contain the original context that triggered the incident
+                    from models.schemas import LogQueryResult
+                    
+                    # Group logs by service/log_group
+                    log_groups = {}
+                    for entry in existing_log_entries:
+                        if isinstance(entry, dict):
+                            log_group = entry.get('log_group') or entry.get('@log_group') or incident.log_group
+                            if log_group not in log_groups:
+                                log_groups[log_group] = []
+                            log_groups[log_group].append(entry)
+                    
+                    # Create LogQueryResult for each log group
+                    for log_group, entries in log_groups.items():
+                        formatted_results = []
+                        for entry in entries[:100]:  # Limit to 100 per group to avoid overwhelming
+                            # Handle different log entry formats
+                            message = entry.get('message') or entry.get('@message') or entry.get('logMessage', '')
+                            message_str = str(message).upper()
+                            
+                            # Extract level from entry or infer from message
+                            level = entry.get('level') or entry.get('@level')
+                            if not level:
+                                # Infer level from message content
+                                if 'ERROR' in message_str or 'EXCEPTION' in message_str or 'FAILED' in message_str:
+                                    level = 'ERROR'
+                                elif 'WARN' in message_str or 'WARNING' in message_str:
+                                    level = 'WARN'
+                                else:
+                                    level = 'INFO'
+                            
+                            service = entry.get('service') or entry.get('@service', 'unknown')
+                            timestamp = entry.get('timestamp') or entry.get('@timestamp') or entry.get('timestamp_ms', 0)
+                            
+                            formatted_results.append({
+                                'timestamp': timestamp,
+                                'message': message,  # Keep original message (not upper case)
+                                'level': level,  # Now properly extracted
+                                'service': service
+                            })
+                        
+                        service_name = log_group.split('/')[-1] if '/' in log_group else log_group
+                        query_results.append(LogQueryResult(
+                            query=f"chat_logs_{service_name}",
+                            results=formatted_results,
+                            record_count=len(formatted_results),
+                            execution_time_ms=0
+                        ))
+                    
+                    logger.info(f"Added {len(log_groups)} log groups from chat ({sum(len(entries) for entries in log_groups.values())} total entries)")
 
-            # Step 3: Analyze query results
+            # Step 3: Analyze query results (or existing logs)
             analysis = await self._analyze_results(
                 incident,
                 triage_result,
@@ -113,6 +188,10 @@ class AnalysisAgent:
         """
         logger.debug("Generating log queries")
 
+        # Check if this is from chat query (has existing context)
+        raw_event = incident.raw_event or {}
+        is_chat_query = raw_event.get('source') == 'chat_query'
+        
         # Prepare incident data
         incident_data = {
             'service': incident.service,
@@ -125,6 +204,29 @@ class AnalysisAgent:
             'time_window_hours': 2,
             'triage_reasoning': triage_result.reasoning
         }
+        
+        # Add chat context if available
+        if is_chat_query:
+            correlation_id = raw_event.get('correlation_id')
+            correlation_data = raw_event.get('correlation_data')
+            log_entries = raw_event.get('log_entries', [])
+            pattern_data = raw_event.get('pattern_data')
+            insights = raw_event.get('insights', [])
+            
+            incident_data['chat_context'] = {
+                'has_existing_logs': len(log_entries) > 0,
+                'log_entries_count': len(log_entries),
+                'correlation_id': correlation_id,
+                'services_involved': correlation_data.get('services_found', []) if correlation_data else [],
+                'has_patterns': pattern_data is not None,
+                'insights': insights[:5]  # Limit to 5 insights
+            }
+            
+            logger.info(
+                f"Using chat context: {len(log_entries)} log entries, "
+                f"correlation_id={correlation_id}, "
+                f"services={incident_data['chat_context']['services_involved']}"
+            )
 
         # Generate prompt
         user_prompt = format_analysis_prompt(incident_data, triage_result.dict())
@@ -157,50 +259,97 @@ class AnalysisAgent:
 
         results = []
 
-        # Calculate time range
+        # Calculate time range - use correlation data if available
+        raw_event = incident.raw_event or {}
+        is_chat_query = raw_event.get('source') == 'chat_query'
+        correlation_data = raw_event.get('correlation_data', {}) if is_chat_query else {}
+        
         end_time = incident.timestamp
-        start_time = end_time - timedelta(hours=2)
+        
+        # Use actual time range from correlation data if available
+        # Check both correlation_data and raw_event for time_range_minutes
+        time_range_minutes = None
+        if correlation_data:
+            time_range_minutes = correlation_data.get('time_range_minutes') or correlation_data.get('total_duration_minutes')
+        
+        if not time_range_minutes:
+            time_range_minutes = raw_event.get('time_range_minutes')
+        
+        if time_range_minutes:
+            # Ensure it's a number
+            if isinstance(time_range_minutes, str):
+                try:
+                    time_range_minutes = int(time_range_minutes)
+                except ValueError:
+                    time_range_minutes = None
+        
+        if time_range_minutes and time_range_minutes > 0:
+            start_time = end_time - timedelta(minutes=time_range_minutes)
+            logger.info(f"Using correlation time range: {time_range_minutes} minutes")
+        else:
+            # Default to 2 hours
+            start_time = end_time - timedelta(hours=2)
+            logger.info("Using default time range: 2 hours (time_range_minutes not found or invalid)")
 
+        # Determine which log groups to query
+        log_groups_to_query = []
+        
+        if is_chat_query and correlation_data.get('services_found'):
+            # Query all services from correlation
+            services_found = correlation_data.get('services_found', [])
+            logger.info(f"Querying {len(services_found)} services from correlation: {services_found}")
+            for service in services_found:
+                log_group = f"/aws/lambda/{service}"
+                log_groups_to_query.append(log_group)
+        else:
+            # Default: query primary service log group
+            log_group = incident.log_group or f"/aws/lambda/{incident.service}"
+            log_groups_to_query.append(log_group)
+            logger.info(f"Querying primary service log group: {log_group}")
+
+        # Execute each query against each log group
         for query_def in queries:
-            try:
-                query_text = query_def.get('query', '')
-                query_name = query_def.get('name', 'unnamed')
+            query_text = query_def.get('query', '')
+            query_name = query_def.get('name', 'unnamed')
+            
+            for log_group_name in log_groups_to_query:
+                try:
+                    logger.debug(f"Executing query '{query_name}' on log group '{log_group_name}'")
 
-                logger.debug(f"Executing query: {query_name}")
+                    # Execute via MCP
+                    if self.mcp_client:
+                        result = await self.mcp_client.search_logs(
+                            log_group_name=log_group_name,
+                            query=query_text,
+                            start_time=start_time.isoformat(),
+                            end_time=end_time.isoformat()
+                        )
 
-                # Execute via MCP
-                if self.mcp_client:
-                    result = await self.mcp_client.search_logs(
-                        log_group_name=incident.log_group or f"/aws/lambda/{incident.service}",
-                        query=query_text,
-                        start_time=start_time.isoformat(),
-                        end_time=end_time.isoformat()
-                    )
+                        results.append(LogQueryResult(
+                            query=f"{query_name} [{log_group_name}]",
+                            results=result.get('results', []),
+                            record_count=len(result.get('results', [])),
+                            execution_time_ms=result.get('execution_time_ms')
+                        ))
+                    else:
+                        # MCP client not available - add placeholder
+                        logger.warning("MCP client not available, using placeholder")
+                        results.append(LogQueryResult(
+                            query=f"{query_name} [{log_group_name}]",
+                            results=[],
+                            record_count=0
+                        ))
 
+                except Exception as e:
+                    logger.error(f"Query execution failed for {log_group_name}: {str(e)}")
+                    # Add failed query result
                     results.append(LogQueryResult(
-                        query=query_text,
-                        results=result.get('results', []),
-                        record_count=len(result.get('results', [])),
-                        execution_time_ms=result.get('execution_time_ms')
-                    ))
-                else:
-                    # MCP client not available - add placeholder
-                    logger.warning("MCP client not available, using placeholder")
-                    results.append(LogQueryResult(
-                        query=query_text,
+                        query=f"{query_name} [{log_group_name}]",
                         results=[],
                         record_count=0
                     ))
 
-            except Exception as e:
-                logger.error(f"Query execution failed: {str(e)}")
-                # Add failed query result
-                results.append(LogQueryResult(
-                    query=query_text,
-                    results=[],
-                    record_count=0
-                ))
-
+        logger.info(f"Completed {len(results)} query executions across {len(log_groups_to_query)} log groups")
         return results
 
     async def _analyze_results(
@@ -224,10 +373,30 @@ class AnalysisAgent:
 
         # Format query results for Claude
         results_summary = self._format_query_results(query_results)
+        
+        # Add context from chat if available
+        raw_event = incident.raw_event or {}
+        is_chat_query = raw_event.get('source') == 'chat_query'
+        context_section = ""
+        
+        if is_chat_query:
+            question = raw_event.get('question', '')
+            correlation_id = raw_event.get('correlation_id')
+            correlation_data = raw_event.get('correlation_data', {})
+            
+            context_section = "\n\nCONTEXT FROM USER QUERY:\n"
+            if question:
+                context_section += f"- Original Question: {question}\n"
+            if correlation_id:
+                context_section += f"- Correlation ID: {correlation_id}\n"
+            if correlation_data.get('services_found'):
+                context_section += f"- Services Involved: {', '.join(correlation_data['services_found'])}\n"
+            context_section += "- These logs were found by the user in a chat query and triggered this incident investigation.\n"
+            context_section += "- Pay special attention to ERROR entries and service unavailability issues.\n"
 
         # Generate analysis prompt
         prompt = ANALYSIS_RESULTS_PROMPT_TEMPLATE.format(
-            query_results=results_summary
+            query_results=results_summary + context_section
         )
 
         # Call Bedrock
@@ -236,11 +405,44 @@ class AnalysisAgent:
         # Parse analysis
         analysis_data = self._parse_analysis(response)
 
+        # Count errors across all query results (more accurate than relying on LLM count)
+        total_error_count = 0
+        for query_result in query_results:
+            for result in query_result.results:
+                if isinstance(result, dict):
+                    message = str(result.get('message', result.get('@message', ''))).upper()
+                    level = str(result.get('level', result.get('@level', ''))).upper()
+                    
+                    # Check for ERROR in multiple ways
+                    is_error = (
+                        level == 'ERROR' or
+                        'ERROR:' in message or
+                        'ERROR ' in message or
+                        'EXCEPTION' in message or
+                        'FAILED' in message or
+                        'FAILURE' in message or
+                        '502' in message or  # HTTP errors
+                        '503' in message or
+                        '500' in message or
+                        'SERVICE_UNAVAILABLE' in message or
+                        'TIMEOUT' in message
+                    )
+                    
+                    if is_error:
+                        total_error_count += 1
+                        logger.debug(f"Found error: level={level}, message={message[:100]}")
+        
+        # Use LLM's error count if it's higher (might catch patterns we miss)
+        llm_error_count = analysis_data.get('error_count', 0)
+        final_error_count = max(total_error_count, llm_error_count)
+        
+        logger.info(f"Error count: {total_error_count} (from logs), {llm_error_count} (from LLM), using {final_error_count}")
+
         # Create AnalysisResult
         return AnalysisResult(
             log_queries=query_results,
             error_patterns=analysis_data.get('error_patterns', []),
-            error_count=analysis_data.get('error_count', 0),
+            error_count=final_error_count,
             correlated_services=analysis_data.get('correlated_services', []),
             deployment_correlation=analysis_data.get('deployment_correlation'),
             incident_start=self._parse_datetime(analysis_data.get('incident_start')),
@@ -327,21 +529,145 @@ class AnalysisAgent:
         """
         try:
             # Extract JSON
+            json_text = None
+            
             if "```json" in response_text:
                 start = response_text.index("```json") + 7
                 end = response_text.index("```", start)
                 json_text = response_text[start:end].strip()
+                logger.debug("Extracted JSON from ```json block")
             elif "{" in response_text:
                 start = response_text.index("{")
-                end = response_text.rindex("}") + 1
-                json_text = response_text[start:end]
-            else:
-                json_text = response_text
+                # Find matching closing brace
+                brace_count = 0
+                end = start
+                for i in range(start, len(response_text)):
+                    if response_text[i] == '{':
+                        brace_count += 1
+                    elif response_text[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end = i + 1
+                            break
+                if end > start:
+                    json_text = response_text[start:end]
+                    logger.debug("Extracted JSON from { } braces")
+            
+            if not json_text:
+                json_text = response_text.strip()
+                logger.debug("Using entire response as JSON")
+            
+            # Clean and fix JSON before parsing
+            import re
+            import json as json_module
+            
+            # Log the raw JSON for debugging (first 2000 chars)
+            logger.debug(f"Raw JSON text (first 2000 chars): {json_text[:2000]}")
+            
+            # Strategy: Use json.JSONDecoder with more lenient parsing
+            # First, try to remove control characters that definitely break JSON
+            # But be careful - we need to escape them in strings, not remove them
+            
+            # Try parsing as-is first
+            try:
+                data = json_module.loads(json_text)
+            except json_module.JSONDecodeError as parse_error:
+                logger.warning(f"Initial JSON parse failed: {parse_error}")
+                logger.debug(f"Error at position {getattr(parse_error, 'pos', 'unknown')}")
+                
+                # Try to repair JSON by escaping control characters in string values
+                # This is a more sophisticated approach
+                def repair_json_string(match):
+                    """Repair a JSON string value by escaping control characters"""
+                    full_match = match.group(0)
+                    # Extract the content between quotes
+                    if len(full_match) >= 2:
+                        content = full_match[1:-1]  # Remove surrounding quotes
+                        # Escape control characters
+                        content = (content
+                                  .replace('\\', '\\\\')  # Escape backslashes first
+                                  .replace('\n', '\\n')
+                                  .replace('\r', '\\r')
+                                  .replace('\t', '\\t')
+                                  .replace('\b', '\\b')
+                                  .replace('\f', '\\f'))
+                        # Remove any remaining unprintable control characters
+                        content = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', content)
+                        return f'"{content}"'
+                    return full_match
+                
+                # Find and repair string values (content between unescaped quotes)
+                # This regex matches: "..." but not \"...\"
+                repaired_json = ""
+                i = 0
+                in_string = False
+                escape_next = False
+                
+                while i < len(json_text):
+                    char = json_text[i]
+                    
+                    if escape_next:
+                        repaired_json += char
+                        escape_next = False
+                    elif char == '\\':
+                        repaired_json += char
+                        escape_next = True
+                    elif char == '"' and not escape_next:
+                        # Start or end of string
+                        in_string = not in_string
+                        repaired_json += char
+                    elif in_string:
+                        # Inside string - escape control characters
+                        if char in ['\n', '\r', '\t', '\b', '\f']:
+                            repaired_json += {'\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f'}[char]
+                        elif ord(char) < 32 or ord(char) == 127:  # Control characters
+                            # Skip or replace with space
+                            repaired_json += ' '
+                        else:
+                            repaired_json += char
+                    else:
+                        # Outside string - keep as is (but remove control chars)
+                        if ord(char) < 32 and char not in ['\n', '\r', '\t']:
+                            # Skip control chars outside strings
+                            pass
+                        else:
+                            repaired_json += char
+                    i += 1
+                
+                json_text = repaired_json
+                logger.debug(f"Repaired JSON (first 1000 chars): {json_text[:1000]}")
+                
+                # Try parsing repaired JSON
+                try:
+                    data = json_module.loads(json_text)
+                except json_module.JSONDecodeError as second_error:
+                    error_pos = getattr(second_error, 'pos', None)
+                    logger.error(f"JSON parse still failing after repair: {second_error}")
+                    if error_pos:
+                        start = max(0, error_pos - 200)
+                        end = min(len(json_text), error_pos + 200)
+                        logger.error(f"Problematic section around position {error_pos}:")
+                        logger.error(f"{json_text[start:end]}")
+                    raise
+            
+            # Ensure required fields have defaults
+            if not isinstance(data, dict):
+                raise ValueError("Parsed data is not a dictionary")
+            
+            return data
 
-            return json.loads(json_text)
-
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in analysis: {str(e)}", exc_info=True)
+            logger.error(f"Failed to parse JSON. Response text (first 1000 chars): {response_text[:1000]}")
+            logger.error(f"Attempted JSON text (first 500 chars): {json_text[:500] if json_text else 'None'}")
+            return {
+                'error_patterns': [],
+                'error_count': 0,
+                'summary': f"Failed to parse analysis: JSON decode error - {str(e)}"
+            }
         except Exception as e:
-            logger.error(f"Failed to parse analysis: {str(e)}")
+            logger.error(f"Failed to parse analysis: {str(e)}", exc_info=True)
+            logger.error(f"Response text (first 1000 chars): {response_text[:1000]}")
             return {
                 'error_patterns': [],
                 'error_count': 0,

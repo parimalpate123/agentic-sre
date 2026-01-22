@@ -15,6 +15,7 @@ from chat_handler import chat_handler
 from log_groups_handler import list_log_groups_handler
 from diagnosis_handler import diagnosis_handler
 from log_management_handler import log_management_handler
+from incident_from_chat_handler import incident_from_chat_handler
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -66,6 +67,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Log management request (clean/regenerate)
             logger.info("Routing to log_management_handler (manage_logs action detected)")
             response = log_management_handler(event, context)
+        elif body.get('action') == 'create_incident':
+            # Create incident from chat query results
+            logger.info("Routing to incident_from_chat_handler (create_incident action detected)")
+            response = incident_from_chat_handler(event, context)
         elif body.get('action') == 'diagnose':
             # Diagnosis request
             logger.info("Routing to diagnosis_handler (diagnosis action detected)")

@@ -254,7 +254,7 @@ else
     echo -e "${YELLOW}⚠️  Found $ERRORS issue(s)${NC}"
     echo ""
     echo "Troubleshooting:"
-    echo "  • Run: ./deploy.sh to fix issues"
+    echo "  • Run: ./scripts/deploy.sh to fix issues"
     echo "  • Check logs: aws logs tail /aws/lambda/sre-poc-incident-handler --follow"
     echo "  • Check ECS: aws ecs describe-services --cluster sre-poc-mcp-cluster --services sre-poc-mcp-server"
     exit 1

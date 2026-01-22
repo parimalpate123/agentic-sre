@@ -217,7 +217,7 @@ async def analyze_logs_async(
         return {
             'answer': answer['response'],
             'correlation_data': correlation_result,
-            'log_entries': correlation_result.get('timeline', [])[:10],
+            'log_entries': correlation_result.get('timeline', [])[:50],  # Increased from 10 to 50 for better context
             'total_results': correlation_result.get('total_events', 0),
             'queries_executed': [{'purpose': 'Cross-service correlation search', 'query': f'Search for {correlation_id} across all services'}],
             'insights': answer.get('insights', []),
@@ -253,13 +253,13 @@ async def analyze_logs_async(
     answer = await synthesize_answer(question, log_data, query_plan)
 
     # Generate CloudWatch Logs URL
-    log_group = log_data.get('log_group', '')
+    log_group = query_plan.get('log_group', '')
     aws_region = os.environ.get('AWS_REGION', os.environ.get('BEDROCK_REGION', 'us-east-1'))
     cloudwatch_url = generate_cloudwatch_url(log_group, aws_region) if log_group else None
 
     return {
         'answer': answer['response'],
-        'log_entries': log_data.get('sample_logs', [])[:10],  # First 10 entries
+        'log_entries': log_data.get('sample_logs', [])[:50],  # First 50 entries for better context
         'total_results': log_data.get('total_count', 0),
         'queries_executed': query_plan['queries'],
         'insights': answer.get('insights', []),
@@ -267,7 +267,8 @@ async def analyze_logs_async(
         'follow_up_questions': answer.get('follow_up_questions', []),
         'timestamp': datetime.utcnow().isoformat(),
         'search_mode': search_mode,  # Include search mode for UI display
-        'cloudwatch_url': cloudwatch_url  # CloudWatch Logs Console URL
+        'cloudwatch_url': cloudwatch_url,  # CloudWatch Logs Console URL
+        'log_group': log_group  # Log group name for incident creation
     }
 
 

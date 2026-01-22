@@ -53,23 +53,50 @@ class DiagnosisAgent:
         logger.info(f"Diagnosing root cause for incident {incident.incident_id}")
 
         try:
-            # Prepare diagnosis data
-            diagnosis_data = {
+            # Prepare data for prompt formatting
+            # Split into incident data and analysis data as expected by format_diagnosis_prompt
+            
+            # Safely handle tags - ensure it's a dict
+            tags = incident.tags if isinstance(incident.tags, dict) else {}
+            logger.debug(f"Tags type: {type(incident.tags)}, value: {incident.tags}")
+            
+            # Safely extract analysis result fields
+            error_patterns = analysis_result.error_patterns
+            if not isinstance(error_patterns, list):
+                logger.warning(f"error_patterns is not a list: {type(error_patterns)}, value: {error_patterns}")
+                error_patterns = [str(error_patterns)] if error_patterns else []
+            
+            key_findings = analysis_result.key_findings
+            if not isinstance(key_findings, list):
+                logger.warning(f"key_findings is not a list: {type(key_findings)}, value: {key_findings}")
+                key_findings = [str(key_findings)] if key_findings else []
+            
+            incident_data = {
                 'service_name': incident.service,
                 'severity': incident.service_tier,  # Using service_tier as severity proxy
                 'metric_name': incident.metric,
-                'error_patterns': analysis_result.error_patterns,
+                'log_evidence_summary': analysis_result.summary,  # Include summary in incident_data for prompt
+                'recent_deployments': tags.get('deployment', 'none') if isinstance(tags, dict) else 'none',
+                'service_dependencies': tags.get('dependencies', 'unknown') if isinstance(tags, dict) else 'unknown'
+            }
+            
+            analysis_data = {
+                'error_patterns': error_patterns,
                 'error_count': analysis_result.error_count,
                 'deployment_correlation': analysis_result.deployment_correlation or 'none',
                 'incident_start': analysis_result.incident_start.isoformat() if analysis_result.incident_start else 'unknown',
-                'key_findings': analysis_result.key_findings,
-                'log_evidence_summary': analysis_result.summary,
-                'recent_deployments': incident.tags.get('deployment', 'none'),
-                'service_dependencies': incident.tags.get('dependencies', 'unknown')
+                'key_findings': key_findings,
+                'summary': analysis_result.summary  # Also include in analysis_data as fallback
             }
+            
+            logger.debug(f"Prepared incident_data: {list(incident_data.keys())}")
+            logger.debug(f"Prepared analysis_data: {list(analysis_data.keys())}")
 
             # Generate prompt
-            user_prompt = format_diagnosis_prompt(diagnosis_data, incident.dict())
+            user_prompt = format_diagnosis_prompt(incident_data, analysis_data)
+            
+            # Log the prompt for debugging (first 2000 chars)
+            logger.debug(f"Diagnosis prompt (first 2000 chars): {user_prompt[:2000]}")
 
             # Call Bedrock
             response = self._call_bedrock(user_prompt)
@@ -144,37 +171,165 @@ class DiagnosisAgent:
             Parsed DiagnosisResult
         """
         try:
-            # Extract JSON
+            # Log raw response for debugging (first 500 chars)
+            logger.debug(f"Raw diagnosis response (first 500 chars): {response_text[:500]}")
+            
+            # Try multiple extraction strategies
+            json_text = None
+            
+            # Strategy 1: Look for ```json code block
             if "```json" in response_text:
                 start = response_text.index("```json") + 7
-                end = response_text.index("```", start)
-                json_text = response_text[start:end].strip()
-            elif "{" in response_text:
+                end_pos = response_text.find("```", start)
+                if end_pos > start:
+                    json_text = response_text[start:end_pos].strip()
+                    logger.debug("Extracted JSON from ```json block")
+            
+            # Strategy 2: Look for JSON object (first { to last })
+            if not json_text and "{" in response_text:
                 start = response_text.index("{")
-                end = response_text.rindex("}") + 1
-                json_text = response_text[start:end]
+                # Find the matching closing brace
+                brace_count = 0
+                end = start
+                for i in range(start, len(response_text)):
+                    if response_text[i] == '{':
+                        brace_count += 1
+                    elif response_text[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end = i + 1
+                            break
+                if end > start:
+                    json_text = response_text[start:end]
+                    logger.debug("Extracted JSON from { } braces")
+            
+            # Strategy 3: Try to find JSON-like structure with regex fallback
+            if not json_text:
+                # Try to extract anything that looks like JSON
+                import re
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
+                if json_match:
+                    json_text = json_match.group(0)
+                    logger.debug("Extracted JSON using regex fallback")
+            
+            # Strategy 4: Use entire response as JSON (last resort)
+            if not json_text:
+                json_text = response_text.strip()
+                logger.debug("Using entire response as JSON (last resort)")
+            
+            # Parse JSON
+            if json_text:
+                # Clean up common issues
+                json_text = json_text.strip()
+                # Remove any leading/trailing whitespace or markdown
+                json_text = json_text.lstrip('`').rstrip('`')
+                
+                # Clean and repair JSON before parsing
+                import re
+                import json as json_module
+                
+                logger.debug(f"Raw diagnosis JSON (first 1000 chars): {json_text[:1000]}")
+                
+                # Try parsing as-is first
+                try:
+                    data = json_module.loads(json_text)
+                except json_module.JSONDecodeError as parse_error:
+                    logger.warning(f"Initial JSON parse failed: {parse_error}, attempting repair...")
+                    
+                    # Repair JSON by escaping control characters in string values
+                    repaired_json = ""
+                    i = 0
+                    in_string = False
+                    escape_next = False
+                    
+                    while i < len(json_text):
+                        char = json_text[i]
+                        
+                        if escape_next:
+                            repaired_json += char
+                            escape_next = False
+                        elif char == '\\':
+                            repaired_json += char
+                            escape_next = True
+                        elif char == '"' and not escape_next:
+                            in_string = not in_string
+                            repaired_json += char
+                        elif in_string:
+                            # Inside string - escape control characters
+                            if char in ['\n', '\r', '\t', '\b', '\f']:
+                                repaired_json += {'\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f'}[char]
+                            elif ord(char) < 32 or ord(char) == 127:
+                                repaired_json += ' '  # Replace with space
+                            else:
+                                repaired_json += char
+                        else:
+                            # Outside string - remove control chars
+                            if ord(char) >= 32 or char in ['\n', '\r', '\t']:
+                                repaired_json += char
+                        i += 1
+                    
+                    json_text = repaired_json
+                    logger.debug(f"Repaired diagnosis JSON (first 1000 chars): {json_text[:1000]}")
+                    
+                    try:
+                        data = json_module.loads(json_text)
+                    except json_module.JSONDecodeError as second_error:
+                        error_pos = getattr(second_error, 'pos', None)
+                        logger.error(f"JSON parse still failing after repair: {second_error}")
+                        if error_pos:
+                            start = max(0, error_pos - 200)
+                            end = min(len(json_text), error_pos + 200)
+                            logger.error(f"Problematic section around position {error_pos}:")
+                            logger.error(f"{json_text[start:end]}")
+                        raise
+                
+                # Validate required fields
+                if not isinstance(data, dict):
+                    raise ValueError("Parsed data is not a dictionary")
+                
+                # Ensure category and component are strings (not None)
+                category = data.get('category')
+                if not category or not isinstance(category, str):
+                    category = 'UNKNOWN'
+                
+                component = data.get('component')
+                if not component or not isinstance(component, str):
+                    component = 'unknown'
+                
+                return DiagnosisResult(
+                    root_cause=data.get('root_cause', 'Unknown'),
+                    confidence=int(data.get('confidence', 50)),
+                    category=category,
+                    component=component,
+                    supporting_evidence=data.get('supporting_evidence', []),
+                    alternative_causes=data.get('alternative_causes', []),
+                    reasoning=data.get('reasoning', 'No reasoning provided')
+                )
             else:
-                json_text = response_text
+                raise ValueError("Could not extract JSON from response")
 
-            data = json.loads(json_text)
-
-            return DiagnosisResult(
-                root_cause=data.get('root_cause', 'Unknown'),
-                confidence=int(data.get('confidence', 50)),
-                category=data.get('category', 'UNKNOWN'),
-                component=data.get('component', 'unknown'),
-                supporting_evidence=data.get('supporting_evidence', []),
-                alternative_causes=data.get('alternative_causes', []),
-                reasoning=data.get('reasoning', 'No reasoning provided')
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to parse diagnosis response: {str(e)}", exc_info=True)
-            logger.debug(f"Response text was: {response_text}")
-
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)}", exc_info=True)
+            logger.error(f"Failed to parse JSON. Response text (first 1000 chars): {response_text[:1000]}")
+            logger.error(f"Attempted JSON text (first 500 chars): {json_text[:500] if json_text else 'None'}")
+            
             # Return low-confidence result
             return DiagnosisResult(
-                root_cause="Failed to parse diagnosis response",
+                root_cause="Failed to parse diagnosis response: Invalid JSON format",
+                confidence=30,
+                category="UNKNOWN",
+                component="unknown",
+                supporting_evidence=[],
+                alternative_causes=[],
+                reasoning=f"JSON parse error: {str(e)}. Response may contain extra text or malformed JSON."
+            )
+        except Exception as e:
+            logger.error(f"Failed to parse diagnosis response: {str(e)}", exc_info=True)
+            logger.error(f"Response text (first 1000 chars): {response_text[:1000]}")
+            
+            # Return low-confidence result
+            return DiagnosisResult(
+                root_cause=f"Failed to parse diagnosis response: {str(e)}",
                 confidence=30,
                 category="UNKNOWN",
                 component="unknown",

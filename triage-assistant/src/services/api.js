@@ -156,6 +156,60 @@ export async function requestDiagnosis(logData, service, context = null) {
 }
 
 /**
+ * Create incident investigation from chat query results
+ * @param {Object} logData - Log analysis results from chat handler
+ * @param {string} service - Service name
+ * @param {string} question - Original user question
+ * @param {string} logGroup - Log group name
+ * @param {string} alertName - Optional custom alert name
+ * @param {string} context - Optional additional context
+ * @returns {Promise<Object>} - Incident creation result with incident_id
+ */
+export async function createIncident(logData, service, question, logGroup = null, alertName = null, context = null) {
+  const payload = {
+    action: 'create_incident',
+    log_data: logData,
+    service: service,
+    question: question,
+  };
+
+  if (logGroup) {
+    payload.log_group = logGroup;
+  }
+  if (alertName) {
+    payload.alert_name = alertName;
+  }
+  if (context) {
+    payload.context = context;
+  }
+
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    // Parse the body if it's a string (Lambda response format)
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+
+    if (!response.ok) {
+      const error = new Error(result.message || `API error: ${response.status} ${response.statusText}`);
+      error.status = response.status;
+      error.data = result;
+      throw error;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Create Incident API Error:', error);
+    throw error;
+  }
+}
+
+/**
  * Manage sample logs (clean, regenerate, or clean and regenerate)
  * @param {string} operation - 'clean', 'regenerate', or 'clean_and_regenerate'
  * @param {string} password - Password for authentication
@@ -199,5 +253,6 @@ export default {
   checkHealth,
   fetchLogGroups,
   requestDiagnosis,
+  createIncident,
   manageSampleLogs,
 };

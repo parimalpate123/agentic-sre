@@ -15,6 +15,11 @@ AWS_REGION="us-east-1"
 AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 ECR_REPO="$AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/sre-poc-mcp-server"
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+MCP_DIR="$PROJECT_ROOT/mcp-log-analyzer"
+
 echo "AWS Account: $AWS_ACCOUNT"
 echo "ECR Repository: $ECR_REPO"
 echo ""
@@ -27,7 +32,7 @@ aws ecr get-login-password --region $AWS_REGION | \
 # Build image
 echo ""
 echo "2. Building Docker image for linux/amd64..."
-cd mcp-log-analyzer
+cd "$MCP_DIR"
 docker build --platform linux/amd64 -t sre-poc-mcp-server:latest .
 
 # Tag and push
@@ -36,7 +41,7 @@ echo "3. Pushing to ECR..."
 docker tag sre-poc-mcp-server:latest $ECR_REPO:latest
 docker push $ECR_REPO:latest
 
-cd ..
+cd "$PROJECT_ROOT"
 
 # Restart ECS service
 echo ""
@@ -79,9 +84,9 @@ if [ "$SERVICE_EXISTS" == "ACTIVE" ]; then
         echo "   aws logs tail /ecs/sre-poc-mcp-server --follow"
     fi
 else
-    echo -e "${YELLOW}⚠️  ECS service not found. Run ./deploy-infrastructure.sh first${NC}"
+    echo -e "${YELLOW}⚠️  ECS service not found. Run ./scripts/deploy-infrastructure.sh first${NC}"
     exit 1
 fi
 
 echo ""
-echo "Check status: ./check-status.sh"
+echo "Check status: ./scripts/check-status.sh"

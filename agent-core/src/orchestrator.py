@@ -136,6 +136,14 @@ class InvestigationOrchestrator:
 
         decision = state.triage.decision
 
+        # Always investigate chat-triggered incidents (user explicitly requested investigation)
+        raw_event = state.incident.raw_event or {}
+        is_chat_query = raw_event.get('source') == 'chat_query'
+        
+        if is_chat_query:
+            logger.info("[ROUTER] Chat-triggered incident - proceeding to investigation regardless of triage decision")
+            return "analyze"
+
         if decision == InvestigationDecision.INVESTIGATE:
             logger.info("[ROUTER] Decision: INVESTIGATE - proceeding to analysis")
             return "analyze"
@@ -226,6 +234,20 @@ class InvestigationOrchestrator:
         updates = {"current_step": "remediation"}
 
         try:
+            # Ensure we have a diagnosis (remediation needs it)
+            if not state.diagnosis:
+                from models.schemas import DiagnosisResult
+                logger.warning("[REMEDIATION] No diagnosis available, using fallback")
+                state.diagnosis = DiagnosisResult(
+                    root_cause="Unknown - diagnosis unavailable",
+                    confidence=0,
+                    category="UNKNOWN",
+                    component="unknown",
+                    supporting_evidence=[],
+                    alternative_causes=[],
+                    reasoning="Diagnosis step failed or was skipped"
+                )
+            
             remediation_result = self.remediation_agent.propose_remediation(
                 state.incident,
                 state.diagnosis
@@ -242,6 +264,24 @@ class InvestigationOrchestrator:
             errors = list(state.errors) if state.errors else []
             errors.append(f"Remediation failed: {str(e)}")
             updates["errors"] = errors
+            
+            # Provide fallback remediation result even on error
+            from models.schemas import RemediationResult, RemediationAction, RiskLevel
+            updates["remediation"] = RemediationResult(
+                recommended_action=RemediationAction(
+                    action_type="monitor_and_escalate",
+                    description=f"Remediation failed: {str(e)}. Manual investigation required.",
+                    steps=["Review error logs", "Contact SRE team", "Check service status"],
+                    estimated_time_minutes=30,
+                    risk_level=RiskLevel.LOW,
+                    rollback_plan="No action taken, nothing to rollback"
+                ),
+                alternative_actions=[],
+                requires_approval=True,
+                approval_reason=f"Remediation agent error: {str(e)}",
+                success_criteria=["Manual verification by SRE"],
+                monitoring_duration_minutes=60
+            )
 
         return updates
 
@@ -317,10 +357,26 @@ class InvestigationOrchestrator:
         severity = triage.severity if triage else "P3"
         root_cause = diagnosis.root_cause if diagnosis else "Unknown"
         confidence = diagnosis.confidence if diagnosis else 0
-        recommended_action = (
-            remediation.recommended_action if remediation
-            else None
-        )
+        
+        # Ensure we always have a valid RemediationAction (required by schema)
+        if remediation and remediation.recommended_action:
+            recommended_action = remediation.recommended_action
+        else:
+            # Fallback action when remediation fails or is missing
+            from models.schemas import RemediationAction, RiskLevel
+            recommended_action = RemediationAction(
+                action_type="monitor_and_escalate",
+                description="Remediation analysis unavailable. Manual investigation required.",
+                steps=[
+                    "Review incident logs and metrics",
+                    "Check service health and dependencies",
+                    "Escalate to SRE team if issue persists"
+                ],
+                estimated_time_minutes=30,
+                risk_level=RiskLevel.LOW,
+                rollback_plan="No action taken, nothing to rollback"
+            )
+            logger.warning("Remediation unavailable, using fallback action")
 
         # Build executive summary
         summary = self._build_summary(state)
