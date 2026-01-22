@@ -49,6 +49,7 @@ cp handler_incident_only.py package/
 cp chat_handler.py package/
 cp log_groups_handler.py package/
 cp diagnosis_handler.py package/
+cp log_management_handler.py package/
 cp agent_invoker.py package/
 
 # Create zip

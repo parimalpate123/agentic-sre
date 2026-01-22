@@ -155,9 +155,49 @@ export async function requestDiagnosis(logData, service, context = null) {
   }
 }
 
+/**
+ * Manage sample logs (clean, regenerate, or clean and regenerate)
+ * @param {string} operation - 'clean', 'regenerate', or 'clean_and_regenerate'
+ * @param {string} password - Password for authentication
+ * @returns {Promise<Object>} - Result with status and message
+ */
+export async function manageSampleLogs(operation = 'clean_and_regenerate', password) {
+  const payload = {
+    action: 'manage_logs',
+    operation: operation,
+    password: password,
+  };
+
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    // Parse the body if it's a string (Lambda response format)
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+
+    if (!response.ok) {
+      const error = new Error(result.message || `API error: ${response.status} ${response.statusText}`);
+      error.status = response.status;
+      error.data = result;
+      throw error;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Log Management API Error:', error);
+    throw error;
+  }
+}
+
 export default {
   askQuestion,
   checkHealth,
   fetchLogGroups,
   requestDiagnosis,
+  manageSampleLogs,
 };

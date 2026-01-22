@@ -235,6 +235,8 @@ async def analyze_logs_async(
 
     # Step 1: Use Claude to understand the question and generate queries
     query_plan = await generate_query_plan(question, service, time_range)
+    # Store original question for fallback pattern extraction
+    query_plan['original_question'] = question
 
     logger.info(f"Generated query plan: {json.dumps(query_plan, default=str)}")
 
@@ -363,6 +365,21 @@ A: {{
   ]
 }}
 
+Q: "find relevant log for policy - POL-201519"
+A: {{
+  "intent": "Find logs containing policy ID POL-201519",
+  "log_group": "/aws/lambda/policy-service",
+  "queries": [
+    {{
+      "purpose": "Find logs with policy ID POL-201519",
+      "query": "fields @timestamp, @message | filter @message like /POL-201519/ | sort @timestamp desc | limit 50"
+    }}
+  ]
+}}
+
+IMPORTANT: When the user mentions specific IDs (like POL-123456, CORR-UUID, TXN-123, ORD-123), 
+ALWAYS include them in the filter pattern using: filter @message like /ID-HERE/
+
 Now analyze: {question}
 Respond with JSON only, no markdown:"""
 
@@ -432,24 +449,59 @@ def generate_cloudwatch_url(log_group: str, region: str = 'us-east-1') -> str:
     return f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:log-groups/log-group/{encoded_log_group}"
 
 
-def extract_filter_pattern(query: str) -> str:
+def extract_filter_pattern(query: str, original_question: str = '') -> str:
     """
     Extract filter pattern from CloudWatch Logs Insights query for use with filter_log_events.
+    This function intelligently extracts search terms/identifiers without hardcoding specific patterns.
+    Falls back to extracting from original question if query extraction fails.
 
     Args:
         query: CloudWatch Logs Insights query string
+        original_question: Original user question (for fallback extraction)
 
     Returns:
         Filter pattern suitable for filter_log_events API
     """
     import re
 
-    # Try to extract pattern from "like /pattern/" syntax
+    # Step 1: Try to extract pattern from "like /pattern/" syntax (most common and reliable)
     like_match = re.search(r'like\s+[/"]([^/"]+)[/"]', query, re.IGNORECASE)
     if like_match:
-        return like_match.group(1)
+        pattern = like_match.group(1)
+        logger.info(f"Extracted filter pattern from 'like' clause: {pattern}")
+        return pattern
 
-    # Try common patterns in the query
+    # Step 2: Extract any identifier-like patterns from the query string
+    # Look for common identifier formats (prefix-dash-alphanumeric patterns)
+    # Examples: POL-123456, CORR-UUID, TXN-123, ORD-123, USR-123, SKU-123, etc.
+    identifier_patterns = [
+        # UUID format (with or without prefix): XXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+        r'[A-Z0-9]{1,10}-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}',
+        # Prefix-dash-digits: POL-123456, TXN-123, ORD-12345
+        r'[A-Z]{2,10}-\d{3,12}',
+        # Alphanumeric IDs with dashes: ABC-123-XYZ
+        r'[A-Z0-9]{2,8}-[A-Z0-9]{2,8}(?:-[A-Z0-9]{2,8}){0,3}',
+    ]
+    
+    for pattern_regex in identifier_patterns:
+        matches = re.findall(pattern_regex, query, re.IGNORECASE)
+        if matches:
+            # Use the first match (most likely the main identifier being searched)
+            pattern = matches[0]
+            logger.info(f"Extracted identifier pattern from query: {pattern}")
+            return pattern
+
+    # Step 3: Extract quoted strings or important keywords
+    # Look for quoted strings in the query
+    quoted_match = re.search(r'["\']([^"\']{3,50})["\']', query)
+    if quoted_match:
+        pattern = quoted_match.group(1)
+        # Skip if it's a common CloudWatch keyword
+        if pattern.upper() not in ['ERROR', 'WARN', 'INFO', 'MESSAGE', 'TIMESTAMP', 'LOGSTREAM']:
+            logger.info(f"Extracted quoted pattern from query: {pattern}")
+            return pattern
+
+    # Step 4: Try common log level patterns (lower priority)
     if "ERROR" in query.upper():
         return "ERROR"
     if "WARN" in query.upper():
@@ -461,7 +513,25 @@ def extract_filter_pattern(query: str) -> str:
     if "timeout" in query.lower():
         return "timeout"
 
-    # Default: empty pattern (returns all logs)
+    # Step 5: Fallback - extract from original question if provided
+    if original_question:
+        # Try to extract identifiers from original question
+        for pattern_regex in identifier_patterns:
+            matches = re.findall(pattern_regex, original_question, re.IGNORECASE)
+            if matches:
+                pattern = matches[0]
+                logger.info(f"Extracted identifier from original question (fallback): {pattern}")
+                return pattern
+        
+        # Try to find quoted strings or specific terms in question
+        quoted_match = re.search(r'["\']([^"\']{3,50})["\']', original_question)
+        if quoted_match:
+            pattern = quoted_match.group(1)
+            logger.info(f"Extracted quoted term from original question (fallback): {pattern}")
+            return pattern
+
+    # Step 6: Default: empty pattern (returns all logs)
+    logger.warning(f"Could not extract filter pattern from query or question. Query: {query[:200]}, Question: {original_question[:200]}")
     return ""
 
 
@@ -517,16 +587,54 @@ async def execute_queries_via_mcp(
                 if search_mode == 'quick':
                     # Quick Search: Use filter_log_events (real-time, no indexing delay)
                     # Extract filter pattern from query
-                    filter_pattern = extract_filter_pattern(query_info['query'])
-                    logger.info(f"Quick search with filter pattern: {filter_pattern}")
-
-                    result = await mcp_client.filter_log_events(
-                        log_group_name=log_group,
-                        filter_pattern=filter_pattern,
-                        start_time=start_time.isoformat(),
-                        end_time=end_time.isoformat(),
-                        limit=100
-                    )
+                    filter_pattern = extract_filter_pattern(query_info['query'], query_plan.get('original_question', ''))
+                    logger.info(f"Quick search with filter pattern: '{filter_pattern}' (extracted from query: {query_info['query'][:200]})")
+                    
+                    # Check if pattern looks like an identifier (POL-XXX, TXN-XXX, etc.)
+                    # filter_log_events doesn't handle identifiers well, so use Logs Insights directly
+                    import re
+                    is_identifier = re.match(r'^[A-Z]{2,10}-\d{3,12}$', filter_pattern) or re.match(r'^[A-Z0-9]{1,10}-[A-F0-9]{8}-[A-F0-9]{4}-', filter_pattern)
+                    
+                    if is_identifier:
+                        logger.info(f"Pattern '{filter_pattern}' looks like an identifier. Using Logs Insights directly (filter_log_events doesn't handle identifiers well)")
+                        result = await mcp_client.search_logs(
+                            log_group_name=log_group,
+                            query=query_info['query'],
+                            start_time=start_time.isoformat(),
+                            end_time=end_time.isoformat(),
+                            limit=100
+                        )
+                    else:
+                        logger.info(f"Calling MCP filter_log_events with log_group={log_group}, start_time={start_time.isoformat()}, end_time={end_time.isoformat()}, hours={hours}, filter_pattern='{filter_pattern}'")
+                        result = await mcp_client.filter_log_events(
+                            log_group_name=log_group,
+                            filter_pattern=filter_pattern,
+                            start_time=start_time.isoformat(),
+                            end_time=end_time.isoformat(),
+                            limit=100
+                        )
+                        logger.info(f"MCP filter_log_events returned result type: {type(result).__name__}, keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}")
+                        
+                        # Check if filter_log_events returned 0 results - fall back to Logs Insights
+                        # filter_log_events uses simpler pattern syntax and may miss matches that Logs Insights finds
+                        filter_results = result.get('results', [])
+                        logger.info(f"filter_log_events returned {len(filter_results)} results. Result preview: {str(filter_results)[:200] if filter_results else 'empty'}")
+                        if len(filter_results) == 0:
+                            logger.warning(f"filter_log_events returned 0 results for pattern '{filter_pattern}'. Falling back to Logs Insights (which supports regex patterns)")
+                            logger.info(f"Fallback query: {query_info['query']}")
+                            try:
+                                result = await mcp_client.search_logs(
+                                    log_group_name=log_group,
+                                    query=query_info['query'],
+                                    start_time=start_time.isoformat(),
+                                    end_time=end_time.isoformat(),
+                                    limit=100
+                                )
+                                fallback_results = result.get('results', [])
+                                logger.info(f"Logs Insights fallback returned {len(fallback_results)} results. Result type: {type(result).__name__}")
+                            except Exception as e:
+                                logger.error(f"Logs Insights fallback failed: {str(e)}", exc_info=True)
+                                # Continue with empty result from filter_log_events
                 else:
                     # Deep Search: Use CloudWatch Logs Insights
                     result = await mcp_client.search_logs(
@@ -656,8 +764,8 @@ async def execute_queries_direct(
 
             if search_mode == 'quick':
                 # Quick Search: Use filter_log_events (real-time, no indexing delay)
-                filter_pattern = extract_filter_pattern(query_info['query'])
-                logger.info(f"Quick search with filter pattern: {filter_pattern}")
+                filter_pattern = extract_filter_pattern(query_info['query'], query_plan.get('original_question', ''))
+                logger.info(f"Quick search with filter pattern: {filter_pattern} (extracted from query: {query_info['query'][:200]})")
 
                 filter_response = logs_client.filter_log_events(
                     logGroupName=log_group,
@@ -824,6 +932,31 @@ async def synthesize_answer(
     sample_logs = log_data.get('sample_logs', [])
     total_count = log_data.get('total_count', 0)
 
+    # Extract identifiers (policy IDs, correlation IDs, etc.) from question and logs for context
+    import re
+    identifiers = set()
+    
+    # Extract from question
+    identifier_patterns = [
+        r'\b(POL-\d+)\b',  # Policy IDs: POL-201519
+        r'\b(TXN-\d+)\b',  # Transaction IDs
+        r'\b(ORD-\d+)\b',  # Order IDs
+        r'\b(CORR-[A-F0-9-]+)\b',  # Correlation IDs
+        r'\b([A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12})\b',  # UUIDs
+    ]
+    for pattern in identifier_patterns:
+        matches = re.findall(pattern, question, re.IGNORECASE)
+        identifiers.update(matches)
+    
+    # Extract from log messages
+    for log in sample_logs[:10]:
+        message = log.get('@message', log.get('message', ''))
+        for pattern in identifier_patterns:
+            matches = re.findall(pattern, message, re.IGNORECASE)
+            identifiers.update(matches)
+    
+    identifiers_str = ', '.join(sorted(identifiers)) if identifiers else ''
+
     # Prepare log summary for Claude
     if sample_logs:
         log_summary = "\n".join([
@@ -832,6 +965,11 @@ async def synthesize_answer(
         ])
     else:
         log_summary = "No log entries found matching the query."
+
+    # Build context instruction for identifiers
+    context_instruction = ""
+    if identifiers_str:
+        context_instruction = f"\n\nIMPORTANT CONTEXT: The user's query references specific identifiers: {identifiers_str}. When generating recommendations and follow-up questions, ALWAYS include these specific identifiers (e.g., 'POL-201519' not 'this policy', 'the policy ID' not 'the ID'). This ensures follow-up queries maintain context."
 
     prompt = f"""You are a helpful SRE assistant analyzing CloudWatch logs. Answer the user's question based on the log data.
 
@@ -843,7 +981,7 @@ Log Data Summary:
 - Time range: Last {query_plan.get('hours', 1)} hour(s)
 
 Sample Log Entries:
-{log_summary}
+{log_summary}{context_instruction}
 
 Your task:
 1. Answer the user's question conversationally

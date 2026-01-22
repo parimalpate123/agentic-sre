@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
-import { askQuestion, fetchLogGroups, requestDiagnosis } from '../services/api';
+import { askQuestion, fetchLogGroups, requestDiagnosis, manageSampleLogs } from '../services/api';
 
 export default function ChatWindow({ isFullScreen = false, onToggleFullScreen }) {
   const [messages, setMessages] = useState([
@@ -23,9 +23,18 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const [useMCP, setUseMCP] = useState(true); // Default to ON (true), user can toggle to OFF (false)
   const [searchMode, setSearchMode] = useState('quick'); // 'quick' = real-time, 'deep' = Logs Insights
   const [selectedService, setSelectedService] = useState(''); // Empty = auto-detect from question
-  const [timeRange, setTimeRange] = useState('2h'); // Default 2 hours
+  const [timeRange, setTimeRange] = useState('24h'); // Default 24 hours
   const [diagnosingMessageId, setDiagnosingMessageId] = useState(null); // Track which message is being diagnosed
+  const [isManagingLogs, setIsManagingLogs] = useState(false); // Track log management operations
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false); // Show password input dialog
+  const [passwordInput, setPasswordInput] = useState(''); // Password input value
+  const [passwordError, setPasswordError] = useState(''); // Password validation error
+  const [pendingOperation, setPendingOperation] = useState(null); // Store operation while waiting for password
+  const passwordInputRef = useRef(null); // Ref for password input field
   const messagesEndRef = useRef(null);
+  
+  // Hardcoded password for log management (matches backend)
+  const LOG_MANAGEMENT_PASSWORD = '13579';
   
   // Log groups state
   const [logGroups, setLogGroups] = useState([]);
@@ -56,6 +65,8 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
     { value: '2h', label: '2 hours' },
     { value: '6h', label: '6 hours' },
     { value: '24h', label: '24 hours' },
+    { value: '48h', label: '48 hours' },
+    { value: '7d', label: '7 days' },
   ];
 
   // Auto-scroll to bottom when new messages arrive
@@ -139,6 +150,96 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       setDiagnosingMessageId(null);
     }
   };
+
+  const handleManageLogs = async (operation) => {
+    // Show password dialog instead of window.prompt
+    setPendingOperation(operation);
+    setPasswordInput('');
+    setPasswordError('');
+    setShowPasswordDialog(true);
+  };
+
+  const handlePasswordSubmit = async () => {
+    if (!passwordInput.trim()) {
+      setPasswordError('Password cannot be empty');
+      return;
+    }
+
+    // Validate password on frontend
+    if (passwordInput !== LOG_MANAGEMENT_PASSWORD) {
+      setPasswordError('Incorrect password. Please try again.');
+      setPasswordInput(''); // Clear password field
+      passwordInputRef.current?.focus(); // Refocus input
+      return;
+    }
+
+    // Password is correct - clear error and proceed
+    setPasswordError('');
+    const password = passwordInput;
+    const operation = pendingOperation;
+    
+    // Close password dialog
+    setShowPasswordDialog(false);
+    setPasswordInput('');
+
+    // Show confirmation dialog
+    if (!window.confirm(`This will ${operation === 'clean' ? 'delete all sample log groups' : operation === 'regenerate' ? 'generate new sample logs' : 'delete existing logs and generate new ones'}. Continue?`)) {
+      setPendingOperation(null);
+      return;
+    }
+
+    setIsManagingLogs(true);
+    try {
+      const result = await manageSampleLogs(operation, password);
+      
+      // Add a system message showing the result
+      const systemMessage = {
+        id: `log-mgmt-${Date.now()}`,
+        text: `✅ Log management completed: ${result.message}\n\n${result.log_groups ? `Affected log groups: ${result.log_groups.length}` : ''}${result.total_deleted ? `\nDeleted: ${result.total_deleted}` : ''}${result.total_created ? `\nCreated: ${result.total_created}` : ''}`,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, systemMessage]);
+    } catch (error) {
+      console.error('Log management failed:', error);
+      let errorText = `❌ Log management failed: ${error.message}`;
+      if (error.status === 401 || error.message.includes('Unauthorized') || error.message.includes('Invalid password')) {
+        errorText = '❌ Authentication failed: The password you entered is incorrect. Please try again.';
+      }
+      const errorMessage = {
+        id: `log-mgmt-error-${Date.now()}`,
+        text: errorText,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsManagingLogs(false);
+      setPendingOperation(null);
+    }
+  };
+
+  const handlePasswordCancel = () => {
+    setShowPasswordDialog(false);
+    setPasswordInput('');
+    setPasswordError('');
+    setPendingOperation(null);
+  };
+
+  const handlePasswordInputChange = (e) => {
+    setPasswordInput(e.target.value);
+    // Clear error when user starts typing
+    if (passwordError) {
+      setPasswordError('');
+    }
+  };
+
+  // Focus password input when dialog opens
+  useEffect(() => {
+    if (showPasswordDialog && passwordInputRef.current) {
+      passwordInputRef.current.focus();
+    }
+  }, [showPasswordDialog]);
 
   const handleSendMessage = async (question) => {
     // Add user message
@@ -377,6 +478,33 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
               ))}
             </select>
           </div>
+
+          {/* Log Management Button */}
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => handleManageLogs('clean_and_regenerate')}
+              disabled={isManagingLogs}
+              className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              title="Clean existing sample logs and regenerate new ones with enhanced patterns"
+            >
+              {isManagingLogs ? (
+                <>
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Generate Logs
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Always Visible Disclaimer */}
@@ -440,6 +568,74 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
           />
         </div>
       </div>
+
+      {/* Password Dialog Modal */}
+      {showPasswordDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Enter Password
+            </h3>
+            
+            {/* Warning Message */}
+            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <svg className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-yellow-800 mb-1">
+                    Caution: This operation will modify AWS CloudWatch Logs
+                  </p>
+                  <p className="text-xs text-yellow-700">
+                    This will delete existing sample log groups and regenerate new logs in AWS CloudWatch. Please proceed with caution.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-2">
+              Password required to proceed:
+            </p>
+            <input
+              ref={passwordInputRef}
+              type="password"
+              value={passwordInput}
+              onChange={handlePasswordInputChange}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handlePasswordSubmit();
+                } else if (e.key === 'Escape') {
+                  handlePasswordCancel();
+                }
+              }}
+              placeholder="Enter password"
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 ${
+                passwordError ? 'border-red-500 bg-red-50' : 'border-gray-300'
+              }`}
+              autoComplete="off"
+            />
+            {passwordError && (
+              <p className="mt-2 text-sm text-red-600">{passwordError}</p>
+            )}
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={handlePasswordCancel}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePasswordSubmit}
+                disabled={!passwordInput.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

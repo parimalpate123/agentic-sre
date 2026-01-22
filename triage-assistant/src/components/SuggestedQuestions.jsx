@@ -29,6 +29,7 @@ const PREDEFINED_QUESTIONS = {
     'Are there any database connection issues?',
     'What policies were created for account_number ACC-12345678?',
     'Show me logs with correlation_id',
+    'Can you find relevant log for policy - POL-201519?',
   ],
 };
 
