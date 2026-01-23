@@ -150,13 +150,13 @@ export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosin
 
         {/* Action Buttons (for assistant messages with log data) */}
         {!isUser && (message.logEntries?.length > 0 || message.patternData || message.correlationData) && !message.diagnosis && (
-          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-col gap-2">
+          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-col sm:flex-row gap-2">
             {/* Diagnose Button */}
             {onDiagnose && (
               <button
                 onClick={() => onDiagnose(message)}
                 disabled={isDiagnosing || isCreatingIncident}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isDiagnosing ? (
                   <>
@@ -180,7 +180,7 @@ export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosin
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
-                className="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 bg-blue-800 hover:bg-blue-900 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isCreatingIncident ? (
                   <>

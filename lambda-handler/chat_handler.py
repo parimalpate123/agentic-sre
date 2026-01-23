@@ -252,10 +252,12 @@ async def analyze_logs_async(
     # Step 3: Synthesize answer using Claude
     answer = await synthesize_answer(question, log_data, query_plan)
 
-    # Generate CloudWatch Logs URL
+    # Generate CloudWatch Logs URL (use first log group for primary URL)
     log_group = query_plan.get('log_group', '')
+    log_groups = query_plan.get('log_groups', [log_group] if log_group else [])
+    primary_log_group = log_groups[0] if log_groups else log_group
     aws_region = os.environ.get('AWS_REGION', os.environ.get('BEDROCK_REGION', 'us-east-1'))
-    cloudwatch_url = generate_cloudwatch_url(log_group, aws_region) if log_group else None
+    cloudwatch_url = generate_cloudwatch_url(primary_log_group, aws_region) if primary_log_group else None
 
     return {
         'answer': answer['response'],
@@ -268,7 +270,8 @@ async def analyze_logs_async(
         'timestamp': datetime.utcnow().isoformat(),
         'search_mode': search_mode,  # Include search mode for UI display
         'cloudwatch_url': cloudwatch_url,  # CloudWatch Logs Console URL
-        'log_group': log_group  # Log group name for incident creation
+        'log_group': primary_log_group,  # Primary log group name for incident creation
+        'log_groups_searched': log_groups if len(log_groups) > 1 else None  # Include if multi-service search
     }
 
 
@@ -292,6 +295,15 @@ async def generate_query_plan(
     # Convert time range to hours
     hours = parse_time_range(time_range)
 
+    # Detect if this is a general issue question (not service-specific)
+    general_issue_keywords = [
+        'database connection', 'db connection', 'connection issue', 'connection error',
+        'timeout', 'timeout error', 'connection timeout',
+        'any errors', 'any issues', 'any problems',
+        'all services', 'across services', 'all logs'
+    ]
+    is_general_question = not service and any(keyword in question.lower() for keyword in general_issue_keywords)
+    
     # Prompt for Claude to generate query plan
     prompt = f"""You are a log analysis assistant. Parse this question and generate CloudWatch Logs Insights queries.
 
@@ -301,14 +313,20 @@ Time Range: {time_range} ({hours} hours)
 
 Your task:
 1. Identify what the user wants to know
-2. Determine which log group to query
+2. Determine which log group(s) to query
 3. Generate 1-3 CloudWatch Logs Insights queries to answer the question
 
 IMPORTANT - Log Group Selection:
+- If the question is about a SPECIFIC service (e.g., "errors in payment-service"), use that service's log group
+- If the question is about a GENERAL issue type (e.g., "database connection issues", "any timeout errors") WITHOUT specifying a service, you should search across MULTIPLE relevant log groups
 - For Lambda services (payment-service, order-service, api-gateway, user-service, inventory-service, policy-service, rating-service, notification-service), use: /aws/lambda/service-name
 - For ECS services, use: /aws/ecs/service-name
 - For API Gateway, use: /aws/apigateway/service-name
 - DEFAULT to /aws/lambda/ for most services unless clearly ECS/API Gateway
+
+When searching for general issues (database connections, timeouts, errors across services):
+- Use "log_groups" array with multiple relevant services (e.g., payment-service, order-service, inventory-service)
+- Focus on services most likely to have the issue type mentioned
 
 CloudWatch Logs Insights query syntax:
 - fields @timestamp, @message, @logStream
@@ -320,7 +338,8 @@ CloudWatch Logs Insights query syntax:
 Respond ONLY with JSON:
 {{
   "intent": "what the user wants to know",
-  "log_group": "/aws/lambda/service-name (preferred) or /aws/ecs/service-name",
+  "log_group": "/aws/lambda/service-name (use this for single service queries)",
+  "log_groups": ["/aws/lambda/service1", "/aws/lambda/service2"] (use this for general/multi-service queries - optional),
   "queries": [
     {{
       "purpose": "Find errors",
@@ -328,6 +347,8 @@ Respond ONLY with JSON:
     }}
   ]
 }}
+
+NOTE: Include "log_groups" array when the question is about general issues without a specific service. Include "log_group" for single-service queries.
 
 Examples:
 Q: "What errors occurred in payment-service?"
@@ -341,6 +362,24 @@ A: {{
     }}
   ]
 }}
+
+Q: "Are there any database connection issues?"
+A: {{
+  "intent": "Find database connection issues across services",
+  "log_groups": ["/aws/lambda/payment-service", "/aws/lambda/order-service", "/aws/lambda/inventory-service", "/aws/lambda/user-service"],
+  "queries": [
+    {{
+      "purpose": "Find database connection errors and timeouts",
+      "query": "fields @timestamp, @message | filter @message like /(?i)(ERROR.*database.*connection|ERROR.*db.*connection|ERROR.*connection.*timeout|database.*connection.*timeout|db.*connection.*timeout|connection.*timeout)/ | sort @timestamp desc | limit 50"
+    }}
+  ]
+}}
+
+IMPORTANT: When searching for database connection issues:
+1. Include "ERROR" prefix in patterns since errors often start with "ERROR:"
+2. Match common error formats: "ERROR: Database connection timeout", "Database connection timeout", "Connection timeout"
+3. Use case-insensitive regex: /(?i)pattern/ 
+4. Search across multiple services that use databases (payment, order, inventory, user services)
 
 Q: "Show me insights on rating-service"
 A: {{
@@ -502,7 +541,25 @@ def extract_filter_pattern(query: str, original_question: str = '') -> str:
             logger.info(f"Extracted quoted pattern from query: {pattern}")
             return pattern
 
-    # Step 4: Try common log level patterns (lower priority)
+    # Step 4: Extract common issue patterns from query or question
+    # Check for database connection related terms - use the most specific match
+    question_lower = (original_question or query).lower()
+    
+    # Check in order of specificity (most specific first)
+    if 'connection timeout' in question_lower or 'connection timeout' in query.lower():
+        logger.info(f"Extracted 'connection timeout' pattern from query/question")
+        return "connection timeout"
+    elif 'database connection' in question_lower or 'database connection' in query.lower():
+        logger.info(f"Extracted 'database connection' pattern from query/question")
+        return "database connection"
+    elif 'db connection' in question_lower or 'db connection' in query.lower():
+        logger.info(f"Extracted 'db connection' pattern from query/question")
+        return "db connection"
+    elif 'connection error' in question_lower or 'connection error' in query.lower():
+        logger.info(f"Extracted 'connection error' pattern from query/question")
+        return "connection error"
+    
+    # Step 5: Try common log level patterns (lower priority)
     if "ERROR" in query.upper():
         return "ERROR"
     if "WARN" in query.upper():
@@ -511,10 +568,10 @@ def extract_filter_pattern(query: str, original_question: str = '') -> str:
         return "Exception"
     if "FAIL" in query.upper():
         return "FAIL"
-    if "timeout" in query.lower():
+    if "timeout" in query.lower() or (original_question and "timeout" in original_question.lower()):
         return "timeout"
 
-    # Step 5: Fallback - extract from original question if provided
+    # Step 6: Fallback - extract from original question if provided
     if original_question:
         # Try to extract identifiers from original question
         for pattern_regex in identifier_patterns:
@@ -530,6 +587,13 @@ def extract_filter_pattern(query: str, original_question: str = '') -> str:
             pattern = quoted_match.group(1)
             logger.info(f"Extracted quoted term from original question (fallback): {pattern}")
             return pattern
+        
+        # Extract key terms from question (database, connection, timeout, etc.)
+        key_terms = ['database', 'connection', 'timeout', 'error', 'exception']
+        for term in key_terms:
+            if term in original_question.lower():
+                logger.info(f"Extracted key term from original question (fallback): {term}")
+                return term
 
     # Step 6: Default: empty pattern (returns all logs)
     logger.warning(f"Could not extract filter pattern from query or question. Query: {query[:200]}, Question: {original_question[:200]}")
@@ -550,7 +614,15 @@ async def execute_queries_via_mcp(
     Returns:
         Combined log data from all queries
     """
-    log_group = query_plan['log_group']
+    # Support both single log_group and multiple log_groups
+    if 'log_groups' in query_plan and query_plan['log_groups']:
+        log_groups = query_plan['log_groups']
+        log_group = log_groups[0]  # Use first for primary log group in response
+        logger.info(f"Multi-service query detected: searching {len(log_groups)} log groups")
+    else:
+        log_group = query_plan.get('log_group', '/aws/lambda/payment-service')
+        log_groups = [log_group]
+    
     hours = query_plan['hours']
     queries = query_plan['queries']
 
@@ -562,7 +634,7 @@ async def execute_queries_via_mcp(
     start_time = end_time - timedelta(hours=hours)
 
     logger.info(f"=== QUERY EXECUTION VIA MCP START ===")
-    logger.info(f"Log group: {log_group}")
+    logger.info(f"Log group(s): {log_groups}")
     logger.info(f"Time range: {hours} hours")
     logger.info(f"Start time: {start_time.isoformat()}")
     logger.info(f"End time: {end_time.isoformat()}")
@@ -580,114 +652,131 @@ async def execute_queries_via_mcp(
         )
         logger.info("MCP client initialized successfully")
 
+        # Execute queries across all log groups
         for query_info in queries:
-            try:
-                logger.info(f"--- Executing query via MCP ({search_mode} mode): {query_info['purpose']} ---")
-                logger.info(f"Query string: {query_info['query']}")
+            for current_log_group in log_groups:
+                try:
+                    logger.info(f"--- Executing query via MCP ({search_mode} mode) in {current_log_group}: {query_info['purpose']} ---")
+                    logger.info(f"Query string: {query_info['query']}")
 
-                if search_mode == 'quick':
-                    # Quick Search: Use filter_log_events (real-time, no indexing delay)
-                    # Extract filter pattern from query
-                    filter_pattern = extract_filter_pattern(query_info['query'], query_plan.get('original_question', ''))
-                    logger.info(f"Quick search with filter pattern: '{filter_pattern}' (extracted from query: {query_info['query'][:200]})")
-                    
-                    # Check if pattern looks like an identifier (POL-XXX, TXN-XXX, etc.)
-                    # filter_log_events doesn't handle identifiers well, so use Logs Insights directly
-                    import re
-                    is_identifier = re.match(r'^[A-Z]{2,10}-\d{3,12}$', filter_pattern) or re.match(r'^[A-Z0-9]{1,10}-[A-F0-9]{8}-[A-F0-9]{4}-', filter_pattern)
-                    
-                    if is_identifier:
-                        logger.info(f"Pattern '{filter_pattern}' looks like an identifier. Using Logs Insights directly (filter_log_events doesn't handle identifiers well)")
+                    if search_mode == 'quick':
+                        # Quick Search: Use filter_log_events (real-time, no indexing delay)
+                        # Extract filter pattern from query
+                        filter_pattern = extract_filter_pattern(query_info['query'], query_plan.get('original_question', ''))
+                        logger.info(f"Quick search with filter pattern: '{filter_pattern}' (extracted from query: {query_info['query'][:200]})")
+                        
+                        # Check if the original query contains complex regex patterns
+                        # Complex patterns include: | (OR), .* (wildcards), /pattern/i (regex flags)
+                        import re
+                        has_complex_regex = bool(re.search(r'\|.*\|', query_info['query']) or  # Multiple OR patterns
+                                                 re.search(r'\.\*', query_info['query']) or  # Wildcards
+                                                 re.search(r'/.*/[a-z]*', query_info['query'], re.IGNORECASE))  # Regex with flags
+                        
+                        # Check if pattern looks like an identifier (POL-XXX, TXN-XXX, etc.)
+                        # filter_log_events doesn't handle identifiers well, so use Logs Insights directly
+                        is_identifier = re.match(r'^[A-Z]{2,10}-\d{3,12}$', filter_pattern) or re.match(r'^[A-Z0-9]{1,10}-[A-F0-9]{8}-[A-F0-9]{4}-', filter_pattern)
+                        
+                        # Check if filter pattern is empty or too complex
+                        if has_complex_regex or is_identifier or not filter_pattern:
+                            if has_complex_regex:
+                                logger.info(f"Query contains complex regex pattern. Using Logs Insights directly (filter_log_events doesn't support complex regex)")
+                            elif is_identifier:
+                                logger.info(f"Pattern '{filter_pattern}' looks like an identifier. Using Logs Insights directly (filter_log_events doesn't handle identifiers well)")
+                            else:
+                                logger.info(f"Filter pattern is empty. Using Logs Insights directly")
+                            result = await mcp_client.search_logs(
+                                log_group_name=current_log_group,
+                                query=query_info['query'],
+                                start_time=start_time.isoformat(),
+                                end_time=end_time.isoformat(),
+                                limit=100
+                            )
+                        else:
+                            logger.info(f"Calling MCP filter_log_events with log_group={current_log_group}, start_time={start_time.isoformat()}, end_time={end_time.isoformat()}, hours={hours}, filter_pattern='{filter_pattern}'")
+                            result = await mcp_client.filter_log_events(
+                                log_group_name=current_log_group,
+                                filter_pattern=filter_pattern,
+                                start_time=start_time.isoformat(),
+                                end_time=end_time.isoformat(),
+                                limit=100
+                            )
+                            logger.info(f"MCP filter_log_events returned result type: {type(result).__name__}, keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}")
+                            
+                            # Check if filter_log_events returned 0 results - fall back to Logs Insights
+                            # filter_log_events uses simpler pattern syntax and may miss matches that Logs Insights finds
+                            filter_results = result.get('results', [])
+                            logger.info(f"filter_log_events returned {len(filter_results)} results. Result preview: {str(filter_results)[:200] if filter_results else 'empty'}")
+                            if len(filter_results) == 0:
+                                logger.warning(f"filter_log_events returned 0 results for pattern '{filter_pattern}'. Falling back to Logs Insights (which supports regex patterns)")
+                                logger.info(f"Fallback query: {query_info['query']}")
+                                try:
+                                    result = await mcp_client.search_logs(
+                                        log_group_name=current_log_group,
+                                        query=query_info['query'],
+                                        start_time=start_time.isoformat(),
+                                        end_time=end_time.isoformat(),
+                                        limit=100
+                                    )
+                                    fallback_results = result.get('results', [])
+                                    logger.info(f"Logs Insights fallback returned {len(fallback_results)} results. Result type: {type(result).__name__}")
+                                except Exception as e:
+                                    logger.error(f"Logs Insights fallback failed: {str(e)}", exc_info=True)
+                                    # Continue with empty result from filter_log_events
+                    else:
+                        # Deep Search: Use CloudWatch Logs Insights
                         result = await mcp_client.search_logs(
-                            log_group_name=log_group,
+                            log_group_name=current_log_group,
                             query=query_info['query'],
                             start_time=start_time.isoformat(),
                             end_time=end_time.isoformat(),
                             limit=100
                         )
-                    else:
-                        logger.info(f"Calling MCP filter_log_events with log_group={log_group}, start_time={start_time.isoformat()}, end_time={end_time.isoformat()}, hours={hours}, filter_pattern='{filter_pattern}'")
-                        result = await mcp_client.filter_log_events(
-                            log_group_name=log_group,
-                            filter_pattern=filter_pattern,
-                            start_time=start_time.isoformat(),
-                            end_time=end_time.isoformat(),
-                            limit=100
-                        )
-                        logger.info(f"MCP filter_log_events returned result type: {type(result).__name__}, keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}")
-                        
-                        # Check if filter_log_events returned 0 results - fall back to Logs Insights
-                        # filter_log_events uses simpler pattern syntax and may miss matches that Logs Insights finds
-                        filter_results = result.get('results', [])
-                        logger.info(f"filter_log_events returned {len(filter_results)} results. Result preview: {str(filter_results)[:200] if filter_results else 'empty'}")
-                        if len(filter_results) == 0:
-                            logger.warning(f"filter_log_events returned 0 results for pattern '{filter_pattern}'. Falling back to Logs Insights (which supports regex patterns)")
-                            logger.info(f"Fallback query: {query_info['query']}")
-                            try:
-                                result = await mcp_client.search_logs(
-                                    log_group_name=log_group,
-                                    query=query_info['query'],
-                                    start_time=start_time.isoformat(),
-                                    end_time=end_time.isoformat(),
-                                    limit=100
-                                )
-                                fallback_results = result.get('results', [])
-                                logger.info(f"Logs Insights fallback returned {len(fallback_results)} results. Result type: {type(result).__name__}")
-                            except Exception as e:
-                                logger.error(f"Logs Insights fallback failed: {str(e)}", exc_info=True)
-                                # Continue with empty result from filter_log_events
-                else:
-                    # Deep Search: Use CloudWatch Logs Insights
-                    result = await mcp_client.search_logs(
-                        log_group_name=log_group,
-                        query=query_info['query'],
-                        start_time=start_time.isoformat(),
-                        end_time=end_time.isoformat(),
-                        limit=100
-                    )
 
-                results = result.get('results', [])
-                statistics = result.get('statistics', {})
-                records_scanned = statistics.get('recordsScanned', 0)
+                    results = result.get('results', [])
+                    statistics = result.get('statistics', {})
+                    records_scanned = statistics.get('recordsScanned', 0)
 
-                logger.info(f"MCP query complete: {len(results)} results, {records_scanned} records scanned")
+                    logger.info(f"MCP query complete in {current_log_group}: {len(results)} results, {records_scanned} records scanned")
 
-                # Convert MCP results to consistent format (same as direct API)
-                # MCP returns CloudWatch Logs Insights format: list of field/value pairs
-                formatted_results = []
-                for row in results:
-                    entry = {}
-                    # Handle CloudWatch Logs Insights format: [{"field": "@timestamp", "value": "..."}, ...]
-                    if isinstance(row, list):
-                        for field in row:
-                            entry[field['field']] = field['value']
-                    elif isinstance(row, dict):
-                        # Already converted format (filter_log_events returns dict directly)
-                        entry = row
-                    formatted_results.append(entry)
+                    # Convert MCP results to consistent format (same as direct API)
+                    # MCP returns CloudWatch Logs Insights format: list of field/value pairs
+                    formatted_results = []
+                    for row in results:
+                        entry = {}
+                        # Handle CloudWatch Logs Insights format: [{"field": "@timestamp", "value": "..."}, ...]
+                        if isinstance(row, list):
+                            for field in row:
+                                entry[field['field']] = field['value']
+                        elif isinstance(row, dict):
+                            # Already converted format (filter_log_events returns dict directly)
+                            entry = row
+                        # Add log group info to entry for multi-service queries
+                        if len(log_groups) > 1:
+                            entry['@logGroup'] = current_log_group
+                        formatted_results.append(entry)
 
-                all_results.extend(formatted_results)
-                total_count += len(formatted_results)
+                    all_results.extend(formatted_results)
+                    total_count += len(formatted_results)
 
-                if len(formatted_results) > 0:
-                    logger.info(f"First result sample: {json.dumps(formatted_results[0], default=str)[:200]}")
-                logger.info(f"Query returned {len(formatted_results)} results (total so far: {total_count})")
+                    if len(formatted_results) > 0:
+                        logger.info(f"First result sample from {current_log_group}: {json.dumps(formatted_results[0], default=str)[:200]}")
+                    logger.info(f"Query in {current_log_group} returned {len(formatted_results)} results (total so far: {total_count})")
 
-            except MCPError as e:
-                error_msg = str(e)
-                logger.error(f"MCP query failed: {error_msg}", exc_info=True)
-                query_errors.append(error_msg)
-                # Check if it's a connection error
-                if "Cannot connect to host" in error_msg or "Connect call failed" in error_msg:
-                    connection_errors += 1
-                continue
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Query failed with exception: {error_msg}", exc_info=True)
-                query_errors.append(error_msg)
-                if "Cannot connect" in error_msg or "Connect call failed" in error_msg:
-                    connection_errors += 1
-                continue
+                except MCPError as e:
+                    error_msg = str(e)
+                    logger.error(f"MCP query failed in {current_log_group}: {error_msg}", exc_info=True)
+                    query_errors.append(f"{current_log_group}: {error_msg}")
+                    # Check if it's a connection error
+                    if "Cannot connect to host" in error_msg or "Connect call failed" in error_msg:
+                        connection_errors += 1
+                    continue
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.error(f"Query failed in {current_log_group} with exception: {error_msg}", exc_info=True)
+                    query_errors.append(f"{current_log_group}: {error_msg}")
+                    if "Cannot connect" in error_msg or "Connect call failed" in error_msg:
+                        connection_errors += 1
+                    continue
 
         # If all queries failed due to connection errors, fall back to direct API
         if total_count == 0 and connection_errors > 0 and connection_errors >= len(queries):
@@ -733,7 +822,15 @@ async def execute_queries_direct(
     Returns:
         Combined log data from all queries
     """
-    log_group = query_plan['log_group']
+    # Support both single log_group and multiple log_groups
+    if 'log_groups' in query_plan and query_plan['log_groups']:
+        log_groups = query_plan['log_groups']
+        log_group = log_groups[0]  # Use first for primary log group in response
+        logger.info(f"Multi-service query detected: searching {len(log_groups)} log groups")
+    else:
+        log_group = query_plan.get('log_group', '/aws/lambda/payment-service')
+        log_groups = [log_group]
+    
     hours = query_plan['hours']
     queries = query_plan['queries']
 
@@ -749,157 +846,168 @@ async def execute_queries_direct(
     end_epoch = int(end_time.timestamp() * 1000)
 
     logger.info(f"=== QUERY EXECUTION START (DIRECT API) ===")
-    logger.info(f"Log group: {log_group}")
+    logger.info(f"Log group(s): {log_groups}")
     logger.info(f"Time range: {hours} hours")
     logger.info(f"Start time: {start_time.isoformat()} ({start_epoch} ms)")
     logger.info(f"End time: {end_time.isoformat()} ({end_epoch} ms)")
     logger.info(f"Number of queries: {len(queries)}")
     logger.info(f"Search mode: {search_mode}")
 
+    # Execute queries across all log groups
     for query_info in queries:
-        try:
-            logger.info(f"--- Executing query ({search_mode} mode): {query_info['purpose']} ---")
-            logger.info(f"Query string: {query_info['query']}")
-            logger.info(f"Log group: {log_group}")
-            logger.info(f"Time range: {start_epoch} to {end_epoch} (ms)")
+        for current_log_group in log_groups:
+            try:
+                logger.info(f"--- Executing query ({search_mode} mode) in {current_log_group}: {query_info['purpose']} ---")
+                logger.info(f"Query string: {query_info['query']}")
+                logger.info(f"Log group: {current_log_group}")
+                logger.info(f"Time range: {start_epoch} to {end_epoch} (ms)")
 
-            if search_mode == 'quick':
-                # Quick Search: Use filter_log_events (real-time, no indexing delay)
-                filter_pattern = extract_filter_pattern(query_info['query'], query_plan.get('original_question', ''))
-                logger.info(f"Quick search with filter pattern: {filter_pattern} (extracted from query: {query_info['query'][:200]})")
+                if search_mode == 'quick':
+                    # Quick Search: Use filter_log_events (real-time, no indexing delay)
+                    filter_pattern = extract_filter_pattern(query_info['query'], query_plan.get('original_question', ''))
+                    logger.info(f"Quick search with filter pattern: {filter_pattern} (extracted from query: {query_info['query'][:200]})")
 
-                filter_response = logs_client.filter_log_events(
-                    logGroupName=log_group,
+                    filter_response = logs_client.filter_log_events(
+                        logGroupName=current_log_group,
+                        startTime=start_epoch,
+                        endTime=end_epoch,
+                        filterPattern=filter_pattern,
+                        limit=100
+                    )
+
+                    filter_events = filter_response.get('events', [])
+                    logger.info(f"Quick search found {len(filter_events)} events in {current_log_group}")
+
+                    # Convert filter-log-events format to Insights format
+                    for event in filter_events:
+                        entry = {
+                            '@timestamp': datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
+                            '@message': event['message'],
+                            '@logStream': event.get('logStreamName', '')
+                        }
+                        # Add log group info for multi-service queries
+                        if len(log_groups) > 1:
+                            entry['@logGroup'] = current_log_group
+                        all_results.append(entry)
+                    total_count += len(filter_events)
+                    continue
+
+                # Deep Search: Use CloudWatch Logs Insights
+                # Start the query
+                start_response = logs_client.start_query(
+                    logGroupName=current_log_group,
                     startTime=start_epoch,
                     endTime=end_epoch,
-                    filterPattern=filter_pattern,
+                    queryString=query_info['query'],
                     limit=100
                 )
 
-                filter_events = filter_response.get('events', [])
-                logger.info(f"Quick search found {len(filter_events)} events")
+                query_id = start_response['queryId']
+                logger.info(f"Query started with ID: {query_id} in {current_log_group}")
 
-                # Convert filter-log-events format to Insights format
-                for event in filter_events:
-                    entry = {
-                        '@timestamp': datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
-                        '@message': event['message'],
-                        '@logStream': event.get('logStreamName', '')
-                    }
-                    all_results.append(entry)
-                total_count += len(filter_events)
-                continue
+                # Poll for results (max 30 seconds)
+                max_wait = 30
+                wait_time = 0
+                status = 'Running'
 
-            # Deep Search: Use CloudWatch Logs Insights
-            # Start the query
-            start_response = logs_client.start_query(
-                logGroupName=log_group,
-                startTime=start_epoch,
-                endTime=end_epoch,
-                queryString=query_info['query'],
-                limit=100
-            )
+                while status in ['Running', 'Scheduled'] and wait_time < max_wait:
+                    time.sleep(1)
+                    wait_time += 1
 
-            query_id = start_response['queryId']
-            logger.info(f"Query started with ID: {query_id}")
-
-            # Poll for results (max 30 seconds)
-            max_wait = 30
-            wait_time = 0
-            status = 'Running'
-
-            while status in ['Running', 'Scheduled'] and wait_time < max_wait:
-                time.sleep(1)
-                wait_time += 1
-
-                result_response = logs_client.get_query_results(queryId=query_id)
-                status = result_response['status']
-                
-                # Log statistics if available
-                stats = result_response.get('statistics', {})
-                logger.info(f"Query status: {status} (waited {wait_time}s) | "
-                          f"Records scanned: {stats.get('recordsScanned', 0)}, "
-                          f"Bytes scanned: {stats.get('bytesScanned', 0)}, "
-                          f"Records matched: {stats.get('recordsMatched', 0)}")
-
-            if status == 'Complete':
-                results = result_response.get('results', [])
-                stats = result_response.get('statistics', {})
-                records_scanned = stats.get('recordsScanned', 0)
-                
-                logger.info(f"Query COMPLETE:")
-                logger.info(f"  - Status: {status}")
-                logger.info(f"  - Records scanned: {records_scanned}")
-                logger.info(f"  - Records matched: {stats.get('recordsMatched', 0)}")
-                logger.info(f"  - Bytes scanned: {stats.get('bytesScanned', 0)}")
-                logger.info(f"  - Results returned: {len(results)}")
-
-                # If Insights returns 0 records scanned, try filter-log-events as fallback
-                if records_scanned == 0 and len(results) == 0:
-                    logger.warning(f"CloudWatch Logs Insights returned 0 records scanned - trying filter-log-events fallback")
-                    try:
-                        # Extract search pattern from query (simple pattern matching)
-                        search_pattern = "ERROR"  # Default - could be enhanced to parse query
-                        if "ERROR" in query_info['query'].upper():
-                            search_pattern = "ERROR"
-                        elif "WARN" in query_info['query'].upper():
-                            search_pattern = "WARN"
-                        
-                        filter_response = logs_client.filter_log_events(
-                            logGroupName=log_group,
-                            startTime=start_epoch,
-                            endTime=end_epoch,
-                            filterPattern=search_pattern,
-                            limit=100
-                        )
-                        
-                        filter_events = filter_response.get('events', [])
-                        logger.info(f"filter-log-events fallback found {len(filter_events)} events")
-                        
-                        if filter_events:
-                            # Convert filter-log-events format to Insights format
-                            for event in filter_events:
-                                entry = {
-                                    '@timestamp': event['timestamp'],
-                                    '@message': event['message'],
-                                    '@logStream': event.get('logStreamName', '')
-                                }
-                                all_results.append(entry)
-                            total_count += len(filter_events)
-                            logger.info(f"Using {len(filter_events)} events from filter-log-events fallback")
-                    except Exception as e:
-                        logger.warning(f"filter-log-events fallback failed: {str(e)}")
-
-                # Convert Insights results to simpler format
-                formatted_results = []
-                for row in results:
-                    entry = {}
-                    for field in row:
-                        entry[field['field']] = field['value']
-                    formatted_results.append(entry)
-
-                all_results.extend(formatted_results)
-                total_count += len(formatted_results)
-                
-                if len(formatted_results) > 0:
-                    logger.info(f"First result sample: {json.dumps(formatted_results[0], default=str)[:200]}")
-                elif records_scanned > 0:
-                    logger.warning(f"Query returned 0 results despite recordsScanned={records_scanned}")
+                    result_response = logs_client.get_query_results(queryId=query_id)
+                    status = result_response['status']
                     
-                logger.info(f"Query returned {len(formatted_results)} results (total so far: {total_count})")
-            else:
-                stats = result_response.get('statistics', {})
-                logger.warning(f"Query ended with status: {status}")
-                logger.warning(f"Statistics: {json.dumps(stats, default=str)}")
+                    # Log statistics if available
+                    stats = result_response.get('statistics', {})
+                    logger.info(f"Query status in {current_log_group}: {status} (waited {wait_time}s) | "
+                              f"Records scanned: {stats.get('recordsScanned', 0)}, "
+                              f"Bytes scanned: {stats.get('bytesScanned', 0)}, "
+                              f"Records matched: {stats.get('recordsMatched', 0)}")
 
-        except logs_client.exceptions.ResourceNotFoundException as e:
-            logger.error(f"Log group not found: {log_group}")
-            logger.error(f"Error details: {str(e)}")
-            continue
-        except Exception as e:
-            logger.error(f"Query failed with exception: {str(e)}", exc_info=True)
-            logger.error(f"Exception type: {type(e).__name__}")
-            continue
+                if status == 'Complete':
+                    results = result_response.get('results', [])
+                    stats = result_response.get('statistics', {})
+                    records_scanned = stats.get('recordsScanned', 0)
+                    
+                    logger.info(f"Query COMPLETE in {current_log_group}:")
+                    logger.info(f"  - Status: {status}")
+                    logger.info(f"  - Records scanned: {records_scanned}")
+                    logger.info(f"  - Records matched: {stats.get('recordsMatched', 0)}")
+                    logger.info(f"  - Bytes scanned: {stats.get('bytesScanned', 0)}")
+                    logger.info(f"  - Results returned: {len(results)}")
+
+                    # If Insights returns 0 records scanned, try filter-log-events as fallback
+                    if records_scanned == 0 and len(results) == 0:
+                        logger.warning(f"CloudWatch Logs Insights returned 0 records scanned in {current_log_group} - trying filter-log-events fallback")
+                        try:
+                            # Extract search pattern from query (simple pattern matching)
+                            search_pattern = "ERROR"  # Default - could be enhanced to parse query
+                            if "ERROR" in query_info['query'].upper():
+                                search_pattern = "ERROR"
+                            elif "WARN" in query_info['query'].upper():
+                                search_pattern = "WARN"
+                            
+                            filter_response = logs_client.filter_log_events(
+                                logGroupName=current_log_group,
+                                startTime=start_epoch,
+                                endTime=end_epoch,
+                                filterPattern=search_pattern,
+                                limit=100
+                            )
+                            
+                            filter_events = filter_response.get('events', [])
+                            logger.info(f"filter-log-events fallback found {len(filter_events)} events in {current_log_group}")
+                            
+                            if filter_events:
+                                # Convert filter-log-events format to Insights format
+                                for event in filter_events:
+                                    entry = {
+                                        '@timestamp': datetime.fromtimestamp(event['timestamp'] / 1000).isoformat() if isinstance(event['timestamp'], (int, float)) else event.get('timestamp', ''),
+                                        '@message': event['message'],
+                                        '@logStream': event.get('logStreamName', '')
+                                    }
+                                    # Add log group info for multi-service queries
+                                    if len(log_groups) > 1:
+                                        entry['@logGroup'] = current_log_group
+                                    all_results.append(entry)
+                                total_count += len(filter_events)
+                                logger.info(f"Using {len(filter_events)} events from filter-log-events fallback in {current_log_group}")
+                        except Exception as e:
+                            logger.warning(f"filter-log-events fallback failed in {current_log_group}: {str(e)}")
+
+                    # Convert Insights results to simpler format
+                    formatted_results = []
+                    for row in results:
+                        entry = {}
+                        for field in row:
+                            entry[field['field']] = field['value']
+                        # Add log group info for multi-service queries
+                        if len(log_groups) > 1:
+                            entry['@logGroup'] = current_log_group
+                        formatted_results.append(entry)
+
+                    all_results.extend(formatted_results)
+                    total_count += len(formatted_results)
+                    
+                    if len(formatted_results) > 0:
+                        logger.info(f"First result sample from {current_log_group}: {json.dumps(formatted_results[0], default=str)[:200]}")
+                    elif records_scanned > 0:
+                        logger.warning(f"Query in {current_log_group} returned 0 results despite recordsScanned={records_scanned}")
+                        
+                    logger.info(f"Query in {current_log_group} returned {len(formatted_results)} results (total so far: {total_count})")
+                else:
+                    stats = result_response.get('statistics', {})
+                    logger.warning(f"Query in {current_log_group} ended with status: {status}")
+                    logger.warning(f"Statistics: {json.dumps(stats, default=str)}")
+
+            except logs_client.exceptions.ResourceNotFoundException as e:
+                logger.error(f"Log group not found: {current_log_group}")
+                logger.error(f"Error details: {str(e)}")
+                continue
+            except Exception as e:
+                logger.error(f"Query failed in {current_log_group} with exception: {str(e)}", exc_info=True)
+                logger.error(f"Exception type: {type(e).__name__}")
+                continue
 
     logger.info(f"=== QUERY EXECUTION COMPLETE ===")
     logger.info(f"Total results across all queries: {total_count}")
@@ -958,10 +1066,27 @@ async def synthesize_answer(
     
     identifiers_str = ', '.join(sorted(identifiers)) if identifiers else ''
 
+    # Extract services searched from log groups (for multi-service queries)
+    services_searched = set()
+    for log in sample_logs[:20]:
+        log_group = log.get('@logGroup', '')
+        if log_group:
+            service = log_group.split('/')[-1] if '/' in log_group else log_group
+            services_searched.add(service)
+    
+    # Also check query plan for log groups
+    log_groups = query_plan.get('log_groups', [])
+    if log_groups:
+        for lg in log_groups:
+            service = lg.split('/')[-1] if '/' in lg else lg
+            services_searched.add(service)
+    
+    services_str = ', '.join(sorted(services_searched)) if services_searched else ''
+
     # Prepare log summary for Claude
     if sample_logs:
         log_summary = "\n".join([
-            f"- [{log.get('@timestamp', log.get('timestamp', 'N/A'))}] {log.get('@message', log.get('message', ''))[:200]}"
+            f"- [{log.get('@timestamp', log.get('timestamp', 'N/A'))}] {log.get('@logGroup', 'N/A').split('/')[-1] if log.get('@logGroup') else 'N/A'}: {log.get('@message', log.get('message', ''))[:200]}"
             for log in sample_logs[:20]  # First 20 logs
         ])
     else:
@@ -971,6 +1096,11 @@ async def synthesize_answer(
     context_instruction = ""
     if identifiers_str:
         context_instruction = f"\n\nIMPORTANT CONTEXT: The user's query references specific identifiers: {identifiers_str}. When generating recommendations and follow-up questions, ALWAYS include these specific identifiers (e.g., 'POL-201519' not 'this policy', 'the policy ID' not 'the ID'). This ensures follow-up queries maintain context."
+    
+    # Add multi-service context
+    multi_service_note = ""
+    if services_searched and len(services_searched) > 1:
+        multi_service_note = f"\n\nSEARCH SCOPE: This query searched across multiple services: {services_str}. Results may include entries from any of these services."
 
     prompt = f"""You are a helpful SRE assistant analyzing CloudWatch logs. Answer the user's question based on the log data.
 
@@ -979,10 +1109,11 @@ User Question: {question}
 Log Data Summary:
 - Total entries found: {total_count}
 - Log group: {log_data.get('log_group', 'N/A')}
+- Services searched: {services_str if services_str else 'Single service'}
 - Time range: Last {query_plan.get('hours', 1)} hour(s)
 
 Sample Log Entries:
-{log_summary}{context_instruction}
+{log_summary}{context_instruction}{multi_service_note}
 
 Your task:
 1. Answer the user's question conversationally
