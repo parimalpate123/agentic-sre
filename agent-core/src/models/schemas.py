@@ -38,6 +38,13 @@ class RiskLevel(str, Enum):
     CRITICAL = "CRITICAL"  # Do not auto-execute
 
 
+class ExecutionType(str, Enum):
+    """Type of execution for remediation"""
+    AUTO_EXECUTE = "auto_execute"  # Execute via Lambda/AWS APIs
+    CODE_FIX = "code_fix"          # Create GitHub issue
+    ESCALATE = "escalate"           # Require human intervention
+
+
 # ============================================
 # Input Models
 # ============================================
@@ -165,6 +172,10 @@ class RemediationResult(BaseModel):
     recommended_action: RemediationAction = Field(..., description="Primary recommended action")
     alternative_actions: List[RemediationAction] = Field(default_factory=list, description="Alternative actions")
 
+    # Execution categorization
+    execution_type: ExecutionType = Field(..., description="How to execute this remediation")
+    execution_metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadata for execution")
+
     # Approval
     requires_approval: bool = Field(..., description="Whether human approval is needed")
     approval_reason: Optional[str] = Field(None, description="Reason why approval is needed")
@@ -191,6 +202,12 @@ class InvestigationState(BaseModel):
     analysis: Optional[AnalysisResult] = Field(None, description="Analysis result")
     diagnosis: Optional[DiagnosisResult] = Field(None, description="Diagnosis result")
     remediation: Optional[RemediationResult] = Field(None, description="Remediation result")
+
+    # Execution results
+    execution_results: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Results from remediation execution"
+    )
 
     # Workflow metadata
     started_at: datetime = Field(default_factory=datetime.utcnow, description="Investigation start time")

@@ -230,6 +230,20 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         null  // context
       );
 
+      // Debug: Log the full result to see what we're getting
+      console.log('🔍 Full incident result:', JSON.stringify(result, null, 2));
+      
+      // Extract execution results from full_state
+      const fullState = result.full_state || {};
+      const executionResults = fullState.execution_results || result.execution_results;
+      const remediation = fullState.remediation || {};
+      const executionType = remediation.execution_type || result.execution_type;
+      
+      // Debug: Log extracted values
+      console.log('🔍 Full state:', fullState);
+      console.log('🔍 Execution results:', executionResults);
+      console.log('🔍 Execution type:', executionType);
+
       // Update the message with incident creation result
       setMessages((prev) =>
         prev.map((msg) =>
@@ -242,16 +256,44 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                   confidence: result.confidence,
                   recommended_action: result.recommended_action,
                   executive_summary: result.executive_summary,
+                  execution_results: executionResults,
+                  execution_type: executionType,
                 }
               }
             : msg
         )
       );
 
+      // Build execution status message
+      let executionStatus = '';
+      const execResults = result.full_state?.execution_results || result.execution_results;
+      const execType = result.full_state?.remediation?.execution_type || result.execution_type;
+      
+      if (execResults) {
+        if (execResults.auto_execute) {
+          const status = execResults.auto_execute.status;
+          executionStatus = `\n\n⚡ EXECUTION: ${status === 'success' ? '✅ Auto-executed' : status === 'failed' ? '❌ Auto-execution failed' : '⏸️ Skipped'}`;
+          if (execResults.auto_execute.action) {
+            executionStatus += ` (${execResults.auto_execute.action})`;
+          }
+        } else if (execResults.github_issue) {
+          const status = execResults.github_issue.status;
+          if (status === 'success') {
+            executionStatus = `\n\n🔗 EXECUTION: ✅ GitHub issue created: ${execResults.github_issue.issue_url || 'N/A'}`;
+          } else {
+            executionStatus = `\n\n🔗 EXECUTION: ❌ GitHub issue creation failed: ${execResults.github_issue.error || 'Unknown error'}`;
+          }
+        } else if (execResults.escalation) {
+          executionStatus = `\n\n👤 EXECUTION: ⚠️ Escalated to human: ${execResults.escalation.reason || 'Complex remediation required'}`;
+        }
+      } else if (execType) {
+        executionStatus = `\n\n⚡ EXECUTION TYPE: ${execType}`;
+      }
+
       // Add a success message
       const successMessage = {
         id: `incident-created-${Date.now()}`,
-        text: `✅ Incident created successfully!\n\nIncident ID: ${result.incident_id}\nRoot Cause: ${result.root_cause}\nConfidence: ${result.confidence}%\n\n${result.executive_summary || ''}`,
+        text: `✅ Incident created successfully!\n\nIncident ID: ${result.incident_id}\nRoot Cause: ${result.root_cause}\nConfidence: ${result.confidence}%${executionStatus}\n\n${result.executive_summary || ''}`,
         isUser: false,
         timestamp: new Date().toISOString(),
       };

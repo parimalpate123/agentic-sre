@@ -278,16 +278,22 @@ INCIDENT DETAILS:
 EVIDENCE:
 {supporting_evidence}
 
-Propose a remediation plan:
+Propose a remediation plan and categorize execution type:
 {{
   "recommended_action": {{
-    "action_type": "restart|scale|rollback|config_change",
+    "action_type": "restart|scale|rollback|config_change|code_fix",
     "description": "Human-readable description",
     "steps": ["step1", "step2", ...],
     "estimated_time_minutes": number,
     "risk_level": "LOW|MEDIUM|HIGH",
     "reversible": true|false,
     "rollback_plan": "How to undo if needed"
+  }},
+  "execution_type": "auto_execute|code_fix|escalate",
+  "execution_metadata": {{
+    // For auto_execute: {{"service": "...", "action": "..."}}
+    // For code_fix: {{"repo": "...", "root_cause": "..."}}
+    // For escalate: {{"reason": "..."}}
   }},
   "alternative_actions": [
     // Same structure as recommended_action
@@ -296,7 +302,24 @@ Propose a remediation plan:
   "approval_reason": "Why approval is needed (if applicable)",
   "success_criteria": ["criterion1", "criterion2", ...],
   "monitoring_duration_minutes": number
-}}"""
+}}
+
+EXECUTION TYPE GUIDELINES:
+- "auto_execute": For safe, reversible operations (restart, scale, clear cache)
+  - Risk level must be LOW
+  - Action must be reversible
+  - No code changes required
+  
+- "code_fix": For bugs, logic errors, error handling issues
+  - Category is BUG, LOGIC_ERROR, HANDLING, or TIMEOUT
+  - Requires code changes to fix
+  - Service has GitHub repository mapping
+  
+- "escalate": For complex cases requiring human judgment
+  - High risk operations
+  - Multi-service changes
+  - Unknown root causes
+  - No clear fix path"""
 
 # ============================================
 # Helper Functions

@@ -91,18 +91,45 @@ def incident_from_chat_handler(event: Dict[str, Any], context: Any) -> Dict[str,
             log_group=log_group
         ))
 
+        # Extract execution results from full_state
+        # result is now a properly serialized dict from model_dump(mode='json')
+        full_state = result.get('full_state', {})
+        execution_results = full_state.get('execution_results') if isinstance(full_state, dict) else None
+        remediation = full_state.get('remediation', {}) if isinstance(full_state, dict) else {}
+        execution_type = remediation.get('execution_type') if isinstance(remediation, dict) else None
+
+        # Debug logging
+        logger.info(f"Execution results: {execution_results}")
+        logger.info(f"Execution type: {execution_type}")
+        logger.info(f"Full state keys: {list(full_state.keys()) if isinstance(full_state, dict) else 'not a dict'}")
+
+        # Extract recommended_action description
+        recommended_action = result.get('recommended_action', {})
+        if isinstance(recommended_action, dict):
+            recommended_action_desc = recommended_action.get('description', '')
+        else:
+            recommended_action_desc = str(recommended_action) if recommended_action else ''
+
+        response_body = {
+            'incident_id': result.get('incident_id'),
+            'status': 'completed',
+            'root_cause': result.get('root_cause'),
+            'confidence': result.get('confidence'),
+            'recommended_action': recommended_action_desc,
+            'executive_summary': result.get('executive_summary', ''),
+            'full_state': full_state,  # Include full state for UI
+            'execution_results': execution_results,  # Include execution results
+            'execution_type': execution_type,  # Include execution type
+            'message': f'Incident {result.get("incident_id")} created and investigated successfully'
+        }
+        
+        logger.info(f"Response body keys: {list(response_body.keys())}")
+        logger.info(f"Response execution_results: {json.dumps(execution_results, default=str) if execution_results else 'None'}")
+
         return {
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({
-                'incident_id': result.get('incident_id'),
-                'status': 'completed',
-                'root_cause': result.get('root_cause'),
-                'confidence': result.get('confidence'),
-                'recommended_action': result.get('recommended_action', {}).get('description'),
-                'executive_summary': result.get('executive_summary', ''),
-                'message': f'Incident {result.get("incident_id")} created and investigated successfully'
-            })
+            'body': json.dumps(response_body, default=str)  # Use default=str to handle datetime and other non-serializable types
         }
 
     except Exception as e:
@@ -176,10 +203,13 @@ async def create_incident_from_chat_async(
     # Run investigation
     investigation_result = await agent_core.investigate_incident(incident_data)
 
+    # Convert to dict with proper recursive serialization
+    result_dict = investigation_result.model_dump(mode='json')
+
     # Save to DynamoDB
     storage.save_incident(
         incident_id=investigation_result.incident_id,
-        investigation_result=investigation_result.to_dict()
+        investigation_result=result_dict
     )
 
     logger.info(
@@ -190,7 +220,7 @@ async def create_incident_from_chat_async(
     # Log executive summary
     logger.info(f"\n{investigation_result.executive_summary}")
 
-    return investigation_result.to_dict()
+    return result_dict
 
 
 def count_errors(log_entries: list) -> int:

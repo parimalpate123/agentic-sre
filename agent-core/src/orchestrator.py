@@ -2,9 +2,13 @@
 LangGraph Orchestrator - Coordinates the agent workflow
 """
 
+import os
 import logging
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional
+
+import boto3
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -13,9 +17,13 @@ from models.schemas import (
     IncidentEvent,
     InvestigationState,
     InvestigationResult,
-    InvestigationDecision
+    InvestigationDecision,
+    ExecutionType,
+    RemediationResult,
+    DiagnosisResult
 )
 from agents import TriageAgent, AnalysisAgent, DiagnosisAgent, RemediationAgent
+from integrations.github_client import GitHubClient
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +57,16 @@ class InvestigationOrchestrator:
         self.diagnosis_agent = DiagnosisAgent(bedrock_client, model_id)
         self.remediation_agent = RemediationAgent(bedrock_client, model_id)
 
+        # Initialize GitHub client (optional - only if token provided)
+        self.github_client = None
+        github_token = os.environ.get('GITHUB_TOKEN')
+        if github_token:
+            try:
+                self.github_client = GitHubClient(github_token)
+                logger.info("GitHub client initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize GitHub client: {e}")
+
         # Build workflow graph
         self.workflow = self._build_workflow()
 
@@ -67,6 +85,7 @@ class InvestigationOrchestrator:
         workflow.add_node("run_analysis", self._analysis_node)
         workflow.add_node("run_diagnosis", self._diagnosis_node)
         workflow.add_node("run_remediation", self._remediation_node)
+        workflow.add_node("execute_remediation", self._execution_node)
 
         # Define edges
         workflow.set_entry_point("run_triage")
@@ -84,7 +103,8 @@ class InvestigationOrchestrator:
         # Linear flow for investigation
         workflow.add_edge("run_analysis", "run_diagnosis")
         workflow.add_edge("run_diagnosis", "run_remediation")
-        workflow.add_edge("run_remediation", END)
+        workflow.add_edge("run_remediation", "execute_remediation")
+        workflow.add_edge("execute_remediation", END)
 
         # Compile with memory checkpointing
         memory = MemorySaver()
@@ -293,10 +313,436 @@ class InvestigationOrchestrator:
                 requires_approval=True,
                 approval_reason=f"Remediation agent error: {str(e)}",
                 success_criteria=["Manual verification by SRE"],
-                monitoring_duration_minutes=60
+                monitoring_duration_minutes=60,
+                execution_type=ExecutionType.ESCALATE,
+                execution_metadata={"reason": f"Remediation agent error: {str(e)}"}
             )
 
         return updates
+
+    def _execution_node(self, state: InvestigationState) -> dict:
+        """
+        Execute remediation based on execution type
+
+        Args:
+            state: Current investigation state
+
+        Returns:
+            Dict with execution results
+        """
+        logger.info(f"[EXECUTION] Executing remediation for incident {state.incident.incident_id}")
+
+        updates = {"current_step": "execution"}
+        execution_results = {}
+
+        if not state.remediation:
+            logger.warning("[EXECUTION] No remediation result, skipping execution")
+            return updates
+
+        execution_type = state.remediation.execution_type
+        metadata = state.remediation.execution_metadata
+
+        try:
+            if execution_type == ExecutionType.AUTO_EXECUTE:
+                result = self._execute_auto_action(state.incident, state.remediation, metadata)
+                execution_results['auto_execute'] = result
+                logger.info(f"[EXECUTION] Auto-executed: {result.get('status')}")
+
+            elif execution_type == ExecutionType.CODE_FIX:
+                result = self._create_github_issue(state.incident, state.diagnosis, state.remediation, metadata)
+                execution_results['github_issue'] = result
+                logger.info(f"[EXECUTION] Created GitHub issue: {result.get('issue_url', 'N/A')}")
+
+            elif execution_type == ExecutionType.ESCALATE:
+                result = self._escalate_to_human(state.incident, state.remediation, metadata)
+                execution_results['escalation'] = result
+                logger.info(f"[EXECUTION] Escalated: {result.get('reason')}")
+
+            updates['execution_results'] = execution_results
+
+        except Exception as e:
+            logger.error(f"[EXECUTION] Error: {str(e)}", exc_info=True)
+            errors = list(state.errors) if state.errors else []
+            errors.append(f"Execution failed: {str(e)}")
+            updates["errors"] = errors
+            execution_results['error'] = str(e)
+            updates['execution_results'] = execution_results
+
+        return updates
+
+    def _execute_auto_action(
+        self,
+        incident: IncidentEvent,
+        remediation: RemediationResult,
+        metadata: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Execute auto-execute actions via AWS APIs
+
+        Args:
+            incident: Incident event
+            remediation: Remediation result
+            metadata: Execution metadata
+
+        Returns:
+            Execution result
+        """
+        action_type = remediation.recommended_action.action_type.lower()
+        service = metadata.get('service', incident.service)
+        region = metadata.get('region', incident.aws_region)
+
+        # Check if service exists before attempting execution
+        service_exists = self._check_service_exists(service, region)
+        if not service_exists:
+            logger.info(f"Service {service} does not exist - auto-execution not implemented for this environment")
+            
+            # Build detailed message based on action type
+            if 'restart' in action_type:
+                action_description = (
+                    f"When implemented, this will automatically restart the {service} service by: "
+                    f"(1) Identifying the service type (ECS or Lambda), "
+                    f"(2) For ECS: triggering a force new deployment to restart all tasks, "
+                    f"(3) For Lambda: updating environment variables to trigger a restart, "
+                    f"(4) Verifying the service returns to healthy state. "
+                    f"This will resolve transient issues and restore service availability."
+                )
+            elif 'scale' in action_type:
+                desired_count = metadata.get('desired_count', 'increased')
+                action_description = (
+                    f"When implemented, this will automatically scale the {service} service by: "
+                    f"(1) Identifying the current desired count, "
+                    f"(2) Calculating optimal scale based on incident severity and load, "
+                    f"(3) Updating the ECS service desired count, "
+                    f"(4) Monitoring the scaling operation until completion. "
+                    f"This will increase capacity to handle increased load or traffic spikes."
+                )
+            elif 'rollback' in action_type:
+                action_description = (
+                    f"When implemented, this will automatically rollback the {service} service by: "
+                    f"(1) Identifying the previous stable deployment version, "
+                    f"(2) Updating the service to use the previous task definition, "
+                    f"(3) Triggering a new deployment with the rollback version, "
+                    f"(4) Verifying the service returns to stable state. "
+                    f"This will revert problematic deployments that caused the incident."
+                )
+            else:
+                action_description = (
+                    f"When implemented, this will automatically execute the recommended remediation action "
+                    f"for the {service} service. The system will: "
+                    f"(1) Validate the action is safe to execute, "
+                    f"(2) Perform the remediation via AWS APIs, "
+                    f"(3) Monitor the service health post-execution, "
+                    f"(4) Report success or escalate if issues persist."
+                )
+            
+            return {
+                'status': 'not_implemented',
+                'action': action_type,
+                'service': service,
+                'message': f'Auto-execution is not yet implemented for this service. This feature is coming soon. {action_description}'
+            }
+
+        try:
+            if 'restart' in action_type:
+                # Restart ECS service or Lambda
+                result = self._restart_service(service, region)
+                return {
+                    'status': 'success',
+                    'action': 'restart',
+                    'service': service,
+                    'result': result
+                }
+
+            elif 'scale' in action_type:
+                # Scale service
+                result = self._scale_service(service, region, metadata)
+                return {
+                    'status': 'success',
+                    'action': 'scale',
+                    'service': service,
+                    'result': result
+                }
+
+            else:
+                return {
+                    'status': 'skipped',
+                    'reason': f'Unknown action type: {action_type}'
+                }
+
+        except Exception as e:
+            logger.error(f"Auto-execute failed: {e}")
+            return {
+                'status': 'failed',
+                'action': action_type,
+                'service': service,
+                'error': str(e)
+            }
+
+    def _restart_service(self, service_name: str, region: str) -> Dict[str, Any]:
+        """Restart ECS service or Lambda function"""
+        try:
+            # Try ECS first
+            ecs = boto3.client('ecs', region_name=region)
+            cluster = self._get_cluster_for_service(service_name)
+            service_name_ecs = f"{service_name}-service"
+
+            try:
+                # Force new deployment (restarts tasks)
+                response = ecs.update_service(
+                    cluster=cluster,
+                    service=service_name_ecs,
+                    forceNewDeployment=True
+                )
+                return {
+                    'type': 'ecs',
+                    'cluster': cluster,
+                    'service': service_name_ecs,
+                    'deployment_id': response['service']['deployments'][0]['id']
+                }
+            except ecs.exceptions.ServiceNotFoundException:
+                # Try Lambda
+                lambda_client = boto3.client('lambda', region_name=region)
+                function_name = f"{service_name}-handler"
+
+                # Update environment to trigger restart
+                config = lambda_client.get_function_configuration(FunctionName=function_name)
+                env_vars = config.get('Environment', {}).get('Variables', {})
+                env_vars['_RESTART_TRIGGER'] = str(int(time.time()))
+
+                lambda_client.update_function_configuration(
+                    FunctionName=function_name,
+                    Environment={'Variables': env_vars}
+                )
+                return {
+                    'type': 'lambda',
+                    'function': function_name,
+                    'restarted': True
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to restart service {service_name}: {e}")
+            raise
+
+    def _scale_service(self, service_name: str, region: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Scale ECS service"""
+        try:
+            ecs = boto3.client('ecs', region_name=region)
+            cluster = self._get_cluster_for_service(service_name)
+            service_name_ecs = f"{service_name}-service"
+
+            # Get current desired count
+            service = ecs.describe_services(cluster=cluster, services=[service_name_ecs])
+            current_count = service['services'][0]['desiredCount']
+
+            # Scale up by 50% (or use metadata if provided)
+            new_count = metadata.get('desired_count', max(1, int(current_count * 1.5)))
+
+            response = ecs.update_service(
+                cluster=cluster,
+                service=service_name_ecs,
+                desiredCount=new_count
+            )
+
+            return {
+                'cluster': cluster,
+                'service': service_name_ecs,
+                'old_count': current_count,
+                'new_count': new_count
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to scale service {service_name}: {e}")
+            raise
+
+    def _get_cluster_for_service(self, service_name: str) -> str:
+        """Get ECS cluster name for service"""
+        # Default cluster name pattern
+        return os.environ.get('ECS_CLUSTER', f'{service_name}-cluster')
+
+    def _check_service_exists(self, service_name: str, region: str) -> bool:
+        """
+        Check if service exists in AWS (ECS or Lambda)
+        
+        Args:
+            service_name: Service name
+            region: AWS region
+            
+        Returns:
+            True if service exists, False otherwise
+        """
+        try:
+            # Check ECS first
+            ecs = boto3.client('ecs', region_name=region)
+            cluster = self._get_cluster_for_service(service_name)
+            service_name_ecs = f"{service_name}-service"
+            
+            try:
+                ecs.describe_services(
+                    cluster=cluster,
+                    services=[service_name_ecs]
+                )
+                logger.info(f"Service {service_name} found in ECS")
+                return True
+            except ecs.exceptions.ServiceNotFoundException:
+                # Check Lambda
+                lambda_client = boto3.client('lambda', region_name=region)
+                function_name = f"{service_name}-handler"
+                
+                try:
+                    lambda_client.get_function(FunctionName=function_name)
+                    logger.info(f"Service {service_name} found as Lambda function")
+                    return True
+                except lambda_client.exceptions.ResourceNotFoundException:
+                    logger.info(f"Service {service_name} not found in ECS or Lambda")
+                    return False
+                    
+        except Exception as e:
+            logger.warning(f"Error checking if service exists: {e}")
+            # On error, assume service doesn't exist (safer - will show not_implemented)
+            return False
+
+    def _create_github_issue(
+        self,
+        incident: IncidentEvent,
+        diagnosis: DiagnosisResult,
+        remediation: RemediationResult,
+        metadata: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create GitHub issue for code fix
+
+        Args:
+            incident: Incident event
+            diagnosis: Diagnosis result
+            remediation: Remediation result
+            metadata: Execution metadata (includes repo)
+
+        Returns:
+            Issue creation result
+        """
+        repo = metadata.get('repo')
+        if not repo:
+            return {
+                'status': 'failed',
+                'error': 'No repository mapping found'
+            }
+
+        if not self.github_client:
+            return {
+                'status': 'failed',
+                'error': 'GitHub client not initialized (GITHUB_TOKEN not set)'
+            }
+
+        try:
+            # Format issue body
+            issue_body = self._format_github_issue_body(incident, diagnosis, remediation)
+
+            # Create issue
+            issue_url = self.github_client.create_issue(
+                repo=repo,
+                title=f"Fix: {diagnosis.root_cause} - {incident.incident_id}",
+                body=issue_body,
+                labels=["auto-fix", f"incident-{incident.incident_id}"]
+            )
+
+            return {
+                'status': 'success',
+                'issue_url': issue_url,
+                'repo': repo,
+                'issue_number': self.github_client._extract_issue_number(issue_url)
+            }
+
+        except Exception as e:
+            logger.error(f"GitHub issue creation failed: {e}")
+            return {
+                'status': 'failed',
+                'error': str(e)
+            }
+
+    def _format_github_issue_body(
+        self,
+        incident: IncidentEvent,
+        diagnosis: DiagnosisResult,
+        remediation: RemediationResult
+    ) -> str:
+        """Format GitHub issue body with incident context"""
+        # Get log entries from raw event
+        log_entries = incident.raw_event.get('log_entries', [])[:10]
+        log_summary = ""
+        if log_entries:
+            for entry in log_entries:
+                message = entry.get('@message', entry.get('message', str(entry)))
+                log_summary += f"{message}\n"
+
+        # Get error patterns
+        error_patterns = getattr(diagnosis, 'error_patterns', [])
+        if not error_patterns and hasattr(diagnosis, 'supporting_evidence'):
+            error_patterns = diagnosis.supporting_evidence
+
+        return f"""## Incident: {incident.incident_id}
+
+### Service
+{incident.service}
+
+### Root Cause
+{diagnosis.root_cause}
+Confidence: {diagnosis.confidence}%
+
+### Error Patterns
+{', '.join(error_patterns) if error_patterns else 'N/A'}
+
+### Recommended Fix
+{remediation.recommended_action.description}
+
+### Steps
+{chr(10).join(f"1. {step}" for step in remediation.recommended_action.steps)}
+
+### Relevant Logs
+```
+{log_summary or 'No log entries available'}
+```
+
+### Context
+- Incident Time: {incident.timestamp}
+- Affected Components: {diagnosis.component}
+- Correlation ID: {incident.raw_event.get('correlation_id', 'N/A')}
+- Service Tier: {incident.service_tier}
+
+---
+**Auto-generated by Remediation Agent**
+"""
+
+    def _escalate_to_human(
+        self,
+        incident: IncidentEvent,
+        remediation: RemediationResult,
+        metadata: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Escalate to human for complex cases
+
+        Args:
+            incident: Incident event
+            remediation: Remediation result
+            metadata: Execution metadata
+
+        Returns:
+            Escalation result
+        """
+        # For MVP: Just log escalation
+        # Future: Create ticket, send notification, etc.
+        logger.warning(
+            f"ESCALATION REQUIRED for incident {incident.incident_id}: "
+            f"{metadata.get('reason', 'Complex remediation required')}"
+        )
+
+        return {
+            'status': 'escalated',
+            'reason': metadata.get('reason', 'Complex remediation required'),
+            'incident_id': incident.incident_id,
+            'action_required': remediation.recommended_action.description,
+            'note': 'Escalation logged. Manual intervention required.'
+        }
 
     async def investigate(self, incident: IncidentEvent) -> InvestigationResult:
         """

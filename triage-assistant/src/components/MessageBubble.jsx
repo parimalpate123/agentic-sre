@@ -206,6 +206,123 @@ export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosin
           <DiagnosisView diagnosis={message.diagnosis} />
         )}
 
+        {/* Execution Results (if available) */}
+        {!isUser && message.incident && (message.incident.execution_results || message.incident.execution_type) && (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <p className="text-xs font-semibold text-gray-500 mb-2">⚡ Execution Results:</p>
+            {message.incident.execution_results?.auto_execute && (
+              <div className={`mb-2 p-2 rounded border ${
+                message.incident.execution_results.auto_execute.status === 'success' 
+                  ? 'bg-green-50 border-green-200' 
+                  : message.incident.execution_results.auto_execute.status === 'failed'
+                  ? 'bg-red-50 border-red-200'
+                  : message.incident.execution_results.auto_execute.status === 'not_implemented'
+                  ? 'bg-gray-50 border-gray-300'
+                  : 'bg-blue-50 border-blue-200'
+              }`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={
+                    message.incident.execution_results.auto_execute.status === 'success' 
+                      ? 'text-green-600' 
+                      : message.incident.execution_results.auto_execute.status === 'failed'
+                      ? 'text-red-600'
+                      : message.incident.execution_results.auto_execute.status === 'not_implemented'
+                      ? 'text-gray-500'
+                      : 'text-blue-600'
+                  }>
+                    {message.incident.execution_results.auto_execute.status === 'success' 
+                      ? '✅' 
+                      : message.incident.execution_results.auto_execute.status === 'failed'
+                      ? '❌'
+                      : message.incident.execution_results.auto_execute.status === 'not_implemented'
+                      ? '🚧'
+                      : '⏸️'}
+                  </span>
+                  <span className="text-xs font-medium text-gray-700">
+                    {message.incident.execution_results.auto_execute.status === 'not_implemented'
+                      ? 'Auto-Execute: Coming Soon'
+                      : `Auto-Execute: ${message.incident.execution_results.auto_execute.status}`}
+                  </span>
+                </div>
+                {message.incident.execution_results.auto_execute.action && (
+                  <p className="text-xs text-gray-600">
+                    Action: {message.incident.execution_results.auto_execute.action}
+                  </p>
+                )}
+                {message.incident.execution_results.auto_execute.service && (
+                  <p className="text-xs text-gray-600">
+                    Service: {message.incident.execution_results.auto_execute.service}
+                  </p>
+                )}
+                {message.incident.execution_results.auto_execute.message && (
+                  <div className="mt-2 p-2 bg-white rounded border border-gray-200">
+                    <p className="text-xs font-semibold text-gray-700 mb-1">
+                      📋 Planned Implementation:
+                    </p>
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      {message.incident.execution_results.auto_execute.message}
+                    </p>
+                  </div>
+                )}
+                {message.incident.execution_results.auto_execute.error && (
+                  <p className="text-xs text-red-600 mt-1 font-medium">
+                    Error: {message.incident.execution_results.auto_execute.error}
+                  </p>
+                )}
+              </div>
+            )}
+            {message.incident.execution_results?.github_issue && (
+              <div className="mb-2 p-2 bg-green-50 rounded border border-green-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={message.incident.execution_results.github_issue.status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                    {message.incident.execution_results.github_issue.status === 'success' ? '✅' : '❌'}
+                  </span>
+                  <span className="text-xs font-medium text-gray-700">
+                    GitHub Issue: {message.incident.execution_results.github_issue.status}
+                  </span>
+                </div>
+                {message.incident.execution_results.github_issue.issue_url && (
+                  <a
+                    href={message.incident.execution_results.github_issue.issue_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    View Issue →
+                  </a>
+                )}
+                {message.incident.execution_results.github_issue.error && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Error: {message.incident.execution_results.github_issue.error}
+                  </p>
+                )}
+              </div>
+            )}
+            {message.incident.execution_results?.escalation && (
+              <div className="mb-2 p-2 bg-yellow-50 rounded border border-yellow-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <span>⚠️</span>
+                  <span className="text-xs font-medium text-gray-700">
+                    Escalated to Human
+                  </span>
+                </div>
+                {message.incident.execution_results.escalation.reason && (
+                  <p className="text-xs text-gray-600">
+                    Reason: {message.incident.execution_results.escalation.reason}
+                  </p>
+                )}
+              </div>
+            )}
+            {message.incident.execution_type && !message.incident.execution_results && (
+              <div className="mb-2 p-2 bg-gray-50 rounded border border-gray-200">
+                <p className="text-xs text-gray-600">
+                  Execution Type: <span className="font-medium">{message.incident.execution_type}</span>
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Timestamp */}
         <p className={`text-xs mt-2 ${isUser ? 'text-blue-200' : 'text-gray-400'}`}>
           {new Date(message.timestamp).toLocaleTimeString()}
