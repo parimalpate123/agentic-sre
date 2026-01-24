@@ -64,12 +64,26 @@ def incident_from_chat_handler(event: Dict[str, Any], context: Any) -> Dict[str,
             body = event
 
         # Extract parameters
-        log_data = body.get('log_data', {})
+        log_data = body.get('log_data') or {}
         service = body.get('service', 'unknown-service')
         question = body.get('question', 'User-initiated investigation')
         alert_name = body.get('alert_name', f'chat-investigation-{service}')
         context = body.get('context')
-        log_group = body.get('log_group', f'/aws/lambda/{service}')
+        log_group = body.get('log_group')
+        
+        # Extract service and log_group from correlation_data if available
+        if log_data and isinstance(log_data, dict):
+            correlation_data = log_data.get('correlation_data') or {}
+            if not log_group and correlation_data.get('log_group'):
+                log_group = correlation_data['log_group']
+            if service == 'unknown-service' and log_group:
+                service = extract_service_name(log_group)
+            elif service == 'unknown-service' and correlation_data.get('services_found'):
+                service = correlation_data['services_found'][0]
+        
+        # Default log_group if still not set
+        if not log_group:
+            log_group = f'/aws/lambda/{service}' if service != 'unknown-service' else '/aws/lambda/payment-service'
 
         if not log_data:
             return {
@@ -288,6 +302,10 @@ def build_incident_from_chat(
     # Generate unique incident ID
     incident_id = f"chat-{int(datetime.utcnow().timestamp())}-{uuid.uuid4().hex[:8]}"
 
+    # Ensure log_data is a dict
+    if not log_data or not isinstance(log_data, dict):
+        log_data = {}
+    
     # Map log_entries to sample_logs (handle both structures)
     log_entries = log_data.get('log_entries', [])
     sample_logs = log_data.get('sample_logs', log_entries)  # Use log_entries as fallback
@@ -306,21 +324,26 @@ def build_incident_from_chat(
             service = extracted_service
         elif first_entry.get('log_group'):
             service = extract_service_name(first_entry['log_group'])
+        elif first_entry.get('@logGroup'):  # CloudWatch log format
+            service = extract_service_name(first_entry['@logGroup'])
     
     # Extract log group from correlation data if not provided
     if not log_group or log_group == f'/aws/lambda/{service}':
-        correlation_data = log_data.get('correlation_data', {})
-        if correlation_data.get('log_group'):
-            log_group = correlation_data['log_group']
-        elif correlation_data.get('services_found'):
-            # Use first service's log group
-            first_service = correlation_data['services_found'][0]
-            log_group = f'/aws/lambda/{first_service}'
+        correlation_data = log_data.get('correlation_data') or {} if log_data else {}
+        if correlation_data and isinstance(correlation_data, dict):
+            if correlation_data.get('log_group'):
+                log_group = correlation_data['log_group']
+            elif correlation_data.get('services_found'):
+                # Use first service's log group
+                first_service = correlation_data['services_found'][0]
+                log_group = f'/aws/lambda/{first_service}'
         elif log_entries and isinstance(log_entries[0], dict):
             # Extract from first log entry
             first_entry = log_entries[0]
             if first_entry.get('log_group'):
                 log_group = first_entry['log_group']
+            elif first_entry.get('@logGroup'):  # CloudWatch log format
+                log_group = first_entry['@logGroup']
             elif first_entry.get('service'):
                 log_group = f'/aws/lambda/{first_entry["service"]}'
     
@@ -338,10 +361,10 @@ def build_incident_from_chat(
 
     # Extract correlation ID from log data if present
     correlation_id = None
-    correlation_data = log_data.get('correlation_data', {})
+    correlation_data = log_data.get('correlation_data') or {} if log_data else {}
     time_range_minutes = None
     
-    if correlation_data:
+    if correlation_data and isinstance(correlation_data, dict):
         correlation_id = correlation_data.get('correlation_id')
         if not correlation_id and isinstance(correlation_data, dict):
             # Try to extract from request_flow or other fields

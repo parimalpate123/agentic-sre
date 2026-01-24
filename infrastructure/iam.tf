@@ -227,3 +227,23 @@ resource "aws_iam_role_policy" "lambda_logs_insights" {
     ]
   })
 }
+
+# Lambda SSM Parameter Store Access (for GitHub token)
+resource "aws_iam_role_policy" "lambda_ssm" {
+  name = "${var.project_name}-lambda-ssm-policy"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ]
+        Resource = aws_ssm_parameter.github_token.arn
+      }
+    ]
+  })
+}

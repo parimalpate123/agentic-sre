@@ -59,7 +59,7 @@ class InvestigationOrchestrator:
 
         # Initialize GitHub client (optional - only if token provided)
         self.github_client = None
-        github_token = os.environ.get('GITHUB_TOKEN')
+        github_token = self._get_github_token()
         if github_token:
             try:
                 self.github_client = GitHubClient(github_token)
@@ -69,6 +69,43 @@ class InvestigationOrchestrator:
 
         # Build workflow graph
         self.workflow = self._build_workflow()
+
+    def _get_github_token(self) -> Optional[str]:
+        """
+        Get GitHub token from SSM Parameter Store or environment variable
+        
+        Priority:
+        1. SSM Parameter Store (if GITHUB_TOKEN_SSM_PARAM is set)
+        2. Environment variable GITHUB_TOKEN (for local development)
+        
+        Returns:
+            GitHub token or None
+        """
+        import boto3
+        
+        # Try SSM Parameter Store first (production)
+        ssm_param_name = os.environ.get('GITHUB_TOKEN_SSM_PARAM')
+        if ssm_param_name:
+            try:
+                ssm = boto3.client('ssm')
+                response = ssm.get_parameter(Name=ssm_param_name, WithDecryption=True)
+                token = response['Parameter']['Value']
+                if token and token != 'CHANGE_ME':
+                    logger.info(f"GitHub token retrieved from SSM: {ssm_param_name}")
+                    return token
+                else:
+                    logger.warning(f"GitHub token in SSM is not set (value: {token})")
+            except Exception as e:
+                logger.warning(f"Failed to get GitHub token from SSM {ssm_param_name}: {e}")
+        
+        # Fallback to environment variable (for local development)
+        github_token = os.environ.get('GITHUB_TOKEN')
+        if github_token:
+            logger.info("GitHub token retrieved from environment variable")
+            return github_token
+        
+        logger.info("No GitHub token configured (SSM or env var)")
+        return None
 
     def _build_workflow(self) -> StateGraph:
         """
@@ -101,6 +138,7 @@ class InvestigationOrchestrator:
         )
 
         # Linear flow for investigation
+        # Add small delays between nodes to avoid rate limiting
         workflow.add_edge("run_analysis", "run_diagnosis")
         workflow.add_edge("run_diagnosis", "run_remediation")
         workflow.add_edge("run_remediation", "execute_remediation")
@@ -186,6 +224,10 @@ class InvestigationOrchestrator:
         updates = {"current_step": "analysis"}
 
         try:
+            # Small delay to avoid rate limiting after triage
+            import asyncio
+            await asyncio.sleep(0.5)
+            
             analysis_result = await self.analysis_agent.analyze(
                 state.incident,
                 state.triage
@@ -220,6 +262,8 @@ class InvestigationOrchestrator:
         updates = {"current_step": "diagnosis"}
 
         try:
+            # Small delay to avoid rate limiting after analysis
+            time.sleep(0.5)
             # Safely extract analysis result - LangGraph might pass it as dict or object
             analysis = state.analysis
             if analysis is None:
@@ -267,6 +311,9 @@ class InvestigationOrchestrator:
         updates = {"current_step": "remediation"}
 
         try:
+            # Small delay to avoid rate limiting after diagnosis
+            time.sleep(0.5)
+            
             # Ensure we have a diagnosis (remediation needs it)
             if not state.diagnosis:
                 from models.schemas import DiagnosisResult
@@ -638,19 +685,29 @@ class InvestigationOrchestrator:
             issue_body = self._format_github_issue_body(incident, diagnosis, remediation)
 
             # Create issue
-            issue_url = self.github_client.create_issue(
-                repo=repo,
-                title=f"Fix: {diagnosis.root_cause} - {incident.incident_id}",
-                body=issue_body,
-                labels=["auto-fix", f"incident-{incident.incident_id}"]
-            )
+            try:
+                issue_url = self.github_client.create_issue(
+                    repo=repo,
+                    title=f"Fix: {diagnosis.root_cause} - {incident.incident_id}",
+                    body=issue_body,
+                    labels=["auto-fix", f"incident-{incident.incident_id}"]
+                )
 
-            return {
-                'status': 'success',
-                'issue_url': issue_url,
-                'repo': repo,
-                'issue_number': self.github_client._extract_issue_number(issue_url)
-            }
+                issue_number = self.github_client._extract_issue_number(issue_url)
+                
+                return {
+                    'status': 'success',
+                    'issue_url': issue_url,
+                    'repo': repo,
+                    'issue_number': issue_number
+                }
+            except Exception as e:
+                logger.error(f"Failed to create GitHub issue: {e}", exc_info=True)
+                return {
+                    'status': 'failed',
+                    'error': str(e),
+                    'repo': repo
+                }
 
         except Exception as e:
             logger.error(f"GitHub issue creation failed: {e}")

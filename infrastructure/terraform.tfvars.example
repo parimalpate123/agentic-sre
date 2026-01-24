@@ -1,0 +1,22 @@
+# Terraform Variables Example
+# Copy this file to terraform.tfvars and fill in your values
+# terraform.tfvars is git-ignored for security
+
+# GitHub Configuration
+# Set your GitHub organization/username
+github_org = "your-github-org-or-username"
+
+# GitHub Token is stored in AWS SSM Parameter Store (not here!)
+# After running terraform apply, set the token using:
+# aws ssm put-parameter \
+#   --name "/sre-poc/github/token" \
+#   --value "ghp_your_token_here" \
+#   --type "SecureString" \
+#   --overwrite
+#
+# Get token from: https://github.com/settings/tokens
+# Required permissions: repo (full control of private repositories)
+
+# Optional: Override other defaults
+# aws_region = "us-east-1"
+# project_name = "sre-poc"

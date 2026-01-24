@@ -67,3 +67,14 @@ variable "log_retention_days" {
   type        = number
   default     = 7
 }
+
+# GitHub Configuration
+variable "github_org" {
+  description = "GitHub organization or username for service repositories"
+  type        = string
+  default     = ""
+}
+
+# Note: github_token is stored in SSM Parameter Store, not as a Terraform variable
+# Use AWS CLI or Console to set it: 
+# aws ssm put-parameter --name "/sre-poc/github/token" --value "ghp_xxx" --type "SecureString"

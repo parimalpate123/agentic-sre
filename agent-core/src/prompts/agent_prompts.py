@@ -163,10 +163,16 @@ Your role is to:
 Root Cause Categories:
 - DEPLOYMENT: Code deployment, configuration change, infrastructure update
 - CONFIGURATION: Configuration error or drift
-- RESOURCE: Resource exhaustion (memory, CPU, connections, disk)
+- RESOURCE: Resource exhaustion (memory, CPU, connections, disk) - NOTE: Database connection timeouts should be TIMEOUT, not RESOURCE
 - CODE: Software bug or logic error
-- DEPENDENCY: External service or dependency failure
+- TIMEOUT: Timeout errors (database connections, API calls, network timeouts) - Use this for connection timeouts, especially database-related
+- DEPENDENCY: External service or dependency failure (service is down/unreachable)
 - LOAD: Traffic spike or unexpected load pattern
+
+IMPORTANT: Database connection timeouts should be categorized as TIMEOUT (not RESOURCE or DEPENDENCY) because they typically indicate:
+- Connection pool misconfiguration (requires code/config fix)
+- Timeout settings too low (requires code/config fix)
+- Connection handling bugs (requires code fix)
 
 Confidence Assessment:
 - 90-100%: Strong evidence, single clear cause, timing matches perfectly
@@ -210,7 +216,7 @@ Provide your diagnosis in valid JSON format (no control characters, escape newli
 {{
   "root_cause": "Specific, actionable root cause based on the evidence (e.g., 'API Gateway returned 502 errors due to inventory-service and order-service being temporarily unavailable')",
   "confidence": 50-100,
-  "category": "DEPLOYMENT|CONFIGURATION|RESOURCE|CODE|DEPENDENCY|LOAD",
+  "category": "DEPLOYMENT|CONFIGURATION|RESOURCE|CODE|TIMEOUT|DEPENDENCY|LOAD",
   "component": "Specific component involved (e.g., 'inventory-service', 'order-service', 'api-gateway')",
   "supporting_evidence": ["evidence1", "evidence2", ...],
   "alternative_causes": ["other possibility1", ...],

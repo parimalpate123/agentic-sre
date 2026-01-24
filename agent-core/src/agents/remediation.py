@@ -131,9 +131,16 @@ class RemediationAgent:
                 ]
             }
 
-            response = self.bedrock_client.invoke_model(
-                modelId=self.model_id,
-                body=json.dumps(request_body)
+            # Invoke model with retry logic for throttling
+            from utils.bedrock_client import invoke_bedrock_with_retry
+            
+            response = invoke_bedrock_with_retry(
+                bedrock_client=self.bedrock_client,
+                model_id=self.model_id,
+                request_body=request_body,
+                max_retries=5,
+                initial_delay=2.0,
+                max_delay=30.0
             )
 
             response_body = json.loads(response['body'].read())
@@ -305,7 +312,34 @@ class RemediationAgent:
         category = diagnosis.category.upper()
         risk_level = action.risk_level
 
-        # Auto-execute: Safe, reversible operations
+        # Code fix: Bug fixes, logic errors, error handling - CHECK FIRST
+        # These categories should always result in code fixes, regardless of action type
+        code_fix_categories = ['BUG', 'LOGIC_ERROR', 'HANDLING', 'TIMEOUT', 'ERROR_HANDLING']
+        if category in code_fix_categories:
+            # Try to get service from diagnosis component if incident service is unknown
+            service_name = incident.service
+            if service_name == 'unknown-service' and diagnosis.component:
+                # Extract service from component (e.g., "payment-service" from "payment-service, order-service")
+                component = diagnosis.component.split(',')[0].strip()
+                if component and component != 'unknown':
+                    service_name = component
+                    logger.info(f"Using diagnosis component '{component}' as service name (incident service was unknown)")
+            
+            # Check if we have a repo mapping
+            repo = self._get_repo_for_service(service_name)
+            if repo:
+                logger.info(f"Categorizing as CODE_FIX: {category} (repo: {repo}, service: {service_name}) - category takes priority over action type")
+                return ExecutionType.CODE_FIX, {
+                    'repo': repo,
+                    'service': service_name,
+                    'root_cause': diagnosis.root_cause,
+                    'error_patterns': getattr(diagnosis, 'error_patterns', []),
+                    'category': category
+                }
+            else:
+                logger.warning(f"Category {category} requires CODE_FIX but no repo mapping for {service_name}")
+
+        # Auto-execute: Safe, reversible operations (only if not a code fix category)
         auto_execute_actions = [
             'restart', 'scale', 'clear_cache',
             'reset_connections', 'enable_feature_flag', 'disable_feature'
@@ -321,21 +355,6 @@ class RemediationAgent:
                     'region': incident.aws_region
                 }
 
-        # Code fix: Bug fixes, logic errors, error handling
-        code_fix_categories = ['BUG', 'LOGIC_ERROR', 'HANDLING', 'TIMEOUT', 'ERROR_HANDLING']
-        if category in code_fix_categories:
-            # Check if we have a repo mapping
-            repo = self._get_repo_for_service(incident.service)
-            if repo:
-                logger.info(f"Categorizing as CODE_FIX: {category} (repo: {repo})")
-                return ExecutionType.CODE_FIX, {
-                    'repo': repo,
-                    'service': incident.service,
-                    'root_cause': diagnosis.root_cause,
-                    'error_patterns': getattr(diagnosis, 'error_patterns', []),
-                    'category': category
-                }
-
         # Escalate: Everything else
         logger.info(f"Categorizing as ESCALATE: {action_type} (category: {category}, risk: {risk_level.value})")
         return ExecutionType.ESCALATE, {
@@ -348,24 +367,42 @@ class RemediationAgent:
     def _get_repo_for_service(self, service_name: str) -> Optional[str]:
         """
         Map service name to GitHub repository
-
+        
+        Uses poc- prefix for POC/test repositories.
+        Format: {GITHUB_ORG}/poc-{service-name}
+        
         Args:
-            service_name: Service name
-
+            service_name: Service name (e.g., "payment-service")
+            
         Returns:
             Repository path (org/repo) or None if not mapped
+            
+        Environment Variables:
+            GITHUB_ORG: GitHub organization or username (default: "your-org")
+            {SERVICE}_SERVICE_REPO: Override for specific service (e.g., PAYMENT_SERVICE_REPO)
         """
         import os
-        # Service-to-repo mapping
-        # Can be overridden via environment variable or config file
-        SERVICE_REPO_MAP = {
-            "payment-service": os.environ.get("PAYMENT_SERVICE_REPO", "org/payment-service"),
-            "order-service": os.environ.get("ORDER_SERVICE_REPO", "org/order-service"),
-            "inventory-service": os.environ.get("INVENTORY_SERVICE_REPO", "org/inventory-service"),
-            "user-service": os.environ.get("USER_SERVICE_REPO", "org/user-service"),
-            "api-gateway": os.environ.get("API_GATEWAY_REPO", "org/api-gateway"),
-            "policy-service": os.environ.get("POLICY_SERVICE_REPO", "org/policy-service"),
-            "rating-service": os.environ.get("RATING_SERVICE_REPO", "org/rating-service"),
-            "notification-service": os.environ.get("NOTIFICATION_SERVICE_REPO", "org/notification-service"),
+        
+        # Get GitHub org/username from environment (default to placeholder)
+        github_org = os.environ.get("GITHUB_ORG", "your-org")
+        
+        # POC service-to-repo mapping (only services with repos)
+        # Format: {org}/poc-{service-name}
+        POC_SERVICES = {
+            "payment-service": "poc-payment-service",
+            "rating-service": "poc-rating-service",
+            "order-service": "poc-order-service",
         }
-        return SERVICE_REPO_MAP.get(service_name)
+        
+        # Check if service has a POC repo
+        if service_name in POC_SERVICES:
+            repo_name = POC_SERVICES[service_name]
+            # Allow override via environment variable
+            env_key = f"{service_name.upper().replace('-', '_')}_SERVICE_REPO"
+            repo_path = os.environ.get(env_key, f"{github_org}/{repo_name}")
+            logger.info(f"Mapped service {service_name} to repo: {repo_path}")
+            return repo_path
+        
+        # Service not in POC repos
+        logger.info(f"Service {service_name} does not have a repository mapping")
+        return None

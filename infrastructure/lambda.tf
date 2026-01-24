@@ -47,7 +47,13 @@ resource "aws_lambda_function" "incident_handler" {
 
       # Logging
       LOG_LEVEL  = "INFO"
-        # AWS_REGION is reserved and set automatically by Lambda
+
+      # GitHub Configuration (for auto-remediation code fixes)
+      # Note: GITHUB_TOKEN is read from SSM Parameter Store at runtime
+      GITHUB_ORG = var.github_org
+      GITHUB_TOKEN_SSM_PARAM = aws_ssm_parameter.github_token.name
+
+      # AWS_REGION is reserved and set automatically by Lambda
     }
   }
 
@@ -56,7 +62,9 @@ resource "aws_lambda_function" "incident_handler" {
     aws_iam_role_policy.lambda_logs,
     aws_iam_role_policy.lambda_bedrock,
     aws_iam_role_policy.lambda_dynamodb,
-    aws_iam_role_policy_attachment.lambda_vpc
+    aws_iam_role_policy.lambda_ssm,
+    aws_iam_role_policy_attachment.lambda_vpc,
+    aws_ssm_parameter.github_token
   ]
 
   tags = {

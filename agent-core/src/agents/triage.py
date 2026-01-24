@@ -108,10 +108,16 @@ class TriageAgent:
                 ]
             }
 
-            # Invoke model
-            response = self.bedrock_client.invoke_model(
-                modelId=self.model_id,
-                body=json.dumps(request_body)
+            # Invoke model with retry logic for throttling
+            from utils.bedrock_client import invoke_bedrock_with_retry
+            
+            response = invoke_bedrock_with_retry(
+                bedrock_client=self.bedrock_client,
+                model_id=self.model_id,
+                request_body=request_body,
+                max_retries=5,
+                initial_delay=2.0,  # Start with 2 second delay
+                max_delay=30.0     # Max 30 seconds between retries
             )
 
             # Parse response
