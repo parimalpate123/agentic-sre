@@ -6,8 +6,19 @@
 import CorrelationView from './CorrelationView';
 import ErrorPatternsView from './ErrorPatternsView';
 import DiagnosisView from './DiagnosisView';
+import RemediationStatus from './RemediationStatus';
 
-export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosing = false, onCreateIncident, isCreatingIncident = false }) {
+export default function MessageBubble({ 
+  message, 
+  isUser, 
+  onDiagnose, 
+  isDiagnosing = false, 
+  onCreateIncident, 
+  isCreatingIncident = false,
+  remediationStatus = null,
+  onRefreshRemediation = null,
+  onCreateGitHubIssue = null
+}) {
   // Get search mode badge text and styles
   const getSearchModeBadge = () => {
     switch (message.searchMode) {
@@ -73,8 +84,8 @@ export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosin
           </div>
         )}
 
-        {/* Message text */}
-        <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+        {/* Message text - but if it's an incident, we'll show it after Execution Results */}
+        {!message.incident && <p className="text-sm whitespace-pre-wrap">{message.text}</p>}
 
         {/* Insights (for assistant messages) */}
         {!isUser && message.insights && message.insights.length > 0 && (
@@ -206,7 +217,23 @@ export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosin
           <DiagnosisView diagnosis={message.diagnosis} />
         )}
 
-        {/* Execution Results (if available) */}
+        {/* Show incident analysis text BEFORE Execution Results */}
+        {!isUser && message.incident && message.text && (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+          </div>
+        )}
+
+        {/* Remediation Status (if GitHub issue was created) */}
+        {!isUser && message.incident?.incident_id && (
+          <RemediationStatus
+            incidentId={message.incident.incident_id}
+            remediationStatus={remediationStatus}
+            onRefresh={onRefreshRemediation}
+          />
+        )}
+
+        {/* Execution Results (shown AFTER incident analysis) */}
         {!isUser && message.incident && (message.incident.execution_results || message.incident.execution_type) && (
           <div className="mt-3 pt-3 border-t border-gray-200">
             <p className="text-xs font-semibold text-gray-500 mb-2">⚡ Execution Results:</p>
@@ -272,15 +299,45 @@ export default function MessageBubble({ message, isUser, onDiagnose, isDiagnosin
               </div>
             )}
             {message.incident.execution_results?.github_issue && (
-              <div className="mb-2 p-2 bg-green-50 rounded border border-green-200">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={message.incident.execution_results.github_issue.status === 'success' ? 'text-green-600' : 'text-red-600'}>
-                    {message.incident.execution_results.github_issue.status === 'success' ? '✅' : '❌'}
+              <div className={`mb-2 p-3 rounded border ${
+                message.incident.execution_results.github_issue.status === 'success' 
+                  ? 'bg-green-50 border-green-200' 
+                  : message.incident.execution_results.github_issue.status === 'pending_approval'
+                  ? 'bg-amber-50 border-amber-200'
+                  : 'bg-red-50 border-red-200'
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={
+                    message.incident.execution_results.github_issue.status === 'success' 
+                      ? 'text-green-600' 
+                      : message.incident.execution_results.github_issue.status === 'pending_approval'
+                      ? 'text-amber-600'
+                      : 'text-red-600'
+                  }>
+                    {message.incident.execution_results.github_issue.status === 'success' 
+                      ? '✅' 
+                      : message.incident.execution_results.github_issue.status === 'pending_approval'
+                      ? '⏳'
+                      : '❌'}
                   </span>
                   <span className="text-xs font-medium text-gray-700">
-                    GitHub Issue: {message.incident.execution_results.github_issue.status}
+                    GitHub Issue: {message.incident.execution_results.github_issue.status === 'pending_approval' ? 'Pending Approval' : message.incident.execution_results.github_issue.status}
                   </span>
                 </div>
+                {message.incident.execution_results.github_issue.status === 'pending_approval' && onCreateGitHubIssue && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-600 mb-2">
+                      💡 <strong>Code changes required:</strong> This incident requires code modifications. Click the button below to create a GitHub issue in the <strong>{message.incident.service || 'service'}</strong> repository. The Issue Agent will automatically analyze and create a fix.
+                    </p>
+                    <button
+                      onClick={() => onCreateGitHubIssue(message.incident)}
+                      className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium py-2 px-4 rounded transition-colors inline-flex items-center justify-center gap-2"
+                    >
+                      <span>🔗</span>
+                      Create GitHub Issue
+                    </button>
+                  </div>
+                )}
                 {message.incident.execution_results.github_issue.issue_url && (
                   <a
                     href={message.incident.execution_results.github_issue.issue_url}

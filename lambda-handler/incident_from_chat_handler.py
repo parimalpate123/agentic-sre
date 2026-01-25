@@ -26,6 +26,7 @@ logger.setLevel(logging.INFO)
 
 # Initialize clients (outside handler for reuse)
 bedrock_client = boto3.client('bedrock-runtime')
+dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
 MCP_ENDPOINT = os.environ.get('MCP_ENDPOINT')
@@ -33,6 +34,7 @@ BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-3-5-sonn
 INCIDENTS_TABLE = os.environ.get('INCIDENTS_TABLE')
 PLAYBOOKS_TABLE = os.environ.get('PLAYBOOKS_TABLE')
 MEMORY_TABLE = os.environ.get('MEMORY_TABLE')
+REMEDIATION_STATE_TABLE = os.environ.get('REMEDIATION_STATE_TABLE')
 AWS_REGION = os.environ.get('AWS_REGION', os.environ.get('BEDROCK_REGION', 'us-east-1'))
 
 
@@ -116,6 +118,17 @@ def incident_from_chat_handler(event: Dict[str, Any], context: Any) -> Dict[str,
         logger.info(f"Execution results: {execution_results}")
         logger.info(f"Execution type: {execution_type}")
         logger.info(f"Full state keys: {list(full_state.keys()) if isinstance(full_state, dict) else 'not a dict'}")
+
+        # Store remediation state if GitHub issue was created
+        if execution_results and execution_results.get('github_issue'):
+            github_issue = execution_results.get('github_issue')
+            if github_issue.get('status') == 'success':
+                store_remediation_state(
+                    incident_id=result.get('incident_id'),
+                    issue_number=github_issue.get('issue_number'),
+                    issue_url=github_issue.get('issue_url'),
+                    repo=github_issue.get('repo')
+                )
 
         # Extract recommended_action description
         recommended_action = result.get('recommended_action', {})
@@ -495,3 +508,57 @@ def build_incident_from_chat(
     )
 
     return incident_data
+
+
+def store_remediation_state(
+    incident_id: str,
+    issue_number: int,
+    issue_url: str,
+    repo: str
+) -> None:
+    """
+    Store initial remediation state when GitHub issue is created
+    
+    Args:
+        incident_id: Incident ID
+        issue_number: GitHub issue number
+        issue_url: GitHub issue URL
+        repo: Repository name
+    """
+    if not REMEDIATION_STATE_TABLE:
+        logger.warning("REMEDIATION_STATE_TABLE not set, skipping remediation state storage")
+        return
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        table = dynamodb.Table(REMEDIATION_STATE_TABLE)
+        
+        table.put_item(Item={
+            'incident_id': incident_id,
+            'issue_number': issue_number,
+            'issue_url': issue_url,
+            'repo': repo,
+            'pr_number': None,
+            'pr_url': None,
+            'pr_status': None,
+            'pr_review_status': None,
+            'pr_merge_status': None,
+            'created_at': datetime.utcnow().isoformat(),
+            'updated_at': datetime.utcnow().isoformat(),
+            'timeline': [
+                {
+                    'event': 'issue_created',
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'issue_number': issue_number,
+                    'issue_url': issue_url,
+                    'repo': repo
+                }
+            ],
+            'expires_at': int((datetime.utcnow() + timedelta(days=90)).timestamp())
+        })
+        
+        logger.info(f"Stored remediation state for incident {incident_id}: issue #{issue_number}")
+        
+    except Exception as e:
+        logger.error(f"Failed to store remediation state: {e}", exc_info=True)

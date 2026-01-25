@@ -201,7 +201,9 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
           aws_dynamodb_table.playbooks.arn,
           "${aws_dynamodb_table.playbooks.arn}/index/*",
           aws_dynamodb_table.memory.arn,
-          "${aws_dynamodb_table.memory.arn}/index/*"
+          "${aws_dynamodb_table.memory.arn}/index/*",
+          aws_dynamodb_table.remediation_state.arn,
+          "${aws_dynamodb_table.remediation_state.arn}/index/*"
         ]
       }
     ]
@@ -228,7 +230,7 @@ resource "aws_iam_role_policy" "lambda_logs_insights" {
   })
 }
 
-# Lambda SSM Parameter Store Access (for GitHub token)
+# Lambda SSM Parameter Store Access (for GitHub token and webhook secret)
 resource "aws_iam_role_policy" "lambda_ssm" {
   name = "${var.project_name}-lambda-ssm-policy"
   role = aws_iam_role.lambda.id
@@ -242,7 +244,10 @@ resource "aws_iam_role_policy" "lambda_ssm" {
           "ssm:GetParameter",
           "ssm:GetParameters"
         ]
-        Resource = aws_ssm_parameter.github_token.arn
+        Resource = [
+          aws_ssm_parameter.github_token.arn,
+          aws_ssm_parameter.webhook_secret.arn
+        ]
       }
     ]
   })

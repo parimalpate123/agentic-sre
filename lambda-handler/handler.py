@@ -16,6 +16,9 @@ from log_groups_handler import list_log_groups_handler
 from diagnosis_handler import diagnosis_handler
 from log_management_handler import log_management_handler
 from incident_from_chat_handler import incident_from_chat_handler
+from remediation_webhook_handler import remediation_webhook_handler
+from remediation_status_handler import remediation_status_handler
+from create_github_issue_handler import lambda_handler as create_github_issue_handler
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -54,6 +57,24 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             logger.info("Routing to list_log_groups_handler (GET request for log groups)")
             return list_log_groups_handler(event, context)
         
+        # Check if this is a GET request for remediation status
+        if http_method == 'GET' and query_params.get('action') == 'get_remediation_status':
+            logger.info("Routing to remediation_status_handler (GET request for remediation status)")
+            return remediation_status_handler(event, context)
+        
+        # Check if this is a POST request for remediation webhook
+        if http_method == 'POST':
+            body = event.get('body')
+            if body:
+                if isinstance(body, str):
+                    try:
+                        body = json.loads(body)
+                    except:
+                        pass
+                if body.get('action') == 'remediation_webhook' or body.get('source') == 'github_actions' or ('pull_request' in body and 'action' in body):
+                    logger.info("Routing to remediation_webhook_handler (POST request for remediation webhook)")
+                    return remediation_webhook_handler(event, context)
+        
         # Parse body if it's a string
         body = event.get('body')
         if body:
@@ -71,6 +92,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Create incident from chat query results
             logger.info("Routing to incident_from_chat_handler (create_incident action detected)")
             response = incident_from_chat_handler(event, context)
+        elif body.get('action') == 'create_github_issue_after_approval':
+            # Create GitHub issue after user approval
+            logger.info("Routing to create_github_issue_handler (create_github_issue_after_approval action detected)")
+            response = create_github_issue_handler(event, context)
         elif body.get('action') == 'diagnose':
             # Diagnosis request
             logger.info("Routing to diagnosis_handler (diagnosis action detected)")

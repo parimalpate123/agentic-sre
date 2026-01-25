@@ -396,9 +396,15 @@ class InvestigationOrchestrator:
                 logger.info(f"[EXECUTION] Auto-executed: {result.get('status')}")
 
             elif execution_type == ExecutionType.CODE_FIX:
-                result = self._create_github_issue(state.incident, state.diagnosis, state.remediation, metadata)
-                execution_results['github_issue'] = result
-                logger.info(f"[EXECUTION] Created GitHub issue: {result.get('issue_url', 'N/A')}")
+                # Don't create issue automatically - wait for user approval
+                # Return pending approval status instead
+                execution_results['github_issue'] = {
+                    'status': 'pending_approval',
+                    'message': 'Waiting for user approval to create GitHub issue',
+                    'incident_id': state.incident.incident_id,
+                    'service': state.incident.service
+                }
+                logger.info(f"[EXECUTION] Code fix requires approval - issue creation pending for incident {state.incident.incident_id}")
 
             elif execution_type == ExecutionType.ESCALATE:
                 result = self._escalate_to_human(state.incident, state.remediation, metadata)

@@ -113,3 +113,42 @@ resource "aws_dynamodb_table" "memory" {
     Name = "${var.project_name}-memory"
   }
 }
+
+# DynamoDB Table: Remediation State
+# Tracks the full lifecycle: Issue → PR → Review → Merge
+resource "aws_dynamodb_table" "remediation_state" {
+  name         = "${var.project_name}-remediation-state"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "incident_id"
+
+  attribute {
+    name = "incident_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "issue_number"
+    type = "N"
+  }
+
+  # GSI for querying by issue number
+  global_secondary_index {
+    name            = "IssueNumberIndex"
+    hash_key        = "issue_number"
+    projection_type = "ALL"
+  }
+
+  # TTL configuration
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-remediation-state"
+  }
+}

@@ -7,7 +7,8 @@ import { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
-import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs } from '../services/api';
+import IncidentApprovalDialog from './IncidentApprovalDialog';
+import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus } from '../services/api';
 
 export default function ChatWindow({ isFullScreen = false, onToggleFullScreen }) {
   const [messages, setMessages] = useState([
@@ -27,8 +28,10 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const [diagnosingMessageId, setDiagnosingMessageId] = useState(null); // Track which message is being diagnosed
   const [creatingIncidentMessageId, setCreatingIncidentMessageId] = useState(null); // Track which message is creating incident
   const [isManagingLogs, setIsManagingLogs] = useState(false); // Track log management operations
-  const [showIncidentDialog, setShowIncidentDialog] = useState(false); // Show incident creation confirmation dialog
-  const [pendingIncidentMessage, setPendingIncidentMessage] = useState(null); // Store message while waiting for confirmation
+  const [showIncidentDialog, setShowIncidentDialog] = useState(false); // Show approval dialog for code fix (after investigation)
+  const [pendingIncidentData, setPendingIncidentData] = useState(null); // Store incident data while waiting for approval
+  const [remediationStatuses, setRemediationStatuses] = useState({}); // Store remediation status by incident_id
+  const [pollingIntervals, setPollingIntervals] = useState({}); // Store polling intervals
   const [showPasswordDialog, setShowPasswordDialog] = useState(false); // Show password input dialog
   const [passwordInput, setPasswordInput] = useState(''); // Password input value
   const [passwordError, setPasswordError] = useState(''); // Password validation error
@@ -154,18 +157,9 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
     }
   };
 
-  const handleCreateIncident = (message) => {
-    // Store the message and show confirmation dialog
-    setPendingIncidentMessage(message);
-    setShowIncidentDialog(true);
-  };
-
-  const handleIncidentConfirm = async () => {
-    if (!pendingIncidentMessage) return;
-
-    const message = pendingIncidentMessage;
+  const handleCreateIncident = async (message) => {
+    // Create incident immediately (no approval needed at this stage)
     setCreatingIncidentMessageId(message.id);
-    setShowIncidentDialog(false);
 
     try {
       // Build log_data from message
@@ -237,34 +231,40 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       const fullState = result.full_state || {};
       const executionResults = fullState.execution_results || result.execution_results;
       const remediation = fullState.remediation || {};
-      const executionType = remediation.execution_type || result.execution_type;
+      const incident = fullState.incident || {};
+      
+      // Get service name from incident result (most accurate)
+      // Priority: 1) incident.service, 2) remediation.execution_metadata.service, 3) original serviceName
+      let actualServiceName = incident.service || 
+                             remediation.execution_metadata?.service || 
+                             serviceName;
+      
+      // Fallback to unknown-service if still empty
+      if (!actualServiceName || actualServiceName === '') {
+        actualServiceName = 'unknown-service';
+      }
+      
+      // Get execution_type - handle both enum values and strings
+      let executionType = remediation.execution_type || result.execution_type;
+      // Convert enum to string if needed (e.g., "ExecutionType.CODE_FIX" -> "code_fix")
+      if (executionType && typeof executionType === 'object' && executionType.value) {
+        executionType = executionType.value.toLowerCase();
+      } else if (executionType && typeof executionType === 'string') {
+        // Already a string, but might be uppercase like "CODE_FIX"
+        executionType = executionType.toLowerCase().replace('_', '_');
+      }
       
       // Debug: Log extracted values
       console.log('🔍 Full state:', fullState);
       console.log('🔍 Execution results:', executionResults);
-      console.log('🔍 Execution type:', executionType);
+      console.log('🔍 Execution type (raw):', remediation.execution_type || result.execution_type);
+      console.log('🔍 Execution type (normalized):', executionType);
+      console.log('🔍 Service name (original):', serviceName);
+      console.log('🔍 Service name (from incident):', actualServiceName);
+      console.log('🔍 Incident:', incident);
+      console.log('🔍 Remediation:', remediation);
 
-      // Update the message with incident creation result
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === message.id
-            ? { 
-                ...msg, 
-                incident: {
-                  incident_id: result.incident_id,
-                  root_cause: result.root_cause,
-                  confidence: result.confidence,
-                  recommended_action: result.recommended_action,
-                  executive_summary: result.executive_summary,
-                  execution_results: executionResults,
-                  execution_type: executionType,
-                }
-              }
-            : msg
-        )
-      );
-
-      // Build execution status message
+      // Build execution status message first (needed for the text)
       let executionStatus = '';
       const execResults = result.full_state?.execution_results || result.execution_results;
       const execType = result.full_state?.remediation?.execution_type || result.execution_type;
@@ -280,6 +280,9 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
           const status = execResults.github_issue.status;
           if (status === 'success') {
             executionStatus = `\n\n🔗 EXECUTION: ✅ GitHub issue created: ${execResults.github_issue.issue_url || 'N/A'}`;
+          } else if (status === 'pending_approval') {
+            // Show that approval is needed, but don't show as error
+            executionStatus = `\n\n🔗 EXECUTION: ⏳ Approval required to create GitHub issue`;
           } else {
             executionStatus = `\n\n🔗 EXECUTION: ❌ GitHub issue creation failed: ${execResults.github_issue.error || 'Unknown error'}`;
           }
@@ -290,14 +293,85 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         executionStatus = `\n\n⚡ EXECUTION TYPE: ${execType}`;
       }
 
-      // Add a success message
-      const successMessage = {
-        id: `incident-created-${Date.now()}`,
-        text: `✅ Incident created successfully!\n\nIncident ID: ${result.incident_id}\nRoot Cause: ${result.root_cause}\nConfidence: ${result.confidence}%${executionStatus}\n\n${result.executive_summary || ''}`,
-        isUser: false,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, successMessage]);
+      // Build the incident analysis text (this will appear BEFORE Execution Results)
+      const incidentAnalysisText = `✅ Incident created successfully!\n\nIncident ID: ${result.incident_id}\nRoot Cause: ${result.root_cause}\nConfidence: ${result.confidence}%${executionStatus}\n\n${result.executive_summary || ''}`;
+      
+      // Include service name from full_state.incident.service for accurate service identification
+      // Priority: full_state.incident.service > actualServiceName (from incident) > serviceName (from message) > 'unknown-service'
+      const incidentService = fullState?.incident?.service || 
+                             actualServiceName || 
+                             serviceName || 
+                             result.service ||  // Also check result.service
+                             'unknown-service';
+      
+      console.log('🔍 Setting incident service name:', {
+        incidentService,
+        fullState_incident_service: fullState?.incident?.service,
+        actualServiceName,
+        serviceName,
+        result_service: result.service,
+        fullState_keys: fullState ? Object.keys(fullState) : 'no fullState'
+      });
+      
+      // Update the message with incident creation result - include text so it appears BEFORE Execution Results
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === message.id
+            ? { 
+                ...msg, 
+                text: incidentAnalysisText,  // This will appear BEFORE Execution Results in MessageBubble
+                incident: {
+                  incident_id: result.incident_id,
+                  service: incidentService,  // Add service field for GitHub issue creation - CRITICAL!
+                  root_cause: result.root_cause,
+                  confidence: result.confidence,
+                  recommended_action: result.recommended_action,
+                  executive_summary: result.executive_summary,
+                  execution_results: executionResults,
+                  execution_type: executionType,
+                  full_state: fullState,  // Store full_state for GitHub issue creation
+                }
+              }
+            : msg
+        )
+      );
+      
+      // Check if approval is needed (code_fix and service known)
+      // Show approval if:
+      // 1. execution_type is code_fix (handle various formats)
+      // 2. service is known (use actualServiceName from incident)
+      // 3. github_issue doesn't exist OR status is 'pending_approval'
+      const githubIssueStatus = executionResults?.github_issue?.status;
+      
+      // Normalize executionType for comparison (handle CODE_FIX, code_fix, ExecutionType.CODE_FIX, etc.)
+      const normalizedExecutionType = executionType?.toString().toLowerCase().replace(/_/g, '_');
+      const isCodeFix = normalizedExecutionType === 'code_fix' || 
+                       normalizedExecutionType === 'codefix' ||
+                       (executionType && executionType.toString().includes('CODE_FIX'));
+      
+      const needsApproval = isCodeFix && 
+                           actualServiceName && 
+                           actualServiceName !== 'unknown-service' &&
+                           (!executionResults?.github_issue || githubIssueStatus === 'pending_approval');
+      
+      console.log('🔍 Approval check:', {
+        executionType,
+        normalizedExecutionType,
+        isCodeFix,
+        serviceName_original: serviceName,
+        serviceName_actual: actualServiceName,
+        githubIssueStatus,
+        hasGithubIssue: !!executionResults?.github_issue,
+        needsApproval
+      });
+      
+      // Start polling for remediation status if GitHub issue was created
+      if (executionResults?.github_issue?.status === 'success') {
+        startRemediationPolling(result.incident_id);
+      }
+
+      // Don't show approval dialog automatically - let user review analysis first
+      // User can click "Create GitHub Issue" button in the incident display to trigger approval
     } catch (error) {
       console.error('Incident creation failed:', error);
       const errorMessage = {
@@ -309,14 +383,228 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setCreatingIncidentMessageId(null);
-      setPendingIncidentMessage(null);
     }
   };
 
-  const handleIncidentCancel = () => {
-    setShowIncidentDialog(false);
-    setPendingIncidentMessage(null);
+  // Build incident preview for approval dialog (after investigation)
+  const getIncidentPreview = () => {
+    if (!pendingIncidentData) return null;
+    
+    return {
+      service: pendingIncidentData.service || 'Unknown',
+      rootCause: pendingIncidentData.root_cause || 'Analysis pending',
+      confidence: pendingIncidentData.confidence,
+      repo: pendingIncidentData.service ? `poc-${pendingIncidentData.service}` : null
+    };
   };
+
+  // Handle approval for code fix (create GitHub issue after approval)
+  const handleApprovalConfirm = async () => {
+    if (!pendingIncidentData) {
+      console.error('handleApprovalConfirm: pendingIncidentData is null');
+      return;
+    }
+
+    setShowIncidentDialog(false);
+    const incidentData = pendingIncidentData;
+    setPendingIncidentData(null);
+
+    console.log('🔍 handleApprovalConfirm: Creating GitHub issue with:', {
+      incident_id: incidentData.incident_id,
+      service: incidentData.service,
+      full_data: incidentData
+    });
+
+    // Validate service before making API call
+    if (!incidentData.service || incidentData.service === 'unknown-service') {
+      console.error('❌ Cannot create GitHub issue: service is invalid', incidentData);
+      alert(`Cannot create GitHub issue: Invalid service name "${incidentData.service}". Please try again.`);
+      return;
+    }
+
+    try {
+      // Get full_state from the message if available (for chat-created incidents)
+      // Find the message that contains this incident
+      const incidentMessage = messages.find(msg => 
+        msg.incident?.incident_id === incidentData.incident_id
+      );
+      const fullState = incidentMessage?.incident?.full_state || null;
+      
+      console.log('🔍 Creating GitHub issue with full_state:', fullState ? 'provided' : 'not provided');
+      
+      // Call API to create GitHub issue after approval
+      const result = await createGitHubIssueAfterApproval(
+        incidentData.incident_id,
+        incidentData.service,
+        fullState
+      );
+      
+      console.log('✅ GitHub issue created successfully:', result);
+
+      // Update the message with issue creation result
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === incidentData.message_id && msg.incident?.incident_id === incidentData.incident_id
+            ? {
+                ...msg,
+                incident: {
+                  ...msg.incident,
+                  execution_results: {
+                    ...msg.incident.execution_results,
+                    github_issue: result.github_issue
+                  }
+                }
+              }
+            : msg
+        )
+      );
+
+      // Start polling for remediation status
+      if (result.github_issue?.status === 'success') {
+        startRemediationPolling(incidentData.incident_id);
+      }
+
+      // Show success message
+      const successMessage = {
+        id: `issue-created-${Date.now()}`,
+        text: `✅ GitHub issue created successfully!\n\nIssue: ${result.github_issue?.issue_url || 'N/A'}\n\nRemediation workflow has started. The Issue Agent will analyze and create a PR automatically.`,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, successMessage]);
+
+    } catch (error) {
+      console.error('GitHub issue creation failed:', error);
+      const errorMessage = {
+        id: `issue-error-${Date.now()}`,
+        text: `❌ Failed to create GitHub issue: ${error.message}`,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+  };
+
+  const handleApprovalCancel = () => {
+    setShowIncidentDialog(false);
+    setPendingIncidentData(null);
+    
+    // Show message that issue creation was cancelled
+    if (pendingIncidentData) {
+      const cancelMessage = {
+        id: `issue-cancelled-${Date.now()}`,
+        text: `⚠️ GitHub issue creation cancelled. The incident has been created but no automated fix will be generated.`,
+        isUser: false,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, cancelMessage]);
+    }
+  };
+
+  // Handle "Create GitHub Issue" button click from incident display
+  const handleCreateGitHubIssue = (incident) => {
+    if (!incident) {
+      console.error('handleCreateGitHubIssue: incident is null/undefined');
+      return;
+    }
+    
+    console.log('🔍 handleCreateGitHubIssue called with incident:', {
+      incident_id: incident.incident_id,
+      service: incident.service,
+      execution_results: incident.execution_results,
+      execution_metadata: incident.execution_metadata,
+      full_incident: incident
+    });
+    
+    // Extract service name from incident - prioritize incident.service field
+    const service = incident.service || 
+                   incident.execution_results?.github_issue?.service ||
+                   incident.execution_metadata?.service ||
+                   'unknown-service';
+    
+    console.log('🔍 Extracted service name:', service);
+    
+    // Validate service name
+    if (!service || service === 'unknown-service') {
+      console.error('❌ Cannot create GitHub issue: service name is unknown', {
+        incident,
+        extracted_service: service,
+        incident_service: incident.service,
+        execution_results_service: incident.execution_results?.github_issue?.service,
+        execution_metadata_service: incident.execution_metadata?.service
+      });
+      alert('Cannot create GitHub issue: Service name is unknown. Please ensure the incident has a valid service name.');
+      return;
+    }
+    
+    // Show approval dialog
+    setPendingIncidentData({
+      incident_id: incident.incident_id,
+      service: service,
+      root_cause: incident.root_cause,
+      confidence: incident.confidence,
+      execution_type: incident.execution_type || 'code_fix',
+      message_id: null // Not needed for this flow
+    });
+    setShowIncidentDialog(true);
+  };
+  
+  // Start polling for remediation status
+  const startRemediationPolling = (incidentId) => {
+    // Clear any existing interval for this incident
+    if (pollingIntervals[incidentId]) {
+      clearInterval(pollingIntervals[incidentId]);
+    }
+    
+    // Initial fetch
+    fetchRemediationStatus(incidentId);
+    
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      fetchRemediationStatus(incidentId);
+    }, 5000);
+    
+    setPollingIntervals(prev => ({
+      ...prev,
+      [incidentId]: interval
+    }));
+  };
+  
+  // Fetch remediation status
+  const fetchRemediationStatus = async (incidentId) => {
+    try {
+      const status = await getRemediationStatus(incidentId);
+      if (status) {
+        setRemediationStatuses(prev => ({
+          ...prev,
+          [incidentId]: status
+        }));
+        
+        // Stop polling if PR is merged
+        if (status.pr?.merge_status === 'merged') {
+          if (pollingIntervals[incidentId]) {
+            clearInterval(pollingIntervals[incidentId]);
+            setPollingIntervals(prev => {
+              const updated = { ...prev };
+              delete updated[incidentId];
+              return updated;
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching remediation status:', error);
+    }
+  };
+  
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(pollingIntervals).forEach(interval => {
+        clearInterval(interval);
+      });
+    };
+  }, []);
 
   const handleManageLogs = async (operation) => {
     // Show password dialog instead of window.prompt
@@ -703,7 +991,10 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                 onDiagnose={handleDiagnose}
                 isDiagnosing={diagnosingMessageId === message.id}
                 onCreateIncident={handleCreateIncident}
+                onCreateGitHubIssue={handleCreateGitHubIssue}
                 isCreatingIncident={creatingIncidentMessageId === message.id}
+                remediationStatus={message.incident?.incident_id ? remediationStatuses[message.incident.incident_id] : null}
+                onRefreshRemediation={() => message.incident?.incident_id && fetchRemediationStatus(message.incident.incident_id)}
               />
             ))}
 
@@ -807,49 +1098,13 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         </div>
       )}
 
-      {/* Incident Creation Confirmation Dialog */}
-      {showIncidentDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Create Incident & Run Full Investigation
-            </h3>
-            
-            {/* Information Message */}
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-start gap-2">
-                <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-blue-800 mb-1">
-                    This will create a formal incident record
-                  </p>
-                  <p className="text-xs text-blue-700">
-                    This triggers a complete AgentCore investigation workflow (Triage → Analysis → Diagnosis → Remediation). The incident will be saved to DynamoDB and may send notifications. This process may take several minutes.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={handleIncidentCancel}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleIncidentConfirm}
-                disabled={creatingIncidentMessageId !== null}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {creatingIncidentMessageId !== null ? 'Creating...' : 'Create Incident'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Code Fix Approval Dialog (shown after investigation if code_fix needed) */}
+      <IncidentApprovalDialog
+        isOpen={showIncidentDialog}
+        onApprove={handleApprovalConfirm}
+        onCancel={handleApprovalCancel}
+        incidentPreview={getIncidentPreview()}
+      />
     </div>
   );
 }

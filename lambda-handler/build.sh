@@ -51,6 +51,9 @@ cp log_groups_handler.py package/
 cp diagnosis_handler.py package/
 cp log_management_handler.py package/
 cp incident_from_chat_handler.py package/
+cp remediation_webhook_handler.py package/
+cp remediation_status_handler.py package/
+cp create_github_issue_handler.py package/
 cp agent_invoker.py package/
 
 # Create zip

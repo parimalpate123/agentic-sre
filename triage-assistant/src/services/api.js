@@ -248,6 +248,118 @@ export async function manageSampleLogs(operation = 'clean_and_regenerate', passw
   }
 }
 
+/**
+ * Create GitHub issue after user approval (for code_fix execution type)
+ * @param {string} incidentId - Incident ID
+ * @param {string} service - Service name
+ * @returns {Promise<Object>} - Result with github_issue details
+ */
+export async function createGitHubIssueAfterApproval(incidentId, service, fullState = null) {
+  // Validate inputs
+  if (!incidentId) {
+    throw new Error('incidentId is required');
+  }
+  if (!service || service === 'unknown-service') {
+    throw new Error(`Invalid service name: ${service}. Service must be a known service name.`);
+  }
+
+  const payload = {
+    action: 'create_github_issue_after_approval',
+    incident_id: incidentId,
+    service: service,
+  };
+  
+  // Include full_state if provided (for chat-created incidents not yet in DynamoDB)
+  if (fullState) {
+    payload.full_state = fullState;
+  }
+
+  console.log('🔍 createGitHubIssueAfterApproval: Sending request:', {
+    incidentId,
+    service,
+    payload
+  });
+
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    console.log('🔍 createGitHubIssueAfterApproval: Response status:', response.status);
+
+    const data = await response.json();
+
+    // Parse the body if it's a string (Lambda response format)
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+
+    console.log('🔍 createGitHubIssueAfterApproval: Parsed result:', result);
+
+    if (!response.ok) {
+      const errorMessage = result.error || result.message || `API error: ${response.status} ${response.statusText}`;
+      const error = new Error(errorMessage);
+      error.status = response.status;
+      error.data = result;
+      console.error('❌ createGitHubIssueAfterApproval: API error:', {
+        status: response.status,
+        error: errorMessage,
+        full_result: result
+      });
+      throw error;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('❌ Create GitHub Issue API Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get remediation status for an incident
+ * @param {string} incidentId - Incident ID
+ * @returns {Promise<Object>} - Remediation status with issue, PR, timeline
+ */
+export async function getRemediationStatus(incidentId) {
+  try {
+    const params = new URLSearchParams({
+      action: 'get_remediation_status',
+      incident_id: incidentId
+    });
+    
+    const url = `${API_ENDPOINT}?${params.toString()}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      // 404 is OK - remediation state might not exist yet
+      if (response.status === 404) {
+        return null;
+      }
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // Parse the body if it's a string (Lambda response format)
+    if (typeof data.body === 'string') {
+      return JSON.parse(data.body);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error fetching remediation status:', error);
+    // Don't throw - return null so UI can handle gracefully
+    return null;
+  }
+}
+
 export default {
   askQuestion,
   checkHealth,
@@ -255,4 +367,6 @@ export default {
   requestDiagnosis,
   createIncident,
   manageSampleLogs,
+  createGitHubIssueAfterApproval,
+  getRemediationStatus,
 };
