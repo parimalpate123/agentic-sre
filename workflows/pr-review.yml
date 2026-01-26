@@ -1,0 +1,242 @@
+name: PR Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+
+permissions:
+  contents: write      # Required for auto-fix: create branches and commit files
+  issues: write        # Required for posting comments
+  pull-requests: write # Required for creating PRs and reviews
+  id-token: write      # Required for AWS Bedrock OIDC authentication
+
+# 🎛️ MODEL CONFIGURATION - Change here to switch models easily
+env:
+  # Primary model (uncomment one):
+  MODEL_ID: us.anthropic.claude-3-5-sonnet-20241022-v2:0  # Claude 3.5 Sonnet V2 (CURRENT - better quality)
+  # MODEL_ID: us.anthropic.claude-3-5-sonnet-20240620-v1:0  # Claude 3.5 Sonnet V1 (legacy)
+  # MODEL_ID: us.anthropic.claude-sonnet-4-20250514-v1:0  # Claude Sonnet 4 (needs subscription)
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    
+    # Always run for pull_request events (the 'on:' section already filters for opened/synchronize/reopened)
+    # The extraction step will verify if PR is from Issue Agent and exit early if not
+    # For issue_comment events, only run if @pragent is mentioned
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' && 
+       github.event.issue.pull_request && 
+       contains(github.event.comment.body, '@pragent'))
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better code analysis
+
+      - name: Extract PR number and incident ID
+        id: extract_info
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # Extract incident_id from PR body/description using GitHub API
+          # Also verify PR is from Issue Agent by checking linked issue has 'auto-fix' label
+          INCIDENT_ID=$(python3 << 'PYTHON_EOF'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.request
+
+          try:
+              token = os.environ.get('GITHUB_TOKEN')
+              pr_num = os.environ.get('PR_NUMBER', '')
+              repo = os.environ.get('GITHUB_REPOSITORY', '')
+
+              if not token or not pr_num or not repo:
+                  print(f"Missing env vars: token={bool(token)}, pr_num={bool(pr_num)}, repo={bool(repo)}", file=sys.stderr)
+                  sys.exit(1)
+
+              url = f"https://api.github.com/repos/{repo}/pulls/{pr_num}"
+              req = urllib.request.Request(url)
+              req.add_header('Authorization', f'token {token}')
+              req.add_header('Accept', 'application/vnd.github.v3+json')
+
+              with urllib.request.urlopen(req) as response:
+                  pr_data = json.loads(response.read())
+                  body = pr_data.get('body', '')
+                  
+                  # Try to extract from PR body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
+                  match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', body, re.IGNORECASE)
+                  if match:
+                      print(match.group(1))
+                      sys.exit(0)
+                  
+                  # Also check linked issue
+                  issue_url = pr_data.get('issue_url', '')
+                  if issue_url:
+                      issue_num = issue_url.split('/')[-1]
+                      issue_url_api = f"https://api.github.com/repos/{repo}/issues/{issue_num}"
+                      req_issue = urllib.request.Request(issue_url_api)
+                      req_issue.add_header('Authorization', f'token {token}')
+                      req_issue.add_header('Accept', 'application/vnd.github.v3+json')
+                      
+                      with urllib.request.urlopen(req_issue) as issue_response:
+                          issue_data = json.loads(issue_response.read())
+                          issue_body = issue_data.get('body', '')
+                          
+                          # Check if issue has 'auto-fix' label (confirms it's from Issue Agent)
+                          issue_labels = [label.get('name', '') for label in issue_data.get('labels', [])]
+                          has_auto_fix_label = 'auto-fix' in issue_labels
+                          
+                          # Extract incident ID from issue body
+                          match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', issue_body, re.IGNORECASE)
+                          if match:
+                              # Only proceed if issue has auto-fix label (from Issue Agent)
+                              if has_auto_fix_label:
+                                  print(match.group(1))
+                                  sys.exit(0)
+                              else:
+                                  print(f"PR linked to issue #{issue_num} but issue doesn't have 'auto-fix' label. Skipping.", file=sys.stderr)
+                                  sys.exit(1)
+          except Exception as e:
+              print(f"Error: {e}", file=sys.stderr)
+
+          sys.exit(1)
+          PYTHON_EOF
+          ) || echo ""
+
+          if [ -z "$INCIDENT_ID" ]; then
+            echo "⚠️ No incident ID found in PR or linked issue. This PR may not be from Issue Agent."
+            echo "Skipping PR Review Agent workflow."
+            exit 0
+          fi
+
+          echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "Extracted incident_id: $INCIDENT_ID, PR: $PR_NUMBER"
+
+      - name: Notify webhook - Review started
+        if: steps.extract_info.outputs.incident_id != ''
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_info.outputs.incident_id }}
+          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
+        run: |
+          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","pr_number":'"$PR_NUMBER"',"status":"pr_review_started","message":"PR Review Agent is analyzing the pull request"}))')
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" 2>/dev/null || true
+
+      - name: Run PR Review Agent
+        if: steps.extract_info.outputs.incident_id != ''
+        uses: parimalpate123/pr-code-review-action@justbedrock
+        with:
+          github_token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}  # PAT with write permissions for auto-fix
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          model: ${{ env.MODEL_ID || secrets.BEDROCK_MODEL_ID || 'us.anthropic.claude-3-5-sonnet-20240620-v1:0' }}
+          bedrock_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          max_tokens: "25000"
+          timeout_minutes: "30"
+
+      - name: Extract review status from PR
+        id: extract_review_status
+        if: steps.extract_info.outputs.incident_id != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # Get latest review from PR
+          REVIEW_STATUS=$(python3 << 'PYTHON_EOF'
+          import json
+          import os
+          import sys
+          import urllib.request
+          import time
+
+          try:
+              token = os.environ.get('GITHUB_TOKEN')
+              pr_num = os.environ.get('PR_NUMBER', '')
+              repo = os.environ.get('GITHUB_REPOSITORY', '')
+
+              if not token or not pr_num or not repo:
+                  sys.exit(1)
+
+              # Wait a moment for review to be posted
+              time.sleep(2)
+
+              url = f"https://api.github.com/repos/{repo}/pulls/{pr_num}/reviews"
+              req = urllib.request.Request(url)
+              req.add_header('Authorization', f'token {token}')
+              req.add_header('Accept', 'application/vnd.github.v3+json')
+
+              with urllib.request.urlopen(req) as response:
+                  reviews = json.loads(response.read())
+                  if reviews:
+                      # Get the latest review
+                      latest_review = reviews[-1]
+                      review_state = latest_review.get('state', 'pending')
+                      review_body = latest_review.get('body', '')
+                      
+                      # Map GitHub review states to our status
+                      status_map = {
+                          'APPROVED': 'approved',
+                          'CHANGES_REQUESTED': 'changes_requested',
+                          'COMMENTED': 'commented',
+                          'DISMISSED': 'pending'
+                      }
+                      
+                      review_status = status_map.get(review_state, 'pending')
+                      print(json.dumps({
+                          'status': review_status,
+                          'comment': review_body[:500] if review_body else ''
+                      }))
+                      sys.exit(0)
+          except Exception as e:
+              print(f"Error: {e}", file=sys.stderr)
+
+          # Default if no review found
+          print(json.dumps({'status': 'pending', 'comment': ''}))
+          PYTHON_EOF
+          ) || echo '{"status":"pending","comment":""}'
+          
+          echo "review_result<<EOF" >> $GITHUB_OUTPUT
+          echo "$REVIEW_STATUS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Notify webhook - Review completed
+        if: steps.extract_info.outputs.incident_id != ''
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_info.outputs.incident_id }}
+          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
+          REVIEW_RESULT: ${{ steps.extract_review_status.outputs.review_result }}
+        run: |
+          REVIEW_STATUS=$(echo "$REVIEW_RESULT" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('status', 'pending'))" 2>/dev/null || echo "pending")
+          REVIEW_COMMENT=$(echo "$REVIEW_RESULT" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('comment', ''))" 2>/dev/null || echo "")
+          
+          JSON_PAYLOAD=$(python3 -c 'import json, sys; review=json.loads(sys.argv[1]); print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","pr_number":'"$PR_NUMBER"',"status":"pr_reviewed","review_status":review.get("status","pending"),"review_comment":review.get("comment","")}))' "$REVIEW_RESULT")
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"

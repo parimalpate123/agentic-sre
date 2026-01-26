@@ -79,24 +79,37 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         body = event.get('body')
         if body:
             if isinstance(body, str):
-                body = json.loads(body)
+                try:
+                    body = json.loads(body)
+                except:
+                    body = {}
         else:
-            body = event
+            body = {}
+        
+        # Also check query parameters for action (for GET requests or query-based routing)
+        action_from_query = query_params.get('action') if query_params else None
+        action_from_body = body.get('action') if body else None
+        action = action_from_body or action_from_query
 
         # Route based on content
-        if body.get('action') == 'manage_logs':
+        if action == 'manage_logs':
             # Log management request (clean/regenerate)
             logger.info("Routing to log_management_handler (manage_logs action detected)")
             response = log_management_handler(event, context)
-        elif body.get('action') == 'create_incident':
+        elif action == 'create_incident':
             # Create incident from chat query results
             logger.info("Routing to incident_from_chat_handler (create_incident action detected)")
             response = incident_from_chat_handler(event, context)
-        elif body.get('action') == 'create_github_issue_after_approval':
+        elif action == 'create_github_issue_after_approval':
             # Create GitHub issue after user approval
             logger.info("Routing to create_github_issue_handler (create_github_issue_after_approval action detected)")
             response = create_github_issue_handler(event, context)
-        elif body.get('action') == 'diagnose':
+        elif action in ['save_session', 'load_session', 'list_sessions']:
+            # Chat session management
+            logger.info(f"Routing to chat_session_handler ({action} action detected)")
+            from chat_session_handler import chat_session_handler
+            response = chat_session_handler(event, context)
+        elif action == 'diagnose':
             # Diagnosis request
             logger.info("Routing to diagnosis_handler (diagnosis action detected)")
             response = diagnosis_handler(event, context)

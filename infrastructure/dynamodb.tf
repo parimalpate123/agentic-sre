@@ -152,3 +152,42 @@ resource "aws_dynamodb_table" "remediation_state" {
     Name = "${var.project_name}-remediation-state"
   }
 }
+
+# DynamoDB Table: Chat Sessions
+# Stores chat conversations and incident data for resuming later
+resource "aws_dynamodb_table" "chat_sessions" {
+  name         = "${var.project_name}-chat-sessions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "session_id"
+
+  attribute {
+    name = "session_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "created_at"
+    type = "S"
+  }
+
+  # GSI for querying by creation time (list recent sessions)
+  global_secondary_index {
+    name            = "CreatedAtIndex"
+    hash_key        = "created_at"
+    projection_type = "ALL"
+  }
+
+  # TTL configuration (sessions expire after 90 days)
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-chat-sessions"
+  }
+}

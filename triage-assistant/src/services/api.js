@@ -321,6 +321,98 @@ export async function createGitHubIssueAfterApproval(incidentId, service, fullSt
  * @param {string} incidentId - Incident ID
  * @returns {Promise<Object>} - Remediation status with issue, PR, timeline
  */
+/**
+ * Save chat session
+ * @param {string} sessionId - Optional session ID (if not provided, generates new one)
+ * @param {string} sessionName - Optional session name
+ * @param {Array} messages - Chat messages
+ * @param {Object} incidentData - Current incident data if any
+ * @param {Object} remediationStatuses - Current remediation statuses
+ * @returns {Promise<Object>} - The saved session info
+ */
+export async function saveChatSession(sessionId, sessionName, messages, incidentData, remediationStatuses) {
+  const payload = {
+    action: 'save_session',
+    session_id: sessionId,
+    session_name: sessionName,
+    messages: messages,
+    incident_data: incidentData,
+    remediation_statuses: remediationStatuses
+  };
+
+  try {
+    const response = await fetch(`${API_ENDPOINT}?action=save_session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  } catch (error) {
+    console.error('Error saving chat session:', error);
+    throw error;
+  }
+}
+
+/**
+ * Load chat session
+ * @param {string} sessionId - Session ID to load
+ * @returns {Promise<Object>} - The loaded session data
+ */
+export async function loadChatSession(sessionId) {
+  try {
+    const response = await fetch(`${API_ENDPOINT}?action=load_session&session_id=${sessionId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  } catch (error) {
+    console.error('Error loading chat session:', error);
+    throw error;
+  }
+}
+
+/**
+ * List chat sessions
+ * @param {number} limit - Maximum number of sessions to return (default 20)
+ * @returns {Promise<Object>} - List of sessions
+ */
+export async function listChatSessions(limit = 20) {
+  try {
+    const response = await fetch(`${API_ENDPOINT}?action=list_sessions&limit=${limit}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  } catch (error) {
+    console.error('Error listing chat sessions:', error);
+    throw error;
+  }
+}
+
 export async function getRemediationStatus(incidentId) {
   try {
     const params = new URLSearchParams({
@@ -338,10 +430,16 @@ export async function getRemediationStatus(incidentId) {
     });
 
     if (!response.ok) {
-      // 404 is OK - remediation state might not exist yet
+      // 404 is OK - remediation state might not exist yet (issue just created)
       if (response.status === 404) {
+        console.log(`⏳ Remediation state not found for incident ${incidentId} - this is normal if issue was just created`);
         return null;
       }
+      
+      // Log error details for debugging
+      const errorText = await response.text().catch(() => 'Unable to read error response');
+      console.error(`❌ Remediation status API error: ${response.status} ${response.statusText}`, errorText);
+      
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
 
@@ -369,4 +467,7 @@ export default {
   manageSampleLogs,
   createGitHubIssueAfterApproval,
   getRemediationStatus,
+  saveChatSession,
+  loadChatSession,
+  listChatSessions,
 };

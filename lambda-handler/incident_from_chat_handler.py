@@ -127,7 +127,8 @@ def incident_from_chat_handler(event: Dict[str, Any], context: Any) -> Dict[str,
                     incident_id=result.get('incident_id'),
                     issue_number=github_issue.get('issue_number'),
                     issue_url=github_issue.get('issue_url'),
-                    repo=github_issue.get('repo')
+                    repo=github_issue.get('repo'),
+                    service=result.get('service', service)  # Use service from result or fallback
                 )
 
         # Extract recommended_action description
@@ -514,7 +515,8 @@ def store_remediation_state(
     incident_id: str,
     issue_number: int,
     issue_url: str,
-    repo: str
+    repo: str,
+    service: str = None
 ) -> None:
     """
     Store initial remediation state when GitHub issue is created
@@ -524,6 +526,7 @@ def store_remediation_state(
         issue_number: GitHub issue number
         issue_url: GitHub issue URL
         repo: Repository name
+        service: Service name (optional, for similar incidents query)
     """
     if not REMEDIATION_STATE_TABLE:
         logger.warning("REMEDIATION_STATE_TABLE not set, skipping remediation state storage")
@@ -534,7 +537,7 @@ def store_remediation_state(
         
         table = dynamodb.Table(REMEDIATION_STATE_TABLE)
         
-        table.put_item(Item={
+        item = {
             'incident_id': incident_id,
             'issue_number': issue_number,
             'issue_url': issue_url,
@@ -556,7 +559,13 @@ def store_remediation_state(
                 }
             ],
             'expires_at': int((datetime.utcnow() + timedelta(days=90)).timestamp())
-        })
+        }
+        
+        # Add service if provided
+        if service:
+            item['service'] = service
+        
+        table.put_item(Item=item)
         
         logger.info(f"Stored remediation state for incident {incident_id}: issue #{issue_number}")
         

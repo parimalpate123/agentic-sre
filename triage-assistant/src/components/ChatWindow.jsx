@@ -8,7 +8,8 @@ import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
 import IncidentApprovalDialog from './IncidentApprovalDialog';
-import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus } from '../services/api';
+import ChatSessionDialog from './ChatSessionDialog';
+import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession } from '../services/api';
 
 export default function ChatWindow({ isFullScreen = false, onToggleFullScreen }) {
   const [messages, setMessages] = useState([
@@ -31,13 +32,21 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const [showIncidentDialog, setShowIncidentDialog] = useState(false); // Show approval dialog for code fix (after investigation)
   const [pendingIncidentData, setPendingIncidentData] = useState(null); // Store incident data while waiting for approval
   const [remediationStatuses, setRemediationStatuses] = useState({}); // Store remediation status by incident_id
-  const [pollingIntervals, setPollingIntervals] = useState({}); // Store polling intervals
+  const [pollingStatus, setPollingStatus] = useState({}); // Track polling status per incident: { incidentId: 'active' | 'paused' | null }
+  const pollingIntervalsRef = useRef({}); // Store polling intervals (useRef to persist across renders)
+  const pollingStartTimeRef = useRef({}); // Track polling start time for timeout
+  const lastStatusHashRef = useRef({}); // Store hash of last status to detect when it stops changing
+  const stableStatusCountRef = useRef({}); // Count how many times status hasn't changed
+  const pausedPollingRef = useRef({}); // Track which incidents have paused polling
   const [showPasswordDialog, setShowPasswordDialog] = useState(false); // Show password input dialog
   const [passwordInput, setPasswordInput] = useState(''); // Password input value
   const [passwordError, setPasswordError] = useState(''); // Password validation error
   const [pendingOperation, setPendingOperation] = useState(null); // Store operation while waiting for password
   const passwordInputRef = useRef(null); // Ref for password input field
   const messagesEndRef = useRef(null);
+  const [showSessionDialog, setShowSessionDialog] = useState(false); // Show chat session dialog
+  const currentSessionIdRef = useRef(null); // Track current session ID for auto-save
+  const lastAutoSaveRef = useRef(null); // Track last auto-save time
   
   // Hardcoded password for log management (matches backend)
   const LOG_MANAGEMENT_PASSWORD = '13579';
@@ -461,7 +470,10 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
 
       // Start polling for remediation status
       if (result.github_issue?.status === 'success') {
+        console.log(`🔄 Starting remediation polling for incident: ${incidentData.incident_id}`);
         startRemediationPolling(incidentData.incident_id);
+      } else {
+        console.warn(`⚠️ GitHub issue creation status: ${result.github_issue?.status}, not starting polling`);
       }
 
       // Show success message
@@ -472,6 +484,11 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, successMessage]);
+      
+      // Auto-save after GitHub issue creation
+      setTimeout(() => {
+        autoSaveSession();
+      }, 1000);
 
     } catch (error) {
       console.error('GitHub issue creation failed:', error);
@@ -500,6 +517,127 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       setMessages((prev) => [...prev, cancelMessage]);
     }
   };
+
+  // Handle loading a saved chat session
+  const handleLoadSession = (session) => {
+    console.log('📥 Loading chat session:', session);
+    
+    // Restore messages
+    if (session.messages && session.messages.length > 0) {
+      setMessages(session.messages);
+    }
+    
+    // Restore incident data
+    if (session.incident_data) {
+      setPendingIncidentData(session.incident_data);
+    }
+    
+    // Restore remediation statuses
+    if (session.remediation_statuses) {
+      setRemediationStatuses(session.remediation_statuses);
+      
+      // Resume polling for any incidents that have remediation status
+      Object.keys(session.remediation_statuses).forEach(incidentId => {
+        const status = session.remediation_statuses[incidentId];
+        // Only resume polling if there's an issue but no PR yet, or PR is not merged
+        if (status.issue && (!status.pr || status.pr.merge_status !== 'merged')) {
+          console.log(`🔄 Resuming polling for incident: ${incidentId}`);
+          startRemediationPolling(incidentId);
+        }
+      });
+    }
+    
+    // Set current session ID for auto-save
+    currentSessionIdRef.current = session.session_id;
+    
+    console.log('✅ Chat session loaded successfully');
+  };
+
+  // Store refs for auto-save to access current values
+  const messagesRef = useRef(messages);
+  const pendingIncidentDataRef = useRef(pendingIncidentData);
+  const remediationStatusesRef = useRef(remediationStatuses);
+  
+  // Update refs when values change
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  
+  useEffect(() => {
+    pendingIncidentDataRef.current = pendingIncidentData;
+  }, [pendingIncidentData]);
+  
+  useEffect(() => {
+    remediationStatusesRef.current = remediationStatuses;
+  }, [remediationStatuses]);
+
+  // Auto-save function
+  const autoSaveSession = async () => {
+    const currentMessages = messagesRef.current;
+    const currentIncidentData = pendingIncidentDataRef.current;
+    const currentRemediationStatuses = remediationStatusesRef.current;
+    
+    // Don't auto-save if no messages or too soon since last save
+    if (currentMessages.length <= 1) return; // Only welcome message
+    
+    const now = Date.now();
+    if (lastAutoSaveRef.current && (now - lastAutoSaveRef.current) < 5 * 60 * 1000) {
+      return; // Don't save more than once every 5 minutes
+    }
+    
+    try {
+      // Extract incident data from messages
+      const incidentData = currentIncidentData || 
+        (currentMessages.find(m => m.incident)?.incident || null);
+      
+      // Generate session name from first user question or use default
+      const firstUserMessage = currentMessages.find(m => m.isUser && m.id !== 'welcome');
+      const sessionName = firstUserMessage 
+        ? `Auto-saved: ${firstUserMessage.text.substring(0, 50)}...`
+        : `Chat Session ${new Date().toLocaleString()}`;
+      
+      const result = await saveChatSession(
+        currentSessionIdRef.current, // Use existing session ID if available
+        sessionName,
+        currentMessages,
+        incidentData,
+        currentRemediationStatuses
+      );
+      
+      currentSessionIdRef.current = result.session_id;
+      lastAutoSaveRef.current = now;
+      console.log('💾 Auto-saved chat session:', result.session_id);
+    } catch (error) {
+      console.error('Error auto-saving session:', error);
+      // Don't show error to user - auto-save failures are silent
+    }
+  };
+
+  // Auto-save on key events
+  const remediationStatusesCount = Object.keys(remediationStatuses).length;
+  const hasIncident = messages.some(m => m.incident);
+  
+  useEffect(() => {
+    // Auto-save after incident creation or significant message changes
+    if (hasIncident && messages.length > 1) {
+      const timer = setTimeout(() => {
+        autoSaveSession();
+      }, 2000); // Debounce: wait 2 seconds after change
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, hasIncident]);
+
+  useEffect(() => {
+    // Auto-save after GitHub issue creation (remediation status added)
+    if (remediationStatusesCount > 0) {
+      const timer = setTimeout(() => {
+        autoSaveSession();
+      }, 2000); // Debounce: wait 2 seconds after change
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remediationStatusesCount]);
 
   // Handle "Create GitHub Issue" button click from incident display
   const handleCreateGitHubIssue = (incident) => {
@@ -552,57 +690,231 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   // Start polling for remediation status
   const startRemediationPolling = (incidentId) => {
     // Clear any existing interval for this incident
-    if (pollingIntervals[incidentId]) {
-      clearInterval(pollingIntervals[incidentId]);
+    if (pollingIntervalsRef.current[incidentId]) {
+      clearInterval(pollingIntervalsRef.current[incidentId]);
+      console.log(`🧹 Cleared existing polling interval for incident: ${incidentId}`);
     }
+    
+    // Record start time for timeout tracking
+    pollingStartTimeRef.current[incidentId] = Date.now();
+    
+    console.log(`🔄 Starting remediation polling for incident: ${incidentId}`);
     
     // Initial fetch
     fetchRemediationStatus(incidentId);
     
     // Poll every 5 seconds
     const interval = setInterval(() => {
+      console.log(`⏰ Polling interval triggered for incident: ${incidentId}`);
       fetchRemediationStatus(incidentId);
     }, 5000);
     
-    setPollingIntervals(prev => ({
-      ...prev,
-      [incidentId]: interval
-    }));
+    // Store interval in ref
+    pollingIntervalsRef.current[incidentId] = interval;
+    
+    // Update polling status state to trigger re-render
+    setPollingStatus(prev => ({ ...prev, [incidentId]: 'active' }));
+    
+    console.log(`✅ Polling interval set for incident: ${incidentId}, interval ID: ${interval}`);
   };
   
+  // Stop polling for an incident
+  const stopRemediationPolling = (incidentId) => {
+    if (pollingIntervalsRef.current[incidentId]) {
+      clearInterval(pollingIntervalsRef.current[incidentId]);
+      delete pollingIntervalsRef.current[incidentId];
+      // Clean up tracking refs
+      delete pollingStartTimeRef.current[incidentId];
+      delete lastStatusHashRef.current[incidentId];
+      delete stableStatusCountRef.current[incidentId];
+      delete pausedPollingRef.current[incidentId];
+      
+      // Update polling status state to trigger re-render
+      setPollingStatus(prev => {
+        const updated = { ...prev };
+        delete updated[incidentId];
+        return updated;
+      });
+      
+      console.log(`⏹️ Stopped remediation polling for incident: ${incidentId}`);
+    }
+  };
+  
+  // Pause polling (user-initiated)
+  const pauseRemediationPolling = (incidentId) => {
+    if (pollingIntervalsRef.current[incidentId]) {
+      clearInterval(pollingIntervalsRef.current[incidentId]);
+      delete pollingIntervalsRef.current[incidentId];
+      pausedPollingRef.current[incidentId] = true;
+      
+      // Update polling status state to trigger re-render
+      setPollingStatus(prev => ({ ...prev, [incidentId]: 'paused' }));
+      
+      console.log(`⏸️ Paused remediation polling for incident: ${incidentId}`);
+    }
+  };
+  
+  // Resume polling (user-initiated)
+  const resumeRemediationPolling = (incidentId) => {
+    if (pausedPollingRef.current[incidentId]) {
+      delete pausedPollingRef.current[incidentId];
+      startRemediationPolling(incidentId);
+      console.log(`▶️ Resumed remediation polling for incident: ${incidentId}`);
+    }
+  };
+  
+  // Check if polling is active for an incident
+  const isPollingActive = (incidentId) => {
+    return pollingStatus[incidentId] === 'active' || !!pollingIntervalsRef.current[incidentId];
+  };
+  
+  // Check if polling is paused for an incident
+  const isPollingPaused = (incidentId) => {
+    return pollingStatus[incidentId] === 'paused' || !!pausedPollingRef.current[incidentId];
+  };
+  
+  const MAX_POLLING_DURATION = 30 * 60 * 1000; // 30 minutes max polling
+  const STABLE_STATUS_THRESHOLD = 12; // Stop if status unchanged for 12 polls (60 seconds at 5s intervals)
+  const ACTIVE_WAITING_STABLE_THRESHOLD = 24; // Longer threshold for active waiting states (2 minutes)
+
   // Fetch remediation status
   const fetchRemediationStatus = async (incidentId) => {
+    // Skip if polling is paused for this incident
+    if (pausedPollingRef.current[incidentId]) {
+      console.log(`⏸️ Skipping fetch for incident ${incidentId} - polling is paused`);
+      return;
+    }
+    
     try {
+      console.log(`🔍 Fetching remediation status for incident: ${incidentId}`);
       const status = await getRemediationStatus(incidentId);
+      console.log(`📥 Received remediation status for ${incidentId}:`, status);
+      
       if (status) {
-        setRemediationStatuses(prev => ({
-          ...prev,
-          [incidentId]: status
-        }));
+        // Create a hash of the status to detect changes
+        // Include all timeline events to detect progress updates
+        const timelineLength = status.timeline?.length || 0;
+        const timelineEvents = status.timeline?.map(e => e.event).join(',') || '';
         
-        // Stop polling if PR is merged
-        if (status.pr?.merge_status === 'merged') {
-          if (pollingIntervals[incidentId]) {
-            clearInterval(pollingIntervals[incidentId]);
-            setPollingIntervals(prev => {
-              const updated = { ...prev };
-              delete updated[incidentId];
-              return updated;
+        const statusHash = JSON.stringify({
+          pr_status: status.pr?.status,
+          pr_merge_status: status.pr?.merge_status,
+          pr_review_status: status.pr?.review_status,
+          next_action: status.next_action,
+          timeline_length: timelineLength,
+          timeline_events: timelineEvents, // Include all events, not just latest
+          issue_number: status.issue?.number,
+          pr_number: status.pr?.number
+        });
+        
+        // Check if status has changed
+        const lastHash = lastStatusHashRef.current[incidentId];
+        if (lastHash === statusHash) {
+          // Status hasn't changed - increment stable count
+          stableStatusCountRef.current[incidentId] = (stableStatusCountRef.current[incidentId] || 0) + 1;
+          
+          // Determine if we're in an "active waiting" state (Issue Agent is working)
+          const isActiveWaiting = status.next_action?.includes('Issue Agent') || 
+                                 status.next_action?.includes('Issue agent') ||
+                                 status.next_action?.includes('analyzing') ||
+                                 status.next_action?.includes('generating') ||
+                                 status.next_action?.includes('creating PR') ||
+                                 (status.timeline && status.timeline.some(e => 
+                                   ['analysis_started', 'fix_generation_started', 'pr_creation_started'].includes(e.event)
+                                 ));
+          
+          // Determine if we're in a "passive waiting" state (waiting for human/PR review)
+          const isPassiveWaiting = status.next_action?.includes('PR Review Agent') ||
+                                  status.next_action?.includes('human approval') ||
+                                  status.next_action?.includes('merge PR') ||
+                                  (status.pr?.status === 'open' && status.pr?.review_status);
+          
+          // Use different thresholds based on waiting state type
+          const threshold = isActiveWaiting ? ACTIVE_WAITING_STABLE_THRESHOLD : STABLE_STATUS_THRESHOLD;
+          
+          // Only stop if status is stable for the threshold AND we're in a passive waiting state
+          // Don't stop during active waiting (Issue Agent is working) - keep polling to show progress
+          if (stableStatusCountRef.current[incidentId] >= threshold && isPassiveWaiting && !isActiveWaiting) {
+            stopRemediationPolling(incidentId);
+            console.log(`⏹️ Status stable for incident ${incidentId} (${threshold} polls), stopped polling. User can manually refresh if needed.`);
+            return;
+          }
+        } else {
+          // Status changed - reset stable count
+          stableStatusCountRef.current[incidentId] = 0;
+          lastStatusHashRef.current[incidentId] = statusHash;
+        }
+        
+        // Update status - use functional update to ensure React detects the change
+        setRemediationStatuses(prev => {
+          const newStatus = { ...status };
+          // Log PR info for debugging
+          if (newStatus.pr?.number) {
+            console.log(`✅ PR detected in status update for ${incidentId}:`, {
+              pr_number: newStatus.pr.number,
+              pr_url: newStatus.pr.url,
+              pr_status: newStatus.pr.status,
+              review_status: newStatus.pr.review_status,
+              merge_status: newStatus.pr.merge_status
             });
           }
+          // Log timeline changes for debugging
+          const prevStatus = prev[incidentId];
+          if (prevStatus && prevStatus.timeline?.length !== newStatus.timeline?.length) {
+            console.log(`📊 Timeline updated for ${incidentId}:`, {
+              previous_length: prevStatus.timeline?.length || 0,
+              new_length: newStatus.timeline?.length || 0,
+              new_events: newStatus.timeline?.map(e => e.event) || []
+            });
+          }
+          return {
+            ...prev,
+            [incidentId]: newStatus
+          };
+        });
+        
+        // Stop polling conditions:
+        // 1. PR is merged (remediation complete)
+        if (status.pr?.merge_status === 'merged' || status.pr?.status === 'merged') {
+          stopRemediationPolling(incidentId);
+          console.log(`✅ Remediation complete for incident ${incidentId}, stopped polling`);
+          return;
         }
+        
+        // 2. PR is closed without merge
+        if (status.pr?.status === 'closed' && status.pr?.merge_status !== 'merged') {
+          stopRemediationPolling(incidentId);
+          console.log(`⏹️ PR closed without merge for incident ${incidentId}, stopped polling`);
+          return;
+        }
+        
+        // 3. Check timeout (stop after 30 minutes of polling)
+        const startTime = pollingStartTimeRef.current[incidentId] || Date.now();
+        pollingStartTimeRef.current[incidentId] = startTime;
+        const elapsed = Date.now() - startTime;
+        
+        if (elapsed > MAX_POLLING_DURATION) {
+          stopRemediationPolling(incidentId);
+          console.log(`⏰ Polling timeout reached for incident ${incidentId} (30 minutes), stopped polling`);
+          return;
+        }
+      } else {
+        // Status not found yet - this is OK, keep polling
+        console.log(`⏳ Remediation status not found yet for incident ${incidentId}, continuing to poll...`);
       }
     } catch (error) {
-      console.error('Error fetching remediation status:', error);
+      console.error(`❌ Failed to fetch remediation status for ${incidentId}:`, error);
+      // Don't stop polling on error - might be temporary network issue
     }
   };
   
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
-      Object.values(pollingIntervals).forEach(interval => {
+      Object.values(pollingIntervalsRef.current).forEach(interval => {
         clearInterval(interval);
       });
+      pollingIntervalsRef.current = {};
     };
   }, []);
 
@@ -772,6 +1084,17 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Save/Load Session Button */}
+            <button
+              onClick={() => setShowSessionDialog(true)}
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
+              title="Save or load chat session"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+              Sessions
+            </button>
             {/* MCP Toggle - Always visible, default ON */}
             <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-1.5">
               <span className="text-xs text-blue-100">MCP:</span>
@@ -995,6 +1318,10 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                 isCreatingIncident={creatingIncidentMessageId === message.id}
                 remediationStatus={message.incident?.incident_id ? remediationStatuses[message.incident.incident_id] : null}
                 onRefreshRemediation={() => message.incident?.incident_id && fetchRemediationStatus(message.incident.incident_id)}
+                onPausePolling={() => message.incident?.incident_id && pauseRemediationPolling(message.incident.incident_id)}
+                onResumePolling={() => message.incident?.incident_id && resumeRemediationPolling(message.incident.incident_id)}
+                isPollingActive={message.incident?.incident_id ? isPollingActive(message.incident.incident_id) : false}
+                isPollingPaused={message.incident?.incident_id ? isPollingPaused(message.incident.incident_id) : false}
               />
             ))}
 
@@ -1105,6 +1432,17 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         onCancel={handleApprovalCancel}
         incidentPreview={getIncidentPreview()}
       />
+
+      {/* Chat Session Dialog */}
+      <ChatSessionDialog
+        isOpen={showSessionDialog}
+        onClose={() => setShowSessionDialog(false)}
+        onLoadSession={handleLoadSession}
+        currentMessages={messages}
+        currentIncidentData={pendingIncidentData || (messages.find(m => m.incident)?.incident || null)}
+        currentRemediationStatuses={remediationStatuses}
+      />
     </div>
   );
 }
+

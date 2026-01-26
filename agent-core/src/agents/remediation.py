@@ -312,26 +312,9 @@ class RemediationAgent:
         category = diagnosis.category.upper()
         risk_level = action.risk_level
 
-        # Auto-execute: Safe, reversible operations - CHECK FIRST
-        # These actions can be auto-executed even if category suggests code fix
-        # (e.g., restart can fix connection timeouts without code changes)
-        auto_execute_actions = [
-            'restart', 'scale', 'clear_cache',
-            'reset_connections', 'enable_feature_flag', 'disable_feature'
-        ]
-
-        if any(auto_action in action_type for auto_action in auto_execute_actions):
-            if risk_level == RiskLevel.LOW and action.reversible:
-                logger.info(f"Categorizing as AUTO_EXECUTE: {action_type} (LOW risk, reversible) - action type takes priority over category")
-                return ExecutionType.AUTO_EXECUTE, {
-                    'service': incident.service,
-                    'action': action_type,
-                    'steps': action.steps,
-                    'region': incident.aws_region
-                }
-
         # Code fix: Bug fixes, logic errors, error handling, config changes
-        # These categories OR action types should result in code fixes, but only if action is not auto-executable
+        # Check this FIRST - categories like DEPENDENCY/TIMEOUT/CONFIGURATION should be code fixes
+        # even if action is scale/restart (because those actions won't fix the root cause)
         code_fix_categories = ['BUG', 'LOGIC_ERROR', 'HANDLING', 'TIMEOUT', 'ERROR_HANDLING']
         code_fix_action_types = ['config_change', 'code_fix', 'fix', 'update_config', 'modify_config']
         
@@ -343,6 +326,9 @@ class RemediationAgent:
         is_code_fix_category = category in extended_code_fix_categories
         is_code_fix_action = any(code_action in action_type for code_action in code_fix_action_types)
         
+        # PRIORITY: If category suggests code fix (DEPENDENCY, TIMEOUT, CONFIGURATION), 
+        # it should be CODE_FIX even if action is scale/restart
+        # (scaling won't fix payment gateway timeout - need config changes)
         if is_code_fix_category or is_code_fix_action:
             # Try to get service from diagnosis component if incident service is unknown
             service_name = incident.service
@@ -368,6 +354,24 @@ class RemediationAgent:
             else:
                 reason = f"{category} category" if is_code_fix_category else f"{action_type} action type"
                 logger.warning(f"{reason} requires CODE_FIX but no repo mapping for {service_name}")
+
+        # Auto-execute: Safe, reversible operations - CHECK AFTER code_fix
+        # Only auto-execute if category doesn't suggest code fix
+        # (e.g., RESOURCE category with scale action = auto-execute)
+        auto_execute_actions = [
+            'restart', 'scale', 'clear_cache',
+            'reset_connections', 'enable_feature_flag', 'disable_feature'
+        ]
+
+        if any(auto_action in action_type for auto_action in auto_execute_actions):
+            if risk_level == RiskLevel.LOW and action.reversible:
+                logger.info(f"Categorizing as AUTO_EXECUTE: {action_type} (LOW risk, reversible, category: {category})")
+                return ExecutionType.AUTO_EXECUTE, {
+                    'service': incident.service,
+                    'action': action_type,
+                    'steps': action.steps,
+                    'region': incident.aws_region
+                }
 
         # Escalate: Everything else
         logger.info(f"Categorizing as ESCALATE: {action_type} (category: {category}, risk: {risk_level.value})")

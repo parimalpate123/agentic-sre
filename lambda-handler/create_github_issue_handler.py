@@ -283,12 +283,20 @@ async def create_github_issue_handler(event: Dict[str, Any], context: Any) -> Di
         # Store remediation state
         from incident_from_chat_handler import store_remediation_state
         if result.get('status') == 'success':
-            store_remediation_state(
-                incident_id=incident_id,
-                issue_number=result.get('issue_number'),
-                issue_url=result.get('issue_url'),
-                repo=result.get('repo')
-            )
+            try:
+                logger.info(f"Storing remediation state for incident {incident_id}, issue #{result.get('issue_number')}")
+                store_remediation_state(
+                    incident_id=incident_id,
+                    issue_number=result.get('issue_number'),
+                    issue_url=result.get('issue_url'),
+                    repo=result.get('repo'),
+                    service=service
+                )
+                logger.info(f"Successfully stored remediation state for incident {incident_id}")
+            except Exception as e:
+                logger.error(f"Failed to store remediation state: {e}", exc_info=True)
+                # Don't fail the entire request if state storage fails
+                # The state can be created later via webhook
         
         return {
             'statusCode': 200,

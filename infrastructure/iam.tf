@@ -203,7 +203,9 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
           aws_dynamodb_table.memory.arn,
           "${aws_dynamodb_table.memory.arn}/index/*",
           aws_dynamodb_table.remediation_state.arn,
-          "${aws_dynamodb_table.remediation_state.arn}/index/*"
+          "${aws_dynamodb_table.remediation_state.arn}/index/*",
+          aws_dynamodb_table.chat_sessions.arn,
+          "${aws_dynamodb_table.chat_sessions.arn}/index/*"
         ]
       }
     ]

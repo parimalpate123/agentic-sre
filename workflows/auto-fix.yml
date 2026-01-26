@@ -13,43 +13,111 @@ on:
 jobs:
   analyze-and-fix:
     runs-on: ubuntu-latest
-    # Only run if issue has 'auto-fix' label or was created by bot
+    # Only run if:
+    # 1. Issue was opened AND already has 'auto-fix' label (or created by bot)
+    # 2. Issue was labeled AND the label added is 'auto-fix'
+    # 3. Manual trigger via workflow_dispatch
     if: |
-      contains(github.event.issue.labels.*.name, 'auto-fix') ||
-      github.event.issue.user.type == 'Bot' ||
-      github.event_name == 'workflow_dispatch'
-    
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.action == 'opened' && (
+        contains(github.event.issue.labels.*.name, 'auto-fix') ||
+        github.event.issue.user.type == 'Bot'
+      )) ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' && 
+       github.event.label.name == 'auto-fix')
+
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write  # Required for AWS Bedrock OIDC authentication
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for better code analysis
-      
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           # Note: cache removed because service repos don't have requirements.txt
-      
+
       - name: Install Issue Agent
         run: |
           git clone https://github.com/parimalpate123/issue-fix-action.git /tmp/issue-fix-action
           cd /tmp/issue-fix-action
           pip install -r requirements.txt
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
-      
-      - name: Run Issue Agent
+
+      - name: Extract incident ID
+        id: extract_incident
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # Extract incident_id from issue body using GitHub API
+          INCIDENT_ID=$(python3 << 'PYTHON_EOF'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.request
+
+          try:
+              token = os.environ.get('GITHUB_TOKEN')
+              issue_num = os.environ.get('ISSUE_NUMBER', '')
+              repo = os.environ.get('GITHUB_REPOSITORY', '')
+
+              if not token or not issue_num or not repo:
+                  print(f"Missing env vars: token={bool(token)}, issue_num={bool(issue_num)}, repo={bool(repo)}", file=sys.stderr)
+                  sys.exit(1)
+
+              url = f"https://api.github.com/repos/{repo}/issues/{issue_num}"
+              req = urllib.request.Request(url)
+              req.add_header('Authorization', f'token {token}')
+              req.add_header('Accept', 'application/vnd.github.v3+json')
+
+              with urllib.request.urlopen(req) as response:
+                  issue_data = json.loads(response.read())
+                  body = issue_data.get('body', '')
+
+                  # Try to extract from issue body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
+                  match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', body, re.IGNORECASE)
+                  if match:
+                      print(match.group(1))
+                      sys.exit(0)
+          except Exception as e:
+              print(f"Error: {e}", file=sys.stderr)
+
+          sys.exit(1)
+          PYTHON_EOF
+          ) || echo ""
+
+          echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
+          echo "Extracted incident_id: $INCIDENT_ID"
+
+      - name: Notify webhook - Analysis started
+        if: steps.extract_incident.outputs.incident_id != ''
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
+        run: |
+          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","status":"analysis_started","message":"Issue Agent is analyzing the issue and identifying the root cause"}))')
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" 2>/dev/null || true
+
+      - name: Run Issue Agent Step 1 Analysis
         env:
           BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID || 'anthropic.claude-3-5-sonnet-20240620-v1:0' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,61 +128,52 @@ jobs:
             --issue-number $ISSUE_NUMBER \
             --repo $REPOSITORY \
             --output-dir ./agent-output
-      
-      - name: Notify webhook
-        if: success() && hashFiles('agent-output/pr_result.json') != ''
+
+      - name: Notify webhook - Fix generation started
+        if: steps.extract_incident.outputs.incident_id != '' && hashFiles('agent-output/analysis.json') != ''
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
         run: |
-          # Extract incident_id from issue body
-          INCIDENT_ID=$(python3 << 'PYTHON_EOF'
-          import json
-          import re
-          import sys
-          
-          try:
-              with open('agent-output/analysis.json', 'r') as f:
-                  data = json.load(f)
-                  issue_body = data.get('issue', {}).get('body', '')
-                  
-                  # Try to extract from issue body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
-                  match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', issue_body, re.IGNORECASE)
-                  if match:
-                      print(match.group(1))
-                      sys.exit(0)
-          except Exception as e:
-              print(f"Error: {e}", file=sys.stderr)
-          
-          sys.exit(1)
-          PYTHON_EOF
-          )
-          
-          if [ -n "$INCIDENT_ID" ]; then
-            PR_NUMBER=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_number', ''))" 2>/dev/null || echo "")
-            PR_URL=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_url', ''))" 2>/dev/null || echo "")
-            ISSUE_NUMBER=${{ github.event.issue.number || github.event.inputs.issue_number }}
-            
-            echo "Notifying webhook for incident: $INCIDENT_ID, PR: $PR_NUMBER"
-            
-            curl -X POST "$WEBHOOK_URL" \
-              -H "Content-Type: application/json" \
-              -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-              -d "{
-                \"action\": \"remediation_webhook\",
-                \"source\": \"github_actions\",
-                \"incident_id\": \"$INCIDENT_ID\",
-                \"issue_number\": $ISSUE_NUMBER,
-                \"pr_number\": $PR_NUMBER,
-                \"pr_url\": \"$PR_URL\",
-                \"status\": \"pr_created\"
-              }" || echo "Webhook call failed (non-critical)"
-          else
-            echo "Warning: Could not extract incident_id from issue body, skipping webhook notification"
-            echo "Issue body preview:"
-            python3 -c "import json; f=open('agent-output/analysis.json'); d=json.load(f); print(d.get('issue', {}).get('body', '')[:200])" 2>/dev/null || echo "Could not read issue body"
-          fi
-      
+          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","status":"fix_generation_started","message":"Issue Agent has identified the fix. Generating code changes"}))')
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" 2>/dev/null || true
+
+      - name: Notify webhook - PR creation started
+        if: steps.extract_incident.outputs.incident_id != '' && hashFiles('agent-output/fix_result.json') != ''
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
+        run: |
+          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","status":"pr_creation_started","message":"Code changes generated. Creating pull request"}))')
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" 2>/dev/null || true
+
+      - name: Notify webhook - PR created
+        if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
+        run: |
+          PR_NUMBER=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_number', ''))" 2>/dev/null || echo "")
+          PR_URL=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_url', ''))" 2>/dev/null || echo "")
+          ISSUE_NUMBER=${{ github.event.issue.number || github.event.inputs.issue_number }}
+
+          echo "Notifying webhook for incident: $INCIDENT_ID, PR: $PR_NUMBER"
+
+          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","issue_number":'"$ISSUE_NUMBER"',"pr_number":'"$PR_NUMBER"',"pr_url":"'"$PR_URL"'","status":"pr_created"}))')
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"
+
       - name: Comment on issue
         if: always() && hashFiles('agent-output/analysis.json') != ''
         env:
@@ -129,7 +188,7 @@ jobs:
           else
             echo "update_issue_comment.py not found, skipping issue comment update"
           fi
-      
+
       - name: Upload agent logs
         if: always()
         uses: actions/upload-artifact@v4

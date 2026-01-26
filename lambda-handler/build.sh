@@ -44,19 +44,43 @@ cp -r ../storage/src package/storage
 
 # Copy handlers
 echo "Copying handlers..."
-cp handler.py package/
-cp handler_incident_only.py package/
-cp chat_handler.py package/
-cp log_groups_handler.py package/
-cp diagnosis_handler.py package/
-cp log_management_handler.py package/
-cp incident_from_chat_handler.py package/
-cp remediation_webhook_handler.py package/
-cp remediation_status_handler.py package/
-cp create_github_issue_handler.py package/
-cp agent_invoker.py package/
+cp handler.py package/ && echo "  ✓ handler.py"
+cp handler_incident_only.py package/ && echo "  ✓ handler_incident_only.py"
+cp chat_handler.py package/ && echo "  ✓ chat_handler.py"
+cp log_groups_handler.py package/ && echo "  ✓ log_groups_handler.py"
+cp diagnosis_handler.py package/ && echo "  ✓ diagnosis_handler.py"
+cp log_management_handler.py package/ && echo "  ✓ log_management_handler.py"
+cp incident_from_chat_handler.py package/ && echo "  ✓ incident_from_chat_handler.py"
+cp remediation_webhook_handler.py package/ && echo "  ✓ remediation_webhook_handler.py"
+cp remediation_status_handler.py package/ && echo "  ✓ remediation_status_handler.py"
+cp create_github_issue_handler.py package/ && echo "  ✓ create_github_issue_handler.py"
+cp chat_session_handler.py package/ && echo "  ✓ chat_session_handler.py"
+cp agent_invoker.py package/ && echo "  ✓ agent_invoker.py"
+
+# Verify chat_session_handler.py was copied
+echo ""
+echo "Verifying handler files were copied..."
+if [ -f "package/chat_session_handler.py" ]; then
+    echo "✅ Verified: chat_session_handler.py is in package"
+else
+    echo "❌ ERROR: chat_session_handler.py NOT found in package!"
+    echo "   Listing package directory:"
+    ls -la package/*.py | head -10
+    exit 1
+fi
+
+# Verify other critical handlers
+for handler in handler.py remediation_status_handler.py create_github_issue_handler.py; do
+    if [ -f "package/$handler" ]; then
+        echo "✅ Verified: $handler"
+    else
+        echo "❌ ERROR: $handler NOT found in package!"
+        exit 1
+    fi
+done
 
 # Create zip
+echo ""
 echo "Creating deployment package..."
 cd package
 zip -r ../lambda-deployment.zip . -q
@@ -64,3 +88,15 @@ cd ..
 
 echo "Deployment package created: lambda-deployment.zip"
 echo "Size: $(du -h lambda-deployment.zip | cut -f1)"
+
+# Final verification - check if chat_session_handler.py is in the zip
+echo ""
+echo "Verifying chat_session_handler.py in deployment zip..."
+if unzip -l lambda-deployment.zip 2>/dev/null | grep -q "chat_session_handler.py"; then
+    echo "✅ Verified: chat_session_handler.py is in deployment zip"
+    unzip -l lambda-deployment.zip | grep "chat_session_handler.py"
+else
+    echo "❌ WARNING: chat_session_handler.py NOT found in deployment zip!"
+    echo "   Listing handler files in zip:"
+    unzip -l lambda-deployment.zip | grep "handler" | head -15
+fi
