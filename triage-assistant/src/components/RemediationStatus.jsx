@@ -195,7 +195,7 @@ export default function RemediationStatus({
       return 'Creating pull request...';
     }
     if (pr?.review_status === 'approved' && !pr?.merge_status) {
-      return 'PR approved by AI. Please review before merging.';
+      return 'AI review complete. Please review and approve before merging.';
     }
     if (pr?.review_status === 'changes_requested') {
       return 'PR review requested changes. Check PR comments for details.';
@@ -490,9 +490,14 @@ export default function RemediationStatus({
                     View PR →
                   </a>
                 )}
-                {pr.review_status && (
+                {pr.review_status && pr.review_status !== 'approved' && (
                   <p className="text-xs text-gray-600">
                     Review: <span className="font-medium">{pr.review_status}</span>
+                  </p>
+                )}
+                {pr.review_status === 'approved' && (
+                  <p className="text-xs text-gray-600">
+                    Review: <span className="font-medium">complete</span>
                   </p>
                 )}
                 {pr.merge_status && (
@@ -535,7 +540,7 @@ export default function RemediationStatus({
                   <span className="text-lg">🤖</span>
                   <div>
                     <p className="text-xs font-semibold text-gray-800">
-                      AI-Based PR Review {pr.review_status ? `(${pr.review_status})` : '(In Progress)'}
+                      AI-Based PR Review {pr.review_status === 'approved' ? '(complete)' : pr.review_status ? `(${pr.review_status})` : '(In Progress)'}
                     </p>
                     <p className="text-xs text-gray-600">
                       PR Review Agent automatically reviews the PR
@@ -550,7 +555,7 @@ export default function RemediationStatus({
                       ? 'bg-yellow-100 text-yellow-700'
                       : 'bg-blue-100 text-blue-700'
                   }`}>
-                    {pr.review_status === 'approved' ? '✓ Approved' :
+                    {pr.review_status === 'approved' ? '✓ Complete' :
                      pr.review_status === 'changes_requested' ? '⚠ Changes Requested' :
                      pr.review_status}
                   </span>
@@ -566,7 +571,7 @@ export default function RemediationStatus({
               {pr.review_status && (
                 <div className="text-xs text-gray-600 mt-2">
                   {pr.review_status === 'approved' && (
-                    <p className="text-green-700">✓ PR approved by AI reviewer. <strong>Please review before merging.</strong></p>
+                    <p className="text-green-700">✓ AI review complete. <strong>Please review before merging.</strong></p>
                   )}
                   {pr.review_status === 'changes_requested' && (
                     <p className="text-yellow-700">⚠ AI reviewer requested changes. Check PR comments for details.</p>
