@@ -1,12 +1,12 @@
 /**
  * Remediation Status Component
- * Shows the full lifecycle: Issue → PR → Review → Merge
- * With stage indicators, explanations, and progress tracking
+ * Shows the automated lifecycle: Issue → Analysis → AI-Powered Fix Generation → PR Creation → AI-Powered PR Review
+ * After PR creation, AI-powered PR Review is automatically triggered
  */
 
 import { useState, useEffect, useRef } from 'react';
 
-// Stage definitions
+// Stage definitions - only automated stages
 const STAGES = [
   {
     id: 'issue',
@@ -24,9 +24,9 @@ const STAGES = [
   },
   {
     id: 'fix_generation',
-    name: 'Fix Generation',
+    name: 'AI-Powered Fix Generation',
     icon: '✏️',
-    description: 'Generating fix based on analysis',
+    description: 'AI generating fix based on analysis',
     event: 'fix_generation_started'
   },
   {
@@ -38,17 +38,10 @@ const STAGES = [
   },
   {
     id: 'pr_review',
-    name: 'PR Review',
-    icon: '👀',
-    description: 'Reviewing pull request',
+    name: 'AI-Powered PR Review',
+    icon: '🤖',
+    description: 'AI reviewing pull request via PR Review Agent',
     event: 'pr_reviewed'
-  },
-  {
-    id: 'merge',
-    name: 'Merge',
-    icon: '✅',
-    description: 'Merging pull request',
-    event: 'pr_merged'
   }
 ];
 
@@ -59,10 +52,12 @@ export default function RemediationStatus({
   onPausePolling,
   onResumePolling,
   isPollingActive,
-  isPollingPaused
+  isPollingPaused,
+  onCheckPRStatus
 }) {
   const [expandedTimeline, setExpandedTimeline] = useState(false);
   const [expandedDetails, setExpandedDetails] = useState({});
+  const [isCheckingPRStatus, setIsCheckingPRStatus] = useState(false);
   
   // All hooks must be called before any early returns
   const prevStatusRef = useRef(null);
@@ -98,18 +93,27 @@ export default function RemediationStatus({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remediationStatus]);
 
+  // Only show loading state if polling is active (meaning we're actively fetching)
+  // Don't show loading if polling hasn't started yet (before GitHub issue is created)
   if (!remediationStatus) {
-    return (
-      <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <div className="flex items-center gap-2">
-          <svg className="animate-spin h-4 w-4 text-gray-500" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          <p className="text-sm text-gray-600">Loading remediation status...</p>
+    // Only show loading if polling is active (issue was created and we're fetching status)
+    if (isPollingActive) {
+      return (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <div className="flex items-center gap-2">
+            <svg className={`h-4 w-4 text-gray-500 ${!isPollingPaused ? 'animate-spin' : ''}`} viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <p className="text-sm text-gray-600">
+              {isPollingPaused ? 'Status updates paused' : 'Loading remediation status...'}
+            </p>
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
+    // If polling hasn't started yet, don't show anything (component shouldn't be rendered)
+    return null;
   }
 
   const { issue, pr, timeline, next_action, repo, similar_incidents_count } = remediationStatus || {};
@@ -128,13 +132,12 @@ export default function RemediationStatus({
         return pr?.number || event.event === 'pr_created';
       }
       if (stage.event === 'pr_reviewed') {
-        return event.event === 'pr_reviewed' || pr?.review_status === 'approved';
-      }
-      if (stage.event === 'pr_merged') {
-        return event.event === 'pr_merged' || pr?.merge_status === 'merged';
+        // PR review is complete if review_status exists and is not 'pending'
+        return pr?.review_status && pr.review_status !== 'pending';
       }
       return event.event === stage.event;
-    }) || (stage.event === 'pr_creation_started' && pr?.number); // Also check if PR exists directly
+    }) || (stage.event === 'pr_creation_started' && pr?.number) || // Also check if PR exists directly
+         (stage.event === 'pr_reviewed' && pr?.review_status && pr.review_status !== 'pending'); // Also check review_status directly
 
     // Check if stage is in progress
     const isInProgress = timelineEvents.some(event => {
@@ -152,10 +155,20 @@ export default function RemediationStatus({
         return eventType === 'pr_created' || pr?.number;
       }
       if (stage.event === 'pr_reviewed') {
-        return pr?.number && !pr?.review_status && !pr?.merge_status;
-      }
-      if (stage.event === 'pr_merged') {
-        return pr?.review_status === 'approved' && !pr?.merge_status;
+        // PR review is in progress if:
+        // 1. PR exists
+        // 2. Review has started (pr_review_started event exists) OR review_status is not set
+        // 3. BUT review is NOT yet complete (review_status is null, undefined, or 'pending')
+        // If review_status is 'approved' or 'changes_requested', it's complete, not in progress
+        if (pr?.review_status && pr.review_status !== 'pending') {
+          // Review is complete, not in progress
+          return false;
+        }
+        const reviewStarted = timelineEvents.some(e => {
+          const eType = typeof e === 'object' ? e.event : e;
+          return eType === 'pr_review_started';
+        });
+        return pr?.number && (reviewStarted || !pr?.review_status || pr.review_status === 'pending');
       }
       return false;
     });
@@ -176,16 +189,25 @@ export default function RemediationStatus({
     }
     if (timelineEvents.some(e => e.event === 'fix_generation_started') && 
         !timelineEvents.some(e => e.event === 'pr_creation_started')) {
-      return 'Generating fix...';
+      return 'AI is generating fix...';
     }
     if (timelineEvents.some(e => e.event === 'pr_creation_started') && !pr?.number) {
       return 'Creating pull request...';
     }
-    if (pr?.number && !pr?.review_status && !pr?.merge_status) {
-      return 'Waiting for PR review...';
-    }
     if (pr?.review_status === 'approved' && !pr?.merge_status) {
-      return 'Waiting for merge...';
+      return 'PR approved by AI. Please review before merging.';
+    }
+    if (pr?.review_status === 'changes_requested') {
+      return 'PR review requested changes. Check PR comments for details.';
+    }
+    if (timelineEvents.some(e => e.event === 'pr_review_started') && !pr?.review_status) {
+      return 'AI-powered PR Review Agent is analyzing the pull request...';
+    }
+    if (pr?.number && !pr?.review_status) {
+      return 'PR created successfully. AI-powered PR Review Agent is being triggered automatically...';
+    }
+    if (pr?.merge_status === 'merged') {
+      return 'PR merged successfully.';
     }
     
     return null;
@@ -221,7 +243,7 @@ export default function RemediationStatus({
 
   // Group timeline events by type for better organization
   const majorMilestones = timeline?.filter(event => 
-    ['issue_created', 'pr_created', 'pr_reviewed', 'pr_merged'].includes(event.event)
+    ['issue_created', 'pr_created'].includes(event.event)
   ) || [];
 
   const progressEvents = timeline?.filter(event => 
@@ -229,7 +251,7 @@ export default function RemediationStatus({
   ) || [];
 
   const detailedEvents = timeline?.filter(event => 
-    !['issue_created', 'pr_created', 'pr_reviewed', 'pr_merged', 'analysis_started', 'fix_generation_started', 'pr_creation_started'].includes(event.event)
+    !['issue_created', 'pr_created', 'analysis_started', 'fix_generation_started', 'pr_creation_started'].includes(event.event)
   ) || [];
 
   const formatTimestamp = (timestamp) => {
@@ -335,6 +357,9 @@ export default function RemediationStatus({
                                (stage.id === 'analysis' || 
                                 stage.id === 'fix_generation' || 
                                 stage.id === 'pr_creation');
+            
+            // Only animate if polling is active and not paused
+            const shouldAnimate = (isPollingActive && !isPollingPaused) || (!isPollingActive && !isPollingPaused);
 
             return (
               <div key={stage.id} className="flex items-center flex-shrink-0">
@@ -345,30 +370,32 @@ export default function RemediationStatus({
                       isCompleted
                         ? 'bg-green-50 border-green-500 text-green-600'
                         : isInProgress
-                        ? 'bg-blue-50 border-blue-500 text-blue-600 animate-pulse shadow-lg shadow-blue-300'
+                        ? `bg-blue-50 border-blue-500 text-blue-600 ${shouldAnimate ? 'animate-pulse' : ''} shadow-lg shadow-blue-300`
                         : shouldPulse
                         ? 'bg-blue-100 border-blue-500 text-blue-700 shadow-lg shadow-blue-300'
                         : 'bg-gray-50 border-gray-300 text-gray-400'
                     }`}
-                    style={shouldPulse ? {
+                    style={shouldPulse && shouldAnimate ? {
                       animation: 'pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
                       boxShadow: '0 0 0 0 rgba(59, 130, 246, 0.7), 0 0 0 0 rgba(59, 130, 246, 0.7), 0 0 0 0 rgba(59, 130, 246, 0.7)'
+                    } : shouldPulse ? {
+                      boxShadow: '0 0 0 0 rgba(59, 130, 246, 0.3)'
                     } : {}}
                   >
                     {isCompleted ? (
                       <span className="text-lg">✓</span>
                     ) : isInProgress ? (
-                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <svg className={`h-5 w-5 ${shouldAnimate ? 'animate-spin' : ''}`} viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
                     ) : (
                       <span 
                         className="text-lg"
-                        style={shouldPulse ? {
+                        style={shouldPulse && shouldAnimate ? {
                           animation: 'pulse-scale 1.5s ease-in-out infinite',
                           display: 'inline-block'
-                        } : {}}
+                        } : { display: 'inline-block' }}
                       >
                         {stage.icon}
                       </span>
@@ -398,7 +425,7 @@ export default function RemediationStatus({
         {currentExplanation && (
           <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
             <div className="flex items-center gap-2">
-              <svg className="animate-spin h-3 w-3 text-blue-600" viewBox="0 0 24 24">
+              <svg className={`h-3 w-3 text-blue-600 ${(isPollingActive && !isPollingPaused) ? 'animate-spin' : ''}`} viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
@@ -473,6 +500,11 @@ export default function RemediationStatus({
                     Merge: <span className="font-medium">{pr.merge_status}</span>
                   </p>
                 )}
+                {!pr.review_status && !pr.merge_status && (
+                  <p className="text-xs text-gray-500 italic">
+                    Status not tracked automatically
+                  </p>
+                )}
               </div>
             </div>
           ) : (
@@ -485,8 +517,127 @@ export default function RemediationStatus({
           )}
         </div>
 
-        {/* Next Action */}
-        {next_action && (
+        {/* PR Review Section (AI-based review - automatically triggered) */}
+        {pr && pr.number && (
+          <div className="space-y-3">
+            {/* AI-Based PR Review Status */}
+            <div className={`p-3 rounded-lg border ${
+              pr.review_status === 'approved'
+                ? 'bg-green-50 border-green-200'
+                : pr.review_status === 'changes_requested'
+                ? 'bg-yellow-50 border-yellow-200'
+                : pr.review_status
+                ? 'bg-blue-50 border-blue-200'
+                : 'bg-gray-50 border-gray-200'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🤖</span>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">
+                      AI-Based PR Review {pr.review_status ? `(${pr.review_status})` : '(In Progress)'}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      PR Review Agent automatically reviews the PR
+                    </p>
+                  </div>
+                </div>
+                {pr.review_status && (
+                  <span className={`px-2 py-1 text-xs rounded font-medium ${
+                    pr.review_status === 'approved'
+                      ? 'bg-green-100 text-green-700'
+                      : pr.review_status === 'changes_requested'
+                      ? 'bg-yellow-100 text-yellow-700'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {pr.review_status === 'approved' ? '✓ Approved' :
+                     pr.review_status === 'changes_requested' ? '⚠ Changes Requested' :
+                     pr.review_status}
+                  </span>
+                )}
+              </div>
+              {!pr.review_status && (
+                <div className="text-xs text-gray-600 space-y-1">
+                  <p>• PR Review Agent workflow is automatically triggered after PR creation</p>
+                  <p>• Review happens via GitHub Actions workflow (pr-review.yml)</p>
+                  <p>• Status will update automatically when review completes</p>
+                </div>
+              )}
+              {pr.review_status && (
+                <div className="text-xs text-gray-600 mt-2">
+                  {pr.review_status === 'approved' && (
+                    <p className="text-green-700">✓ PR approved by AI reviewer. <strong>Please review before merging.</strong></p>
+                  )}
+                  {pr.review_status === 'changes_requested' && (
+                    <p className="text-yellow-700">⚠ AI reviewer requested changes. Check PR comments for details.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Important Disclaimer */}
+            <div className="p-3 rounded-lg border-2 border-yellow-300 bg-yellow-50">
+              <div className="flex items-start gap-2">
+                <span className="text-lg flex-shrink-0">⚠️</span>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-yellow-900 mb-1">
+                    Important: Please Review Before Merging
+                  </p>
+                  <p className="text-xs text-yellow-800">
+                    This fix was generated by AI. Please carefully review the code changes, test the fix, and ensure it meets your requirements before merging the PR.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Manual Check & Merge Section */}
+            <div className="p-3 rounded border bg-blue-50 border-blue-200">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-blue-800">
+                  <span className="font-semibold">Next Steps:</span> Review and merge in GitHub
+                </p>
+                {onCheckPRStatus && (
+                  <button
+                    onClick={async () => {
+                      setIsCheckingPRStatus(true);
+                      try {
+                        await onCheckPRStatus(incidentId);
+                      } finally {
+                        setIsCheckingPRStatus(false);
+                      }
+                    }}
+                    disabled={isCheckingPRStatus}
+                    className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {isCheckingPRStatus ? (
+                      <>
+                        <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Checking...
+                      </>
+                    ) : (
+                      <>
+                        🔍 Check PR Status
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-blue-700 space-y-1">
+                <p>• PR review can be done by AI (PR Review Agent) or manually</p>
+                <p>• Use "Check PR Status" to see current review/merge status</p>
+                <p>• <strong>Always review AI-generated code before merging</strong></p>
+                <p>• Merge the PR manually in GitHub when ready</p>
+                {pr.merge_status === 'merged' && (
+                  <p className="text-green-700 font-medium">✓ PR has been merged successfully!</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        {next_action && !pr?.number && (
           <div className={`p-2 rounded border ${
             next_action.includes('⚠️') || next_action.includes('may not be configured')
               ? 'bg-yellow-50 border-yellow-300'
@@ -499,16 +650,6 @@ export default function RemediationStatus({
             }`}>
               <span className="font-semibold">Next:</span> {next_action}
             </p>
-            {next_action.includes('PR Review Agent may not be configured') && (
-              <div className="mt-2 text-xs text-yellow-700">
-                <p className="font-semibold mb-1">To set up PR Review Agent:</p>
-                <ol className="list-decimal list-inside space-y-1 ml-2">
-                  <li>Ensure the PR Review Agent workflow is configured in the repository</li>
-                  <li>Check that the workflow file exists at: <code className="bg-yellow-100 px-1 rounded">.github/workflows/pr-review.yml</code></li>
-                  <li>Verify the workflow is triggered on <code className="bg-yellow-100 px-1 rounded">pull_request</code> events</li>
-                </ol>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -531,7 +672,7 @@ export default function RemediationStatus({
               {/* Progress Events - Show with messages */}
               {progressEvents.map((event, index) => (
                 <div key={`progress-${index}`} className="flex items-start gap-3 p-2 bg-blue-50 rounded border border-blue-200">
-                  <div className="flex-shrink-0 w-2 h-2 rounded-full bg-blue-500 mt-1.5 animate-pulse"></div>
+                  <div className={`flex-shrink-0 w-2 h-2 rounded-full bg-blue-500 mt-1.5 ${(isPollingActive && !isPollingPaused) ? 'animate-pulse' : ''}`}></div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-blue-800 capitalize">

@@ -108,7 +108,17 @@ export default function ChatSessionDialog({
     if (!dateString) return 'Unknown date';
     try {
       const date = new Date(dateString);
-      return date.toLocaleString();
+      // Use toLocaleString with explicit options to ensure local timezone
+      // Format: "1/26/2026, 3:56:25 AM" (local time)
+      return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
     } catch {
       return dateString;
     }

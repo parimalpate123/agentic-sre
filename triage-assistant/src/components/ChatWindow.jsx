@@ -539,8 +539,8 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       // Resume polling for any incidents that have remediation status
       Object.keys(session.remediation_statuses).forEach(incidentId => {
         const status = session.remediation_statuses[incidentId];
-        // Only resume polling if there's an issue but no PR yet, or PR is not merged
-        if (status.issue && (!status.pr || status.pr.merge_status !== 'merged')) {
+        // Resume polling if there's an issue (continue polling to track PR review status)
+        if (status.issue && (!status.pr?.merge_status || status.pr?.merge_status !== 'merged')) {
           console.log(`🔄 Resuming polling for incident: ${incidentId}`);
           startRemediationPolling(incidentId);
         }
@@ -773,6 +773,27 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
     return pollingStatus[incidentId] === 'paused' || !!pausedPollingRef.current[incidentId];
   };
   
+  // Manual check PR status (on-demand, doesn't start polling)
+  const checkPRStatus = async (incidentId) => {
+    try {
+      console.log(`🔍 Manually checking PR status for incident: ${incidentId}`);
+      const status = await getRemediationStatus(incidentId);
+      if (status) {
+        setRemediationStatuses(prev => ({
+          ...prev,
+          [incidentId]: status
+        }));
+        console.log(`✅ Updated PR status for incident ${incidentId}:`, {
+          pr_number: status.pr?.number,
+          review_status: status.pr?.review_status,
+          merge_status: status.pr?.merge_status
+        });
+      }
+    } catch (error) {
+      console.error(`❌ Error checking PR status for incident ${incidentId}:`, error);
+    }
+  };
+  
   const MAX_POLLING_DURATION = 30 * 60 * 1000; // 30 minutes max polling
   const STABLE_STATUS_THRESHOLD = 12; // Stop if status unchanged for 12 polls (60 seconds at 5s intervals)
   const ACTIVE_WAITING_STABLE_THRESHOLD = 24; // Longer threshold for active waiting states (2 minutes)
@@ -874,21 +895,28 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         });
         
         // Stop polling conditions:
-        // 1. PR is merged (remediation complete)
+        // 1. PR review is complete (approved or changes_requested) - end of automated flow
+        if (status.pr?.review_status && status.pr.review_status !== 'pending') {
+          stopRemediationPolling(incidentId);
+          console.log(`✅ PR review complete for incident ${incidentId} (status: ${status.pr.review_status}), stopped polling. User can manually check merge status if needed.`);
+          return;
+        }
+        
+        // 2. PR is merged (remediation complete)
         if (status.pr?.merge_status === 'merged' || status.pr?.status === 'merged') {
           stopRemediationPolling(incidentId);
           console.log(`✅ Remediation complete for incident ${incidentId}, stopped polling`);
           return;
         }
         
-        // 2. PR is closed without merge
+        // 3. PR is closed without merge
         if (status.pr?.status === 'closed' && status.pr?.merge_status !== 'merged') {
           stopRemediationPolling(incidentId);
           console.log(`⏹️ PR closed without merge for incident ${incidentId}, stopped polling`);
           return;
         }
         
-        // 3. Check timeout (stop after 30 minutes of polling)
+        // 4. Check timeout (stop after 30 minutes of polling)
         const startTime = pollingStartTimeRef.current[incidentId] || Date.now();
         pollingStartTimeRef.current[incidentId] = startTime;
         const elapsed = Date.now() - startTime;
@@ -1322,6 +1350,7 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                 onResumePolling={() => message.incident?.incident_id && resumeRemediationPolling(message.incident.incident_id)}
                 isPollingActive={message.incident?.incident_id ? isPollingActive(message.incident.incident_id) : false}
                 isPollingPaused={message.incident?.incident_id ? isPollingPaused(message.incident.incident_id) : false}
+                onCheckPRStatus={() => message.incident?.incident_id && checkPRStatus(message.incident.incident_id)}
               />
             ))}
 

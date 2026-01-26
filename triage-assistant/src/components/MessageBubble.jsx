@@ -21,7 +21,8 @@ export default function MessageBubble({
   onPausePolling = null,
   onResumePolling = null,
   isPollingActive = false,
-  isPollingPaused = false
+  isPollingPaused = false,
+  onCheckPRStatus = null
 }) {
   // Get search mode badge text and styles
   const getSearchModeBadge = () => {
@@ -228,11 +229,12 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* Remediation Status (only for code_fix actions with GitHub issue) */}
+        {/* Remediation Status (only for code_fix actions with GitHub issue created) */}
         {!isUser && 
          message.incident?.incident_id && 
          message.incident?.execution_type === 'code_fix' &&
-         (message.incident?.execution_results?.github_issue || remediationStatus) && (
+         // Only show if GitHub issue was successfully created OR we have remediation status
+         ((message.incident?.execution_results?.github_issue?.status === 'success') || remediationStatus) && (
           <RemediationStatus
             incidentId={message.incident.incident_id}
             remediationStatus={remediationStatus}
@@ -241,6 +243,7 @@ export default function MessageBubble({
             onResumePolling={onResumePolling}
             isPollingActive={isPollingActive}
             isPollingPaused={isPollingPaused}
+            onCheckPRStatus={onCheckPRStatus}
           />
         )}
 
