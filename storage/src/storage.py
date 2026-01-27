@@ -114,7 +114,7 @@ class Storage:
             if not source:
                 # CloudWatch incidents typically have IDs like "inc-1234567890" or "test-2026-01-27T..."
                 # Chat incidents have IDs like "chat-1234567890-abc123"
-                if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                if incident_id.startswith('inc-') or incident_id.startswith('test-') or incident_id.startswith('cw-'):
                     source = 'cloudwatch_alarm'
                     logger.info(f"[SAVE] Inferred source='cloudwatch_alarm' from incident_id pattern: {incident_id}")
                 elif incident_id.startswith('chat-'):
@@ -126,8 +126,20 @@ class Storage:
                     logger.warning(f"[SAVE] Could not determine source, defaulting to 'chat' for incident {incident_id}")
             
             # Always save source field (even if inferred)
+            if not source:
+                # Final fallback: infer from incident_id
+                if incident_id.startswith('inc-') or incident_id.startswith('test-') or incident_id.startswith('cw-'):
+                    source = 'cloudwatch_alarm'
+                    logger.warning(f"[SAVE] Source was None/empty, inferred 'cloudwatch_alarm' from incident_id: {incident_id}")
+                elif incident_id.startswith('chat-'):
+                    source = 'chat'
+                    logger.warning(f"[SAVE] Source was None/empty, inferred 'chat' from incident_id: {incident_id}")
+                else:
+                    source = 'chat'  # Default
+                    logger.warning(f"[SAVE] Source was None/empty, defaulting to 'chat' for incident_id: {incident_id}")
+            
             item['source'] = {'S': str(source)}
-            logger.info(f"[SAVE] ✅ Saved incident {incident_id} with source: {repr(source)}")
+            logger.info(f"[SAVE] ✅ Saved incident {incident_id} with source: {repr(source)} (type: {type(source)})")
             
             # Also ensure source is in the nested data JSON for consistency
             if not investigation_result.get('source'):
@@ -245,7 +257,14 @@ class Storage:
                     if expression_attribute_names:
                         params['ExpressionAttributeNames'] = expression_attribute_names
                 logger.debug(f"Querying DynamoDB with ServiceIndex, params keys: {list(params.keys())}")
-                response = self.dynamodb.query(**params)
+                all_items = []
+                while True:
+                    response = self.dynamodb.query(**params)
+                    all_items.extend(response.get('Items', []))
+                    last_key = response.get('LastEvaluatedKey')
+                    if not last_key:
+                        break
+                    params['ExclusiveStartKey'] = last_key
             elif status:
                 params['IndexName'] = 'StatusIndex'
                 params['KeyConditionExpression'] = 'status = :status'
@@ -258,7 +277,14 @@ class Storage:
                     if expression_attribute_names:
                         params['ExpressionAttributeNames'] = expression_attribute_names
                 logger.debug(f"Querying DynamoDB with StatusIndex, params keys: {list(params.keys())}")
-                response = self.dynamodb.query(**params)
+                all_items = []
+                while True:
+                    response = self.dynamodb.query(**params)
+                    all_items.extend(response.get('Items', []))
+                    last_key = response.get('LastEvaluatedKey')
+                    if not last_key:
+                        break
+                    params['ExclusiveStartKey'] = last_key
             else:
                 # Full scan (not efficient for large datasets)
                 if filter_expressions:
@@ -268,9 +294,16 @@ class Storage:
                         params['ExpressionAttributeNames'] = expression_attribute_names
                 
                 logger.debug(f"Scanning DynamoDB table: {self.incidents_table}, filter: {filter_expressions}")
+                all_items = []
                 try:
-                    response = self.dynamodb.scan(**params)
-                    logger.info(f"Scan returned {len(response.get('Items', []))} items from DynamoDB")
+                    while True:
+                        response = self.dynamodb.scan(**params)
+                        all_items.extend(response.get('Items', []))
+                        last_key = response.get('LastEvaluatedKey')
+                        if not last_key:
+                            break
+                        params['ExclusiveStartKey'] = last_key
+                    logger.info(f"Scan returned {len(all_items)} items from DynamoDB")
                 except ClientError as e:
                     error_code = e.response.get('Error', {}).get('Code', 'Unknown')
                     error_message = e.response.get('Error', {}).get('Message', str(e))
@@ -281,8 +314,15 @@ class Storage:
                         params.pop('FilterExpression', None)
                         params.pop('ExpressionAttributeValues', None)
                         params.pop('ExpressionAttributeNames', None)
-                        response = self.dynamodb.scan(**params)
-                        logger.info(f"Retry scan returned {len(response.get('Items', []))} items from DynamoDB")
+                        all_items = []
+                        while True:
+                            response = self.dynamodb.scan(**params)
+                            all_items.extend(response.get('Items', []))
+                            last_key = response.get('LastEvaluatedKey')
+                            if not last_key:
+                                break
+                            params['ExclusiveStartKey'] = last_key
+                        logger.info(f"Retry scan returned {len(all_items)} items from DynamoDB")
                     else:
                         raise
 
@@ -290,8 +330,10 @@ class Storage:
             incidents = []
             # Note: use_in_memory_filter is set in the scan block above if we had to fallback
             
-            for item in response.get('Items', []):
+            for item in all_items:
                 parsed_item = self._parse_dynamodb_item(item)
+                incident_id = parsed_item.get('incident_id', 'unknown')
+                logger.debug(f"[LIST] Processing item: incident_id={incident_id}, has_source_field={('source' in parsed_item)}")
                 
                 # Parse nested JSON data if present
                 if 'data' in parsed_item:
@@ -310,7 +352,7 @@ class Storage:
                             # If still not found, infer from incident_id
                             if not nested_source:
                                 incident_id = parsed_item.get('incident_id', '')
-                                if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                                if incident_id.startswith('inc-') or incident_id.startswith('test-') or incident_id.startswith('cw-'):
                                     nested_source = 'cloudwatch_alarm'
                                 elif incident_id.startswith('chat-'):
                                     nested_source = 'chat'
@@ -327,7 +369,7 @@ class Storage:
                 # If source still not set, try to infer from incident_id (fallback)
                 if 'source' not in parsed_item or not parsed_item.get('source'):
                     incident_id = parsed_item.get('incident_id', '')
-                    if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                    if incident_id.startswith('inc-') or incident_id.startswith('test-') or incident_id.startswith('cw-'):
                         parsed_item['source'] = 'cloudwatch_alarm'
                         logger.debug(f"Inferred source='cloudwatch_alarm' from incident_id: {incident_id}")
                     elif incident_id.startswith('chat-'):
@@ -354,7 +396,7 @@ class Storage:
                     
                     # If still not found, infer from incident_id pattern
                     if not item_source:
-                        if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                        if incident_id.startswith('inc-') or incident_id.startswith('test-') or incident_id.startswith('cw-'):
                             item_source = 'cloudwatch_alarm'
                             logger.info(f"Inferred source='cloudwatch_alarm' from incident_id pattern: {incident_id}")
                         elif incident_id.startswith('chat-'):

@@ -729,6 +729,8 @@ class InvestigationOrchestrator:
         remediation: RemediationResult
     ) -> str:
         """Format GitHub issue body with incident context"""
+        # Include incident ID prominently at the top for easy extraction
+        incident_id_section = f"**Incident ID:** {incident.incident_id}\n\n"
         # Get log entries from raw event
         log_entries = incident.raw_event.get('log_entries', [])[:10]
         log_summary = ""
@@ -742,7 +744,7 @@ class InvestigationOrchestrator:
         if not error_patterns and hasattr(diagnosis, 'supporting_evidence'):
             error_patterns = diagnosis.supporting_evidence
 
-        return f"""## Incident: {incident.incident_id}
+        return f"""{incident_id_section}## Incident: {incident.incident_id}
 
 ### Service
 {incident.service}

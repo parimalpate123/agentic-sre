@@ -611,6 +611,13 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
 
   const handleLoadCloudWatchIncident = (incidentMessage) => {
     console.log('📥 Loading CloudWatch incident:', incidentMessage);
+    console.log('🔍 Incident data check:', {
+      source: incidentMessage.incident?.source,
+      execution_type: incidentMessage.incident?.execution_type,
+      execution_results: incidentMessage.incident?.execution_results,
+      has_github_issue: !!incidentMessage.incident?.execution_results?.github_issue,
+      github_issue_status: incidentMessage.incident?.execution_results?.github_issue?.status
+    });
     
     // Add incident message to chat, avoiding duplicates
     setMessages(prev => {
@@ -627,10 +634,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         return prev;
       }
       
-      // Insert after welcome message
-      const welcomeMessage = prev[0];
-      const otherMessages = prev.slice(1);
-      return [welcomeMessage, incidentMessage, ...otherMessages];
+      // Append at end of chat
+      return [...prev, incidentMessage];
     });
     
     // If incident has remediation status, start polling

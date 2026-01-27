@@ -7,12 +7,21 @@ import json
 import logging
 import os
 import time
+import secrets
+import string
 import boto3
 from datetime import datetime
 from typing import Dict, Any
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+def generate_short_incident_id(prefix: str = 'cw') -> str:
+    """Generate a short, unique incident ID (e.g., cw-12d3s455s2a)"""
+    random_id = ''.join(secrets.choice(string.ascii_lowercase + string.digits) 
+                       for _ in range(12))
+    return f"{prefix}-{random_id}"
 
 # Initialize AWS clients
 cloudwatch_client = boto3.client('cloudwatch')
@@ -210,10 +219,17 @@ def trigger_cloudwatch_alarm_handler(event: Dict[str, Any], context: Any) -> Dic
         scenario = body.get('scenario', 'monitor')  # 'code_fix' or 'monitor'
         
         # Extract service from alarm name (e.g., "payment-service-error-rate" -> "payment-service")
-        # Try to extract full service name (e.g., "payment-service" from "payment-service-error-rate")
+        # Strip "test-" prefix if present for test alarms
         parts = alarm_name.split('-')
-        if len(parts) >= 2:
-            service = '-'.join(parts[:2])  # Take first two parts (e.g., "payment-service")
+        
+        # If alarm name starts with "test-", skip it and extract actual service
+        if len(parts) > 0 and parts[0] == 'test' and len(parts) >= 3:
+            # "test-payment-service-error-rate" -> "payment-service"
+            service = '-'.join(parts[1:3])  # Take parts 1 and 2 (skip "test")
+            logger.info(f"Extracted service from test alarm name '{alarm_name}': service='{service}' (stripped 'test-' prefix)")
+        elif len(parts) >= 2:
+            # "payment-service-error-rate" -> "payment-service"
+            service = '-'.join(parts[:2])  # Take first two parts
         else:
             service = parts[0] if parts else 'payment-service'
         
@@ -241,7 +257,7 @@ def trigger_cloudwatch_alarm_handler(event: Dict[str, Any], context: Any) -> Dic
         # Create a test CloudWatch alarm event
         test_event = {
             'version': '0',
-            'id': f'test-{datetime.utcnow().isoformat()}',
+            'id': generate_short_incident_id('cw'),
             'detail-type': 'CloudWatch Alarm State Change',
             'source': 'aws.cloudwatch',
             'account': context.invoked_function_arn.split(':')[4] if hasattr(context, 'invoked_function_arn') else '123456789012',

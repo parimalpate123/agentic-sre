@@ -77,8 +77,26 @@ def remediation_status_handler(event: Dict[str, Any], context: Any) -> Dict[str,
             table = dynamodb.Table(REMEDIATION_STATE_TABLE)
             logger.info(f"Querying DynamoDB table: {REMEDIATION_STATE_TABLE} for incident: {incident_id}")
             
+            # Try exact match first
             response = table.get_item(Key={'incident_id': incident_id})
             item = response.get('Item')
+            
+            # If not found, try prefix matching (in case remediation state was stored with truncated ID from label)
+            if not item and (incident_id.startswith('test-') or incident_id.startswith('inc-') or incident_id.startswith('cw-') or incident_id.startswith('chat-')):
+                logger.info(f"Exact match not found for '{incident_id}', trying prefix match...")
+                # Scan for items that start with this prefix
+                scan_response = table.scan(
+                    FilterExpression='begins_with(incident_id, :prefix)',
+                    ExpressionAttributeValues={':prefix': incident_id}
+                )
+                items = scan_response.get('Items', [])
+                if items:
+                    # Use the first match (should be only one)
+                    item = items[0]
+                    actual_incident_id = item.get('incident_id')
+                    logger.info(f"Found remediation state with prefix match: '{actual_incident_id}' (searched for '{incident_id}')")
+                    # Update incident_id to match what's in DynamoDB for consistency
+                    incident_id = actual_incident_id
             
             logger.info(f"DynamoDB response: Item found: {item is not None}")
             

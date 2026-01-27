@@ -14,11 +14,15 @@ export function parseIncidentData(data) {
     
     console.log('🔍 Parsing incident data:', incidentData);
     
-    // Extract execution results if available
-    const executionResults = incidentData.execution_results || {};
-    
     // Extract full_state if available (contains nested incident data)
+    // MUST be declared before executionResults since executionResults references it
     const fullState = incidentData.full_state || {};
+    
+    // Extract execution results if available
+    // Extract execution_results from multiple locations
+    const executionResults = incidentData.execution_results || 
+                            fullState.execution_results || 
+                            {};
     const incident = fullState.incident || {};
     const remediation = fullState.remediation || {};
     const triage = fullState.triage || {};

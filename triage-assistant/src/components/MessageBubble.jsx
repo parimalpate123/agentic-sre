@@ -193,8 +193,12 @@ export default function MessageBubble({
               </button>
             )}
             
-            {/* Create Incident Button */}
-            {onCreateIncident && (
+            {/* Create Incident Button 
+                - Show for: chat-initiated incidents (source='chat'), escalated incidents, or non-code_fix types
+                - Hide for: CloudWatch incidents with code_fix (auto-executed, no manual intervention needed)
+            */}
+            {onCreateIncident && 
+             !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
@@ -215,6 +219,81 @@ export default function MessageBubble({
                   </>
                 )}
               </button>
+            )}
+            
+            {/* Auto-execution status for CloudWatch incidents with code_fix */}
+            {(() => {
+              const isCloudWatch = message.incident?.source === 'cloudwatch_alarm';
+              const isCodeFix = message.incident?.execution_type === 'code_fix';
+              const hasExecutionResults = !!message.incident?.execution_results?.github_issue;
+              
+              // Debug logging
+              if (isCloudWatch && isCodeFix) {
+                console.log('🔍 Auto-execution status check:', {
+                  source: message.incident?.source,
+                  execution_type: message.incident?.execution_type,
+                  has_execution_results: hasExecutionResults,
+                  github_issue_status: message.incident?.execution_results?.github_issue?.status,
+                  full_execution_results: message.incident?.execution_results
+                });
+              }
+              
+              return isCloudWatch && isCodeFix;
+            })() && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                {message.incident?.execution_results?.github_issue?.status === 'success' ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-green-800">
+                      <span>✅</span>
+                      <span className="font-medium">Auto-execution Complete</span>
+                    </div>
+                    <p className="text-sm text-green-700 mt-1">
+                      GitHub issue created automatically. Issue #{message.incident.execution_results.github_issue.issue_number} -{' '}
+                      <a
+                        href={message.incident.execution_results.github_issue.issue_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:text-green-900"
+                      >
+                        View Issue
+                      </a>
+                    </p>
+                  </div>
+                ) : message.incident?.execution_results?.github_issue?.status === 'pending_approval' ? (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-yellow-800">
+                      <span>⏳</span>
+                      <span className="font-medium">Auto-execution Pending</span>
+                    </div>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      GitHub issue creation is pending approval.
+                    </p>
+                  </div>
+                ) : message.incident?.execution_results?.github_issue?.status === 'error' ? (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-red-800">
+                      <span>❌</span>
+                      <span className="font-medium">Auto-execution Failed</span>
+                    </div>
+                    <p className="text-sm text-red-700 mt-1">
+                      GitHub issue auto-creation failed: {message.incident.execution_results.github_issue.error || 'Unknown error'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-blue-800">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span className="font-medium">Auto-creating GitHub Issue...</span>
+                    </div>
+                    <p className="text-sm text-blue-700 mt-1">
+                      This CloudWatch incident requires code changes. GitHub issue is being created automatically.
+                    </p>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -281,8 +360,12 @@ export default function MessageBubble({
               </button>
             )}
 
-            {/* Create Incident & Run Full Investigation Button */}
-            {onCreateIncident && (
+            {/* Create Incident & Run Full Investigation Button 
+                - Show for: chat-initiated incidents (source='chat'), escalated incidents, or non-code_fix types
+                - Hide for: CloudWatch incidents with code_fix (auto-executed, no manual intervention needed)
+            */}
+            {onCreateIncident && 
+             !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
@@ -304,11 +387,73 @@ export default function MessageBubble({
                 )}
               </button>
             )}
+            
+            {/* Auto-execution status for CloudWatch incidents with code_fix (in action buttons section) */}
+            {message.incident?.source === 'cloudwatch_alarm' && 
+             message.incident?.execution_type === 'code_fix' && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                {message.incident?.execution_results?.github_issue?.status === 'success' ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-green-800">
+                      <span>✅</span>
+                      <span className="font-medium">Auto-execution Complete</span>
+                    </div>
+                    <p className="text-sm text-green-700 mt-1">
+                      GitHub issue created automatically. Issue #{message.incident.execution_results.github_issue.issue_number} -{' '}
+                      <a
+                        href={message.incident.execution_results.github_issue.issue_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:text-green-900"
+                      >
+                        View Issue
+                      </a>
+                    </p>
+                  </div>
+                ) : message.incident?.execution_results?.github_issue?.status === 'pending_approval' ? (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-yellow-800">
+                      <span>⏳</span>
+                      <span className="font-medium">Auto-execution Pending</span>
+                    </div>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      GitHub issue creation is pending approval.
+                    </p>
+                  </div>
+                ) : message.incident?.execution_results?.github_issue?.status === 'error' ? (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-red-800">
+                      <span>❌</span>
+                      <span className="font-medium">Auto-execution Failed</span>
+                    </div>
+                    <p className="text-sm text-red-700 mt-1">
+                      GitHub issue auto-creation failed: {message.incident.execution_results.github_issue.error || 'Unknown error'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-blue-800">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span className="font-medium">Auto-creating GitHub Issue...</span>
+                    </div>
+                    <p className="text-sm text-blue-700 mt-1">
+                      This CloudWatch incident requires code changes. GitHub issue is being created automatically.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* Execution Results (shown AFTER incident analysis) */}
-        {!isUser && message.incident && (message.incident.execution_results || message.incident.execution_type) && (
+        {!isUser && 
+         message.incident && 
+         (message.incident.execution_results || message.incident.execution_type) && 
+         message.incident.source !== 'cloudwatch_alarm' && (
           <div className="mt-3 pt-3 border-t border-gray-200">
             <p className="text-xs font-semibold text-gray-500 mb-2">⚡ Execution Results:</p>
             {message.incident.execution_results?.auto_execute && (
@@ -398,7 +543,9 @@ export default function MessageBubble({
                     GitHub Issue: {message.incident.execution_results.github_issue.status === 'pending_approval' ? 'Pending Approval' : message.incident.execution_results.github_issue.status}
                   </span>
                 </div>
-                {message.incident.execution_results.github_issue.status === 'pending_approval' && onCreateGitHubIssue && (
+                {message.incident.execution_results.github_issue.status === 'pending_approval' && 
+                 onCreateGitHubIssue && 
+                 message.incident.source !== 'cloudwatch_alarm' && (
                   <div className="space-y-2">
                     <p className="text-xs text-gray-600 mb-2">
                       💡 <strong>Code changes required:</strong> This incident requires code modifications. Click the button below to create a GitHub issue in the <strong>{message.incident.service || 'service'}</strong> repository. The Issue Agent will automatically analyze and create a fix.

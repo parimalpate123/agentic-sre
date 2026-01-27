@@ -315,7 +315,7 @@ class RemediationAgent:
         # Code fix: Bug fixes, logic errors, error handling, config changes
         # Check this FIRST - categories like DEPENDENCY/TIMEOUT/CONFIGURATION should be code fixes
         # even if action is scale/restart (because those actions won't fix the root cause)
-        code_fix_categories = ['BUG', 'LOGIC_ERROR', 'HANDLING', 'TIMEOUT', 'ERROR_HANDLING']
+        code_fix_categories = ['BUG', 'LOGIC_ERROR', 'HANDLING', 'TIMEOUT', 'ERROR_HANDLING', 'CODE']
         code_fix_action_types = ['config_change', 'code_fix', 'fix', 'update_config', 'modify_config']
         
         # Also consider DEPENDENCY and CONFIGURATION categories for code fixes

@@ -456,21 +456,29 @@ def handle_github_webhook(payload: Dict[str, Any]) -> Dict[str, Any]:
     pr_url = pr_data.get('html_url', '')
     pr_labels = [label.get('name', '') for label in pr_data.get('labels', [])]
     
-    # Find incident ID from PR labels (format: incident-{incident_id})
+    # Find incident ID - try PR body first (has full ID, no length limit), then labels (may be truncated)
     incident_id = None
-    for label in pr_labels:
-        if label.startswith('incident-'):
-            incident_id = label.replace('incident-', '')
-            break
+    pr_body = pr_data.get('body', '')
     
-    # If not found in labels, try to extract from PR body
+    # Try to extract from PR body first (full ID with colons/dots) - this is the source of truth
+    import re
+    # Look for pattern: "Incident ID: {incident_id}" or "Incident: {incident_id}" in PR body
+    # The full ID is stored here, so this should always work
+    match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-.:]+)', pr_body, re.IGNORECASE)
+    if match:
+        incident_id = match.group(1)
+        logger.info(f"✅ Extracted full incident_id from PR body: {incident_id}")
+    
+    # If not found in body, try labels (may be truncated due to GitHub's 50 char limit)
     if not incident_id:
-        pr_body = pr_data.get('body', '')
-        # Look for pattern: "Incident: {incident_id}"
-        import re
-        match = re.search(r'Incident:\s*([a-z0-9-]+)', pr_body, re.IGNORECASE)
-        if match:
-            incident_id = match.group(1)
+        for label in pr_labels:
+            if label.startswith('incident-'):
+                label_incident_id = label.replace('incident-', '')
+                logger.info(f"Found incident_id in label (may be truncated): {label_incident_id}")
+                # If label is truncated, we need to match by prefix
+                # Store the truncated ID but note it might need prefix matching
+                incident_id = label_incident_id
+                break
     
     if not incident_id:
         logger.warning(f"Could not find incident_id for PR {pr_number}")
@@ -483,8 +491,34 @@ def handle_github_webhook(payload: Dict[str, Any]) -> Dict[str, Any]:
     table = dynamodb.Table(REMEDIATION_STATE_TABLE)
     
     try:
+        # Try exact match first
         response = table.get_item(Key={'incident_id': incident_id})
         item = response.get('Item')
+        
+        # If not found and incident_id looks truncated, try to find remediation states that start with this prefix
+        # This handles the case where GitHub label was truncated (50 char limit)
+        if not item and (incident_id.startswith('test-') or incident_id.startswith('inc-') or incident_id.startswith('cw-') or incident_id.startswith('chat-')):
+            # Check if this looks like a truncated ID
+            # Truncated IDs from labels are typically shorter and don't have the full timestamp with seconds/microseconds
+            # Full IDs: "test-2026-01-27T05:06:05.761604" (35+ chars)
+            # Truncated: "test-2026-01-27T05" (18 chars)
+            if len(incident_id) < 30 or (incident_id.count(':') < 2 if 'T' in incident_id else True):
+                logger.info(f"Incident ID '{incident_id}' appears truncated ({len(incident_id)} chars), searching for remediation states with matching prefix...")
+                # Scan for items that start with this prefix (the stored ID will be longer/fuller)
+                scan_response = table.scan(
+                    FilterExpression='begins_with(incident_id, :prefix)',
+                    ExpressionAttributeValues={':prefix': incident_id}
+                )
+                items = scan_response.get('Items', [])
+                if items:
+                    # Use the longest match (should be the full ID)
+                    item = max(items, key=lambda x: len(x.get('incident_id', '')))
+                    actual_incident_id = item.get('incident_id')
+                    logger.info(f"Found remediation state with prefix match: '{actual_incident_id}' (searched for truncated '{incident_id}')")
+                    # Update incident_id to the full ID for the rest of the function
+                    incident_id = actual_incident_id
+                else:
+                    logger.warning(f"No remediation state found with prefix '{incident_id}' - will create new state with truncated ID")
         
         if not item:
             logger.warning(f"Remediation state not found for incident {incident_id}")

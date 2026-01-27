@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import asyncio
+import secrets
+import string
 from typing import Dict, Any
 from datetime import datetime
 import uuid
@@ -23,6 +25,14 @@ import boto3
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+def generate_short_incident_id(prefix: str = 'chat') -> str:
+    """Generate a short, unique incident ID (e.g., chat-12d3s455s2a)"""
+    random_id = ''.join(secrets.choice(string.ascii_lowercase + string.digits) 
+                       for _ in range(12))
+    return f"{prefix}-{random_id}"
+
 
 # Initialize clients (outside handler for reuse)
 bedrock_client = boto3.client('bedrock-runtime')
@@ -313,8 +323,8 @@ def build_incident_from_chat(
     Returns:
         Incident data dictionary compatible with AgentCore
     """
-    # Generate unique incident ID
-    incident_id = f"chat-{int(datetime.utcnow().timestamp())}-{uuid.uuid4().hex[:8]}"
+    # Generate unique incident ID (short format)
+    incident_id = generate_short_incident_id('chat')
 
     # Ensure log_data is a dict
     if not log_data or not isinstance(log_data, dict):
