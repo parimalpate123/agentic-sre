@@ -232,6 +232,28 @@ resource "aws_iam_role_policy" "lambda_logs_insights" {
   })
 }
 
+# Lambda CloudWatch Alarms Access (for creating/managing alarms)
+resource "aws_iam_role_policy" "lambda_cloudwatch_alarms" {
+  name = "${var.project_name}-lambda-cloudwatch-alarms-policy"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricAlarm",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:DeleteAlarms",
+          "cloudwatch:SetAlarmState"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # Lambda SSM Parameter Store Access (for GitHub token and webhook secret)
 resource "aws_iam_role_policy" "lambda_ssm" {
   name = "${var.project_name}-lambda-ssm-policy"

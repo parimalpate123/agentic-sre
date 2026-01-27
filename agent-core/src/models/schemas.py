@@ -55,6 +55,7 @@ class IncidentEvent(BaseModel):
     Incident event from CloudWatch alarm or manual trigger
     """
     incident_id: str = Field(..., description="Unique incident identifier")
+    source: Optional[str] = Field(default="chat", description="Incident source: 'chat' or 'cloudwatch_alarm'")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Incident timestamp")
 
     # Service information
@@ -233,6 +234,7 @@ class InvestigationResult(BaseModel):
     """
     incident_id: str = Field(..., description="Incident ID")
     service: str = Field(..., description="Service name")
+    source: str = Field(default="chat", description="Incident source: 'chat' or 'cloudwatch_alarm'")
 
     # Results from each stage
     severity: Severity = Field(..., description="Final severity")

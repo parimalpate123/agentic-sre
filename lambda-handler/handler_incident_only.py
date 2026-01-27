@@ -51,21 +51,42 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Returns:
         Response with investigation summary
     """
-    logger.info(f"Received event: {json.dumps(event)}")
+    logger.info(f"Received event: {json.dumps(event, default=str)}")
+    logger.info(f"Event detail-type: {event.get('detail-type')}")
+    logger.info(f"Event source: {event.get('source')}")
 
     try:
         # Run async investigation
+        logger.info("=== STARTING INCIDENT INVESTIGATION ===")
         result = asyncio.run(investigate_incident_async(event))
+        logger.info(f"=== INVESTIGATION COMPLETE ===")
+        logger.info(f"Result type: {type(result)}")
+        logger.info(f"Result keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}")
+        logger.info(f"Incident ID in result: {result.get('incident_id') if isinstance(result, dict) else 'N/A'}")
+        
+        # Check if incident was skipped
+        if isinstance(result, dict) and result.get('skipped'):
+            logger.warning(f"⚠️ Incident was skipped: {result.get('reason', 'Unknown reason')}")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': 'Incident skipped - service could not be identified',
+                    'skipped': True,
+                    'reason': result.get('reason'),
+                    'alarm_name': result.get('alarm_name'),
+                    'incident_id': result.get('incident_id')
+                }, default=str)
+            }
 
         return {
             'statusCode': 200,
             'body': json.dumps({
                 'message': 'Investigation complete',
-                'incident_id': result.get('incident_id'),
-                'root_cause': result.get('root_cause'),
-                'confidence': result.get('confidence'),
-                'recommended_action': result.get('recommended_action', {}).get('description')
-            })
+                'incident_id': result.get('incident_id') if isinstance(result, dict) else None,
+                'root_cause': result.get('root_cause') if isinstance(result, dict) else None,
+                'confidence': result.get('confidence') if isinstance(result, dict) else None,
+                'recommended_action': result.get('recommended_action', {}).get('description') if isinstance(result, dict) and isinstance(result.get('recommended_action'), dict) else None
+            }, default=str)
         }
 
     except Exception as e:
@@ -115,16 +136,63 @@ async def investigate_incident_async(event: Dict[str, Any]) -> Dict[str, Any]:
     # Parse CloudWatch event to incident
     incident_data = parse_cloudwatch_event(event)
 
-    logger.info(f"Investigating incident {incident_data['incident_id']}")
+    # Validate that service was identified - skip incident creation if not
+    service = incident_data.get('service', 'unknown')
+    if service == 'unknown':
+        alarm_name = incident_data.get('alert_name', 'unknown-alarm')
+        logger.warning(
+            f"⚠️ SKIPPING INCIDENT CREATION: Service could not be identified. "
+            f"alarm_name='{alarm_name}', incident_id='{incident_data.get('incident_id')}'. "
+            f"Incident will not be created."
+        )
+        # Return a result indicating the incident was skipped
+        return {
+            'incident_id': incident_data.get('incident_id'),
+            'service': 'unknown',
+            'root_cause': 'Service could not be identified from alarm event',
+            'confidence': 0,
+            'skipped': True,
+            'reason': 'Service identification failed - alarm_name or configuration missing',
+            'alarm_name': alarm_name
+        }
+
+    logger.info(f"Investigating incident {incident_data['incident_id']} for service '{service}'")
 
     # Run investigation
     investigation_result = await agent_core.investigate_incident(incident_data)
 
     # Save to DynamoDB
+    investigation_dict = investigation_result.to_dict()
+    logger.info(f"=== SAVING INCIDENT ===")
+    logger.info(f"Incident ID: {investigation_result.incident_id}")
+    logger.info(f"Source: {investigation_dict.get('source', 'NOT FOUND')}")
+    logger.info(f"Service: {investigation_dict.get('service', 'NOT FOUND')}")
+    logger.info(f"Full investigation_result keys: {list(investigation_dict.keys())}")
+    logger.info(f"Source in investigation_dict: {investigation_dict.get('source')}")
+    logger.info(f"Source in incident: {investigation_result.source if hasattr(investigation_result, 'source') else 'NO ATTR'}")
+    
+    # Double-check service before saving (safety check)
+    final_service = investigation_dict.get('service', 'unknown')
+    if final_service == 'unknown':
+        logger.error(
+            f"❌ ABORTING INCIDENT SAVE: Service is still 'unknown' after investigation. "
+            f"Incident ID: {investigation_result.incident_id}. This should not happen."
+        )
+        return {
+            'incident_id': investigation_result.incident_id,
+            'service': 'unknown',
+            'root_cause': 'Service could not be identified',
+            'confidence': 0,
+            'skipped': True,
+            'reason': 'Service identification failed during investigation'
+        }
+    
     storage.save_incident(
         incident_id=investigation_result.incident_id,
-        investigation_result=investigation_result.to_dict()
+        investigation_result=investigation_dict
     )
+    
+    logger.info(f"=== INCIDENT SAVED SUCCESSFULLY ===")
 
     logger.info(
         f"Investigation complete: {investigation_result.root_cause} "
@@ -172,11 +240,49 @@ def parse_cloudwatch_event(event: Dict[str, Any]) -> Dict[str, Any]:
 
     detail = event.get('detail', {})
     alarm_name = detail.get('alarmName', 'unknown-alarm')
-
-    # Extract metric info from alarm name (e.g., "payment-service-error-rate")
-    parts = alarm_name.split('-')
-    service = parts[0] if len(parts) > 0 else 'unknown'
+    
+    # Try to extract service from alarm configuration first (more reliable)
+    service = None
+    config = detail.get('configuration', {})
+    metrics = config.get('metrics', [])
+    if metrics and len(metrics) > 0:
+        metric_stat = metrics[0].get('metricStat', {})
+        if metric_stat:
+            metric_data = metric_stat.get('metric', {})
+            dimensions = metric_data.get('dimensions', {})
+            function_name = dimensions.get('FunctionName')
+            if function_name:
+                # Use function name as service
+                service = function_name
+                logger.info(f"Extracted service from alarm configuration FunctionName: service='{service}'")
+    
+    # If service not found in configuration, try to extract from alarm name
+    if not service:
+        if alarm_name and alarm_name != 'unknown-alarm':
+            # Extract metric info from alarm name (e.g., "payment-service-error-rate")
+            # Match the extraction logic in cloudwatch_alarm_handler.py
+            parts = alarm_name.split('-')
+            if len(parts) >= 2:
+                service = '-'.join(parts[:2])  # Take first two parts (e.g., "payment-service")
+                logger.info(f"Extracted service from alarm name '{alarm_name}': service='{service}'")
+            else:
+                service = 'unknown'
+                logger.warning(
+                    f"⚠️ Could not extract service from alarm name '{alarm_name}' - "
+                    f"alarm name format is invalid (expected: 'service-name-metric', got: '{alarm_name}')"
+                )
+        else:
+            service = 'unknown'
+            logger.warning(
+                f"⚠️ Could not extract service - alarm_name is missing or 'unknown-alarm'. "
+                f"Event detail: {json.dumps(detail, default=str)[:500]}"
+            )
+    
+    # Extract metric from alarm name
+    parts = alarm_name.split('-') if alarm_name else []
     metric = parts[-1] if len(parts) > 1 else 'unknown'
+    
+    logger.info(f"Final extraction: alarm_name='{alarm_name}', service='{service}', metric='{metric}'")
 
     # Extract value and threshold from reason
     state = detail.get('state', {})
@@ -197,6 +303,7 @@ def parse_cloudwatch_event(event: Dict[str, Any]) -> Dict[str, Any]:
     # Build incident data
     incident_data = {
         'incident_id': event.get('id', f'inc-{int(datetime.utcnow().timestamp())}'),
+        'source': 'cloudwatch_alarm',  # Mark as CloudWatch alarm-triggered
         'timestamp': event.get('time', datetime.utcnow().isoformat()),
         'service': service,
         'service_tier': 'standard',  # TODO: Lookup from service catalog

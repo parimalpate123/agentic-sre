@@ -94,6 +94,46 @@ class Storage:
                 'created_at': {'S': timestamp},
                 'updated_at': {'S': timestamp}
             }
+            
+            # Add source field if present (for distinguishing chat vs CloudWatch incidents)
+            # Source can be at top level or nested in full_state.incident
+            source = investigation_result.get('source')
+            logger.info(f"[SAVE] Extracting source field for incident {incident_id}: top level = {repr(source)}")
+            
+            # Try multiple locations to find source
+            if not source:
+                # Try full_state.incident.source
+                full_state = investigation_result.get('full_state', {})
+                if isinstance(full_state, dict):
+                    incident = full_state.get('incident', {})
+                    if isinstance(incident, dict):
+                        source = incident.get('source')
+                        logger.info(f"[SAVE] Extracting source from full_state.incident.source = {repr(source)}")
+            
+            # If still not found, try to infer from incident_id pattern
+            if not source:
+                # CloudWatch incidents typically have IDs like "inc-1234567890" or "test-2026-01-27T..."
+                # Chat incidents have IDs like "chat-1234567890-abc123"
+                if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                    source = 'cloudwatch_alarm'
+                    logger.info(f"[SAVE] Inferred source='cloudwatch_alarm' from incident_id pattern: {incident_id}")
+                elif incident_id.startswith('chat-'):
+                    source = 'chat'
+                    logger.info(f"[SAVE] Inferred source='chat' from incident_id pattern: {incident_id}")
+                else:
+                    # Default to chat for backward compatibility
+                    source = 'chat'
+                    logger.warning(f"[SAVE] Could not determine source, defaulting to 'chat' for incident {incident_id}")
+            
+            # Always save source field (even if inferred)
+            item['source'] = {'S': str(source)}
+            logger.info(f"[SAVE] ✅ Saved incident {incident_id} with source: {repr(source)}")
+            
+            # Also ensure source is in the nested data JSON for consistency
+            if not investigation_result.get('source'):
+                investigation_result['source'] = source
+                # Update the data field with the source
+                item['data'] = {'S': json.dumps(investigation_result, default=str)}
 
             # Add TTL (30 days from now)
             ttl = int(datetime.utcnow().timestamp()) + (30 * 24 * 60 * 60)
@@ -153,6 +193,7 @@ class Storage:
         self,
         service: Optional[str] = None,
         status: Optional[str] = None,
+        source: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
@@ -161,46 +202,190 @@ class Storage:
         Args:
             service: Filter by service name
             status: Filter by status (open, resolved)
+            source: Filter by source ('chat', 'cloudwatch_alarm', or None for all)
             limit: Maximum number of incidents to return
 
         Returns:
             List of incident summaries
         """
-        logger.debug(f"Listing incidents (service={service}, status={status})")
+        logger.info(f"Listing incidents (service={service}, status={status}, source={source})")
 
         try:
             # Build query parameters
             params = {
-                'TableName': self.incidents_table,
-                'Limit': limit,
-                'ScanIndexForward': False  # Most recent first
+                'TableName': self.incidents_table
+                # Note: Don't use Limit here when filtering by source, as Limit applies BEFORE filtering
+                # Instead, we'll apply the limit after in-memory filtering
             }
-
-            # Use GSI if filtering
+            
+            # Build filter expression for source (if specified)
+            filter_expressions = []
+            expression_attribute_values = {}
+            expression_attribute_names = {}
+            use_in_memory_source_filter = False  # Flag for fallback filtering
+            
+            # Always use in-memory filtering for source because:
+            # 1. Source might be in nested JSON data, not at top level
+            # 2. We need to extract it from investigation_result anyway
+            # 3. More reliable than DynamoDB FilterExpression for nested fields
+            if source:
+                use_in_memory_source_filter = True
+                logger.info(f"Will filter by source '{source}' in memory after parsing items")
+            
+            # Use GSI if filtering by service or status
             if service:
-                params['IndexName'] = 'service-timestamp-index'
+                params['IndexName'] = 'ServiceIndex'
                 params['KeyConditionExpression'] = 'service = :service'
                 params['ExpressionAttributeValues'] = {
                     ':service': {'S': service}
                 }
+                if filter_expressions:
+                    params['FilterExpression'] = ' AND '.join(filter_expressions)
+                    params['ExpressionAttributeValues'].update(expression_attribute_values)
+                    if expression_attribute_names:
+                        params['ExpressionAttributeNames'] = expression_attribute_names
+                logger.debug(f"Querying DynamoDB with ServiceIndex, params keys: {list(params.keys())}")
                 response = self.dynamodb.query(**params)
             elif status:
-                params['IndexName'] = 'status-timestamp-index'
+                params['IndexName'] = 'StatusIndex'
                 params['KeyConditionExpression'] = 'status = :status'
                 params['ExpressionAttributeValues'] = {
                     ':status': {'S': status}
                 }
+                if filter_expressions:
+                    params['FilterExpression'] = ' AND '.join(filter_expressions)
+                    params['ExpressionAttributeValues'].update(expression_attribute_values)
+                    if expression_attribute_names:
+                        params['ExpressionAttributeNames'] = expression_attribute_names
+                logger.debug(f"Querying DynamoDB with StatusIndex, params keys: {list(params.keys())}")
                 response = self.dynamodb.query(**params)
             else:
                 # Full scan (not efficient for large datasets)
-                response = self.dynamodb.scan(**params)
+                if filter_expressions:
+                    params['FilterExpression'] = ' AND '.join(filter_expressions)
+                    params['ExpressionAttributeValues'] = expression_attribute_values
+                    if expression_attribute_names:
+                        params['ExpressionAttributeNames'] = expression_attribute_names
+                
+                logger.debug(f"Scanning DynamoDB table: {self.incidents_table}, filter: {filter_expressions}")
+                try:
+                    response = self.dynamodb.scan(**params)
+                    logger.info(f"Scan returned {len(response.get('Items', []))} items from DynamoDB")
+                except ClientError as e:
+                    error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                    error_message = e.response.get('Error', {}).get('Message', str(e))
+                    logger.error(f"DynamoDB scan failed: {error_code} - {error_message}", exc_info=True)
+                    # If it's a validation error, try without filter expressions as fallback
+                    if error_code == 'ValidationException' and filter_expressions:
+                        logger.warning(f"Retrying scan without filter expressions due to ValidationException")
+                        params.pop('FilterExpression', None)
+                        params.pop('ExpressionAttributeValues', None)
+                        params.pop('ExpressionAttributeNames', None)
+                        response = self.dynamodb.scan(**params)
+                        logger.info(f"Retry scan returned {len(response.get('Items', []))} items from DynamoDB")
+                    else:
+                        raise
 
             # Parse items
             incidents = []
+            # Note: use_in_memory_filter is set in the scan block above if we had to fallback
+            
             for item in response.get('Items', []):
-                incidents.append(self._parse_dynamodb_item(item))
+                parsed_item = self._parse_dynamodb_item(item)
+                
+                # Parse nested JSON data if present
+                if 'data' in parsed_item:
+                    try:
+                        parsed_item['investigation_result'] = json.loads(parsed_item['data'])
+                        # Extract source from parsed data if not at top level
+                        if 'source' not in parsed_item or not parsed_item.get('source'):
+                            nested_source = parsed_item['investigation_result'].get('source')
+                            if not nested_source:
+                                # Try nested location
+                                full_state = parsed_item['investigation_result'].get('full_state', {})
+                                incident = full_state.get('incident', {})
+                                if isinstance(incident, dict):
+                                    nested_source = incident.get('source')
+                            
+                            # If still not found, infer from incident_id
+                            if not nested_source:
+                                incident_id = parsed_item.get('incident_id', '')
+                                if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                                    nested_source = 'cloudwatch_alarm'
+                                elif incident_id.startswith('chat-'):
+                                    nested_source = 'chat'
+                                else:
+                                    nested_source = 'chat'  # Default
+                            
+                            if nested_source:
+                                parsed_item['source'] = nested_source
+                                logger.debug(f"Extracted/inferred source: {nested_source} for incident {parsed_item.get('incident_id', 'unknown')}")
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Failed to parse investigation_result data: {e}")
+                        pass
+                
+                # If source still not set, try to infer from incident_id (fallback)
+                if 'source' not in parsed_item or not parsed_item.get('source'):
+                    incident_id = parsed_item.get('incident_id', '')
+                    if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                        parsed_item['source'] = 'cloudwatch_alarm'
+                        logger.debug(f"Inferred source='cloudwatch_alarm' from incident_id: {incident_id}")
+                    elif incident_id.startswith('chat-'):
+                        parsed_item['source'] = 'chat'
+                        logger.debug(f"Inferred source='chat' from incident_id: {incident_id}")
+                    else:
+                        parsed_item['source'] = 'chat'  # Default
+                        logger.debug(f"Defaulted source='chat' for incident_id: {incident_id}")
+                
+                # Filter by source in memory (always used for source filtering)
+                if use_in_memory_source_filter and source:
+                    item_source = parsed_item.get('source')
+                    incident_id = parsed_item.get('incident_id', 'unknown')
+                    
+                    if not item_source:
+                        # Try to extract from investigation_result if not already extracted
+                        if parsed_item.get('investigation_result'):
+                            item_source = parsed_item['investigation_result'].get('source')
+                            if not item_source:
+                                full_state = parsed_item['investigation_result'].get('full_state', {})
+                                incident = full_state.get('incident', {})
+                                if isinstance(incident, dict):
+                                    item_source = incident.get('source')
+                    
+                    # If still not found, infer from incident_id pattern
+                    if not item_source:
+                        if incident_id.startswith('inc-') or incident_id.startswith('test-'):
+                            item_source = 'cloudwatch_alarm'
+                            logger.info(f"Inferred source='cloudwatch_alarm' from incident_id pattern: {incident_id}")
+                        elif incident_id.startswith('chat-'):
+                            item_source = 'chat'
+                            logger.info(f"Inferred source='chat' from incident_id pattern: {incident_id}")
+                        else:
+                            # Default to 'chat' for old items without source field
+                            item_source = 'chat'
+                            logger.info(f"Item {incident_id} has no source field, defaulting to 'chat'")
+                    
+                    logger.info(f"Checking item {incident_id}: source={repr(item_source)}, filter={repr(source)}, match={item_source == source}")
+                    if item_source != source:
+                        logger.info(f"Skipping item {incident_id} - source mismatch (item_source={repr(item_source)}, filter={repr(source)})")
+                        continue  # Skip this item
+                    logger.info(f"Including item {incident_id} - source matches")
+                
+                incidents.append(parsed_item)
 
-            logger.info(f"Found {len(incidents)} incidents")
+            logger.info(f"Found {len(incidents)} incidents before applying limit")
+            # Apply limit after filtering
+            incidents = incidents[:limit]
+            logger.info(f"Returning {len(incidents)} incidents (after limit={limit})")
+            
+            # Log incident IDs for debugging
+            if len(incidents) > 0:
+                incident_ids = [inc.get('incident_id', 'unknown') for inc in incidents]
+                logger.info(f"Returning incident IDs: {incident_ids}")
+            else:
+                logger.warning(f"No incidents found matching filters: source={source}, status={status}, service={service}")
+                logger.warning(f"Total items scanned from DynamoDB: {len(response.get('Items', []))}")
+            
             return incidents
 
         except ClientError as e:
@@ -253,6 +438,32 @@ class Storage:
 
         except ClientError as e:
             logger.error(f"Failed to update incident status: {str(e)}", exc_info=True)
+            return False
+
+    def delete_incident(self, incident_id: str) -> bool:
+        """
+        Delete an incident from DynamoDB
+
+        Args:
+            incident_id: Incident ID to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Deleting incident {incident_id}")
+
+        try:
+            self.dynamodb.delete_item(
+                TableName=self.incidents_table,
+                Key={
+                    'incident_id': {'S': incident_id}
+                }
+            )
+            logger.info(f"Successfully deleted incident {incident_id}")
+            return True
+
+        except ClientError as e:
+            logger.error(f"Failed to delete incident {incident_id}: {str(e)}", exc_info=True)
             return False
 
     # ============================================

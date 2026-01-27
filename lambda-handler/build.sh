@@ -55,6 +55,10 @@ cp remediation_webhook_handler.py package/ && echo "  ✓ remediation_webhook_ha
 cp remediation_status_handler.py package/ && echo "  ✓ remediation_status_handler.py"
 cp create_github_issue_handler.py package/ && echo "  ✓ create_github_issue_handler.py"
 cp chat_session_handler.py package/ && echo "  ✓ chat_session_handler.py"
+cp list_incidents_handler.py package/ && echo "  ✓ list_incidents_handler.py"
+cp cloudwatch_alarm_handler.py package/ && echo "  ✓ cloudwatch_alarm_handler.py"
+cp delete_incident_handler.py package/ && echo "  ✓ delete_incident_handler.py"
+cp reanalyze_incident_handler.py package/ && echo "  ✓ reanalyze_incident_handler.py"
 cp agent_invoker.py package/ && echo "  ✓ agent_invoker.py"
 
 # Verify chat_session_handler.py was copied
@@ -70,7 +74,7 @@ else
 fi
 
 # Verify other critical handlers
-for handler in handler.py remediation_status_handler.py create_github_issue_handler.py; do
+for handler in handler.py remediation_status_handler.py create_github_issue_handler.py list_incidents_handler.py cloudwatch_alarm_handler.py delete_incident_handler.py reanalyze_incident_handler.py; do
     if [ -f "package/$handler" ]; then
         echo "✅ Verified: $handler"
     else

@@ -458,6 +458,134 @@ export async function getRemediationStatus(incidentId) {
   }
 }
 
+/**
+ * Fetch recent incidents from DynamoDB
+ * @param {Object} options - Query options
+ * @param {number} options.limit - Number of incidents to fetch (default: 20)
+ * @param {string} options.source - Filter by source ('chat', 'cloudwatch_alarm', 'all')
+ * @param {string} options.status - Filter by status ('open', 'resolved', 'all')
+ * @param {string} options.service - Filter by service name (optional)
+ * @returns {Promise<Array>} Array of incident objects
+ */
+export async function fetchIncidents(options = {}) {
+  const { limit = 20, source = 'all', status = 'all', service = null } = options;
+  
+  try {
+    const params = new URLSearchParams({
+      action: 'list_incidents',
+      limit: limit.toString(),
+      source,
+      status
+    });
+    
+    if (service) {
+      params.append('service', service);
+    }
+    
+    const url = `${API_ENDPOINT}?${params.toString()}`;
+    
+    console.log('🔍 fetchIncidents: Request URL:', url);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    console.log('🔍 fetchIncidents: Response status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('🔍 fetchIncidents: Error response:', errorText);
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('🔍 fetchIncidents: Raw response:', data);
+
+    // Parse the body if it's a string (Lambda response format)
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+    console.log('🔍 fetchIncidents: Parsed result:', result);
+    console.log('🔍 fetchIncidents: Incidents count:', result.incidents?.length || 0);
+
+    return result.incidents || [];
+  } catch (error) {
+    console.error('❌ Error fetching incidents:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    throw error;
+  }
+}
+
+/**
+ * Delete an incident from DynamoDB
+ * @param {string} incidentId - Incident ID to delete
+ * @returns {Promise<Object>} - Result with success status and message
+ */
+export async function deleteIncident(incidentId) {
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'delete_incident',
+        incident_id: incidentId
+      }),
+    });
+
+    const data = await response.json();
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+
+    if (!response.ok) {
+      throw new Error(result.error || `API error: ${response.status} ${response.statusText}`);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error deleting incident:', error);
+    throw error;
+  }
+}
+
+/**
+ * Re-analyze an existing incident
+ * Re-runs the investigation workflow and updates the incident with new results
+ * 
+ * @param {string} incidentId - The ID of the incident to re-analyze
+ * @returns {Promise<Object>} Updated investigation result
+ */
+export async function reanalyzeIncident(incidentId) {
+  try {
+    console.log(`🔄 Re-analyzing incident: ${incidentId}`);
+    
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'reanalyze_incident',
+        incident_id: incidentId
+      }),
+    });
+
+    const data = await response.json();
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+
+    if (!response.ok) {
+      throw new Error(result.error || result.message || `API error: ${response.status} ${response.statusText}`);
+    }
+
+    console.log(`✅ Re-analysis complete for incident: ${incidentId}`, result);
+    return result;
+  } catch (error) {
+    console.error('❌ Error re-analyzing incident:', error);
+    throw error;
+  }
+}
+
 export default {
   askQuestion,
   checkHealth,
@@ -467,6 +595,9 @@ export default {
   manageSampleLogs,
   createGitHubIssueAfterApproval,
   getRemediationStatus,
+  fetchIncidents,
+  deleteIncident,
+  reanalyzeIncident,
   saveChatSession,
   loadChatSession,
   listChatSessions,

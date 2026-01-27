@@ -19,6 +19,10 @@ from incident_from_chat_handler import incident_from_chat_handler
 from remediation_webhook_handler import remediation_webhook_handler
 from remediation_status_handler import remediation_status_handler
 from create_github_issue_handler import lambda_handler as create_github_issue_handler
+from list_incidents_handler import list_incidents_handler
+from cloudwatch_alarm_handler import cloudwatch_alarm_handler
+from delete_incident_handler import lambda_handler as delete_incident_handler
+from reanalyze_incident_handler import reanalyze_incident_handler
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -61,6 +65,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if http_method == 'GET' and query_params.get('action') == 'get_remediation_status':
             logger.info("Routing to remediation_status_handler (GET request for remediation status)")
             return remediation_status_handler(event, context)
+        
+        # Check if this is a GET request for listing incidents
+        if http_method == 'GET' and query_params.get('action') == 'list_incidents':
+            logger.info("Routing to list_incidents_handler (GET request for listing incidents)")
+            return list_incidents_handler(event, context)
         
         # Check if this is a POST request for remediation webhook
         if http_method == 'POST':
@@ -113,6 +122,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Diagnosis request
             logger.info("Routing to diagnosis_handler (diagnosis action detected)")
             response = diagnosis_handler(event, context)
+        elif action in ['create_cloudwatch_alarm', 'trigger_cloudwatch_alarm']:
+            # CloudWatch alarm management
+            logger.info(f"Routing to cloudwatch_alarm_handler ({action} action detected)")
+            response = cloudwatch_alarm_handler(event, context)
+        elif action == 'delete_incident':
+            # Delete incident
+            logger.info(f"Routing to delete_incident_handler (delete_incident action detected)")
+            response = delete_incident_handler(event, context)
+        elif action == 'reanalyze_incident':
+            # Re-analyze existing incident
+            logger.info(f"Routing to reanalyze_incident_handler (reanalyze_incident action detected)")
+            response = reanalyze_incident_handler(event, context)
         elif 'question' in body:
             # Chat query
             logger.info("Routing to chat_handler (question detected)")

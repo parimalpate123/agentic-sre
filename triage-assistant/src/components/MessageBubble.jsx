@@ -22,7 +22,9 @@ export default function MessageBubble({
   onResumePolling = null,
   isPollingActive = false,
   isPollingPaused = false,
-  onCheckPRStatus = null
+  onCheckPRStatus = null,
+  onReanalyzeIncident = null,
+  isReanalyzing = false
 }) {
   // Get search mode badge text and styles
   const getSearchModeBadge = () => {
@@ -247,6 +249,64 @@ export default function MessageBubble({
           />
         )}
 
+        {/* Action Buttons for CloudWatch incidents loaded from CW Incidents dialog */}
+        {!isUser &&
+         message.incident &&
+         message.incident.source === 'cloudwatch_alarm' &&
+         !message.incident.execution_results?.github_issue &&
+         !message.diagnosis &&
+         !message.investigationStarted && (
+          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-col sm:flex-row gap-2">
+            {/* Diagnose Button */}
+            {onDiagnose && (
+              <button
+                onClick={() => onDiagnose(message)}
+                disabled={isDiagnosing || isCreatingIncident}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDiagnosing ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <span>🔍</span>
+                    Diagnose Root Cause
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Create Incident & Run Full Investigation Button */}
+            {onCreateIncident && (
+              <button
+                onClick={() => onCreateIncident(message)}
+                disabled={isDiagnosing || isCreatingIncident}
+                className="flex-1 bg-blue-800 hover:bg-blue-900 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isCreatingIncident ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Creating Incident...
+                  </>
+                ) : (
+                  <>
+                    <span>🚨</span>
+                    Create Incident & Run Full Investigation
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Execution Results (shown AFTER incident analysis) */}
         {!isUser && message.incident && (message.incident.execution_results || message.incident.execution_type) && (
           <div className="mt-3 pt-3 border-t border-gray-200">
@@ -384,11 +444,53 @@ export default function MessageBubble({
                 )}
               </div>
             )}
-            {message.incident.execution_type && !message.incident.execution_results && (
-              <div className="mb-2 p-2 bg-gray-50 rounded border border-gray-200">
-                <p className="text-xs text-gray-600">
-                  Execution Type: <span className="font-medium">{message.incident.execution_type}</span>
+          </div>
+        )}
+
+        {/* Re-analyze Button - Show when incident needs re-analysis */}
+        {!isUser && 
+         message.incident && 
+         message.incident.incident_id &&
+         onReanalyzeIncident && (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            {/* Show Re-analyze button if:
+                1. execution_type is NOT code_fix (e.g., escalate, monitor)
+                2. OR root_cause is Unknown/empty
+                3. OR error_count is 0 or missing
+            */}
+            {(
+              (message.incident.execution_type && 
+               message.incident.execution_type !== 'code_fix') ||
+              (message.incident.root_cause === 'Unknown' || 
+               !message.incident.root_cause ||
+               message.incident.root_cause === 'Analysis in progress') ||
+              (message.incident.error_count === 0 || !message.incident.error_count)
+            ) && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-600 mb-2">
+                  🔄 <strong>Re-analyze Incident:</strong> Re-run the investigation to check for new errors or updated analysis.
                 </p>
+                <button
+                  onClick={() => onReanalyzeIncident(message.incident.incident_id)}
+                  disabled={isReanalyzing}
+                  className={`${
+                    isReanalyzing 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  } text-white text-xs font-medium py-2 px-4 rounded transition-colors inline-flex items-center justify-center gap-2`}
+                >
+                  {isReanalyzing ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      Re-analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <span>🔄</span>
+                      Re-analyze Incident
+                    </>
+                  )}
+                </button>
               </div>
             )}
           </div>

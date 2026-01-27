@@ -3,15 +3,16 @@
  * Main chat interface that combines all components
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
 import IncidentApprovalDialog from './IncidentApprovalDialog';
 import ChatSessionDialog from './ChatSessionDialog';
-import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession } from '../services/api';
+import CloudWatchIncidentsDialog from './CloudWatchIncidentsDialog';
+import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession, reanalyzeIncident } from '../services/api';
 
-export default function ChatWindow({ isFullScreen = false, onToggleFullScreen }) {
+const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel }, ref) {
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
@@ -28,6 +29,7 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const [timeRange, setTimeRange] = useState('24h'); // Default 24 hours
   const [diagnosingMessageId, setDiagnosingMessageId] = useState(null); // Track which message is being diagnosed
   const [creatingIncidentMessageId, setCreatingIncidentMessageId] = useState(null); // Track which message is creating incident
+  const [reanalyzingIncidentId, setReanalyzingIncidentId] = useState(null); // Track which incident is being re-analyzed
   const [isManagingLogs, setIsManagingLogs] = useState(false); // Track log management operations
   const [showIncidentDialog, setShowIncidentDialog] = useState(false); // Show approval dialog for code fix (after investigation)
   const [pendingIncidentData, setPendingIncidentData] = useState(null); // Store incident data while waiting for approval
@@ -45,6 +47,7 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
   const passwordInputRef = useRef(null); // Ref for password input field
   const messagesEndRef = useRef(null);
   const [showSessionDialog, setShowSessionDialog] = useState(false); // Show chat session dialog
+  const [showCloudWatchIncidentsDialog, setShowCloudWatchIncidentsDialog] = useState(false); // Show CloudWatch incidents dialog
   const currentSessionIdRef = useRef(null); // Track current session ID for auto-save
   const lastAutoSaveRef = useRef(null); // Track last auto-save time
   
@@ -131,6 +134,12 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
     loadLogGroups();
   }, []); // Run once on mount
 
+  // CloudWatch incidents are now loaded on-demand via the "CW Incidents" dialog
+  // No auto-loading or external reload function needed
+
+  // Note: CloudWatch incidents are loaded on-demand via the "CW Incidents" dialog
+  // They are no longer auto-loaded to avoid cluttering the chat
+
   const handleDiagnose = async (message) => {
     setDiagnosingMessageId(message.id);
     try {
@@ -144,8 +153,16 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         recommendations: message.recommendations || [],
       };
 
+      // For CloudWatch incidents, add incident analysis as context
+      if (message.incident && !logData.insights.length) {
+        const incident = message.incident;
+        if (incident.alert_name) logData.insights.push(`Alert: ${incident.alert_name}`);
+        if (incident.alert_description) logData.insights.push(`Description: ${incident.alert_description}`);
+        if (incident.root_cause) logData.insights.push(`Initial Analysis: ${incident.root_cause}`);
+      }
+
       // Extract service name from message or use selected service
-      const serviceName = selectedService || 'unknown-service';
+      const serviceName = selectedService || message.incident?.service || 'unknown-service';
       
       // Call diagnosis API
       const diagnosisResult = await requestDiagnosis(logData, serviceName);
@@ -181,6 +198,14 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         recommendations: message.recommendations || [],
       };
 
+      // For CloudWatch incidents, add incident analysis as context
+      if (message.incident && !logData.insights.length) {
+        const incident = message.incident;
+        if (incident.alert_name) logData.insights.push(`Alert: ${incident.alert_name}`);
+        if (incident.alert_description) logData.insights.push(`Description: ${incident.alert_description}`);
+        if (incident.root_cause) logData.insights.push(`Initial Analysis: ${incident.root_cause}`);
+      }
+
       // Extract service name from message or use selected service
       // Priority: 1) selectedService, 2) correlation_data.services_found, 3) log entries, 4) default
       let serviceName = selectedService;
@@ -200,11 +225,11 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
           }
         }
       }
-      // Fallback to unknown-service if still empty
+      // Fallback to incident service if available (for CW incidents)
       if (!serviceName || serviceName === '') {
-        serviceName = 'unknown-service';
+        serviceName = message.incident?.service || 'unknown-service';
       }
-      
+
       // Extract log group from message
       // Priority: 1) message.logGroup, 2) correlation_data.log_group, 3) first log entry, 4) construct from service
       let logGroup = message.logGroup;
@@ -220,7 +245,10 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       
       // Extract question from the user message that triggered this response
       const userMessage = messages.find(m => m.id < message.id && m.isUser);
-      const question = userMessage?.text || 'Incident from chat analysis';
+      const question = userMessage?.text || message.incident?.alert_name || 'Incident from chat analysis';
+
+      // Extract alert name from incident if available (for CW incidents)
+      const alertName = message.incident?.alert_name || null;
 
       // Call createIncident API
       // API signature: createIncident(logData, service, question, logGroup = null, alertName = null, context = null)
@@ -229,7 +257,7 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         serviceName,
         question,
         logGroup, // Pass extracted log group
-        null, // alertName
+        alertName, // Pass alert name from CW incident
         null  // context
       );
 
@@ -322,28 +350,54 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         fullState_keys: fullState ? Object.keys(fullState) : 'no fullState'
       });
       
-      // Update the message with incident creation result - include text so it appears BEFORE Execution Results
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === message.id
-            ? { 
-                ...msg, 
-                text: incidentAnalysisText,  // This will appear BEFORE Execution Results in MessageBubble
-                incident: {
-                  incident_id: result.incident_id,
-                  service: incidentService,  // Add service field for GitHub issue creation - CRITICAL!
-                  root_cause: result.root_cause,
-                  confidence: result.confidence,
-                  recommended_action: result.recommended_action,
-                  executive_summary: result.executive_summary,
-                  execution_results: executionResults,
-                  execution_type: executionType,
-                  full_state: fullState,  // Store full_state for GitHub issue creation
+      // Build the incident object for the result message
+      const incidentObj = {
+        incident_id: result.incident_id,
+        service: incidentService,  // Add service field for GitHub issue creation - CRITICAL!
+        root_cause: result.root_cause,
+        confidence: result.confidence,
+        recommended_action: result.recommended_action,
+        executive_summary: result.executive_summary,
+        execution_results: executionResults,
+        execution_type: executionType,
+        full_state: fullState,  // Store full_state for GitHub issue creation
+      };
+
+      // For CloudWatch incidents loaded from CW dialog, add investigation as a NEW message
+      // instead of replacing the original CW incident message
+      const isCloudWatchIncident = message.incident?.source === 'cloudwatch_alarm';
+
+      if (isCloudWatchIncident) {
+        const investigationMessage = {
+          id: `investigation-${Date.now()}`,
+          text: incidentAnalysisText,
+          isUser: false,
+          timestamp: new Date().toISOString(),
+          incident: { ...incidentObj, source: 'cloudwatch_alarm' },
+        };
+        setMessages((prev) => {
+          // Mark original CW message to hide action buttons, then append new message
+          const updated = prev.map((msg) =>
+            msg.id === message.id
+              ? { ...msg, investigationStarted: true }
+              : msg
+          );
+          return [...updated, investigationMessage];
+        });
+      } else {
+        // Normal flow: update the existing message with incident creation result
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === message.id
+              ? {
+                  ...msg,
+                  text: incidentAnalysisText,
+                  incident: incidentObj,
                 }
-              }
-            : msg
-        )
-      );
+              : msg
+          )
+        );
+      }
       
       // Check if approval is needed (code_fix and service known)
       // Show approval if:
@@ -451,9 +505,10 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       console.log('✅ GitHub issue created successfully:', result);
 
       // Update the message with issue creation result
+      // Find message by incident_id (works for both chat and CloudWatch incidents)
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.id === incidentData.message_id && msg.incident?.incident_id === incidentData.incident_id
+          msg.incident?.incident_id === incidentData.incident_id
             ? {
                 ...msg,
                 incident: {
@@ -461,7 +516,8 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                   execution_results: {
                     ...msg.incident.execution_results,
                     github_issue: result.github_issue
-                  }
+                  },
+                  execution_type: 'code_fix' // Set execution type for CloudWatch incidents
                 }
               }
             : msg
@@ -551,6 +607,40 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
     currentSessionIdRef.current = session.session_id;
     
     console.log('✅ Chat session loaded successfully');
+  };
+
+  const handleLoadCloudWatchIncident = (incidentMessage) => {
+    console.log('📥 Loading CloudWatch incident:', incidentMessage);
+    
+    // Add incident message to chat, avoiding duplicates
+    setMessages(prev => {
+      const existingIncidentIds = new Set(
+        prev
+          .filter(m => m.incident?.incident_id)
+          .map(m => m.incident.incident_id)
+      );
+      
+      // If incident already exists, don't add duplicate
+      if (incidentMessage.incident?.incident_id && 
+          existingIncidentIds.has(incidentMessage.incident.incident_id)) {
+        console.log('⚠️ Incident already in chat, skipping duplicate');
+        return prev;
+      }
+      
+      // Insert after welcome message
+      const welcomeMessage = prev[0];
+      const otherMessages = prev.slice(1);
+      return [welcomeMessage, incidentMessage, ...otherMessages];
+    });
+    
+    // If incident has remediation status, start polling
+    if (incidentMessage.incident?.incident_id) {
+      const incidentId = incidentMessage.incident.incident_id;
+      console.log(`🔄 Starting remediation polling for incident: ${incidentId}`);
+      startRemediationPolling(incidentId);
+    }
+    
+    console.log('✅ CloudWatch incident loaded successfully');
   };
 
   // Store refs for auto-save to access current values
@@ -685,6 +775,65 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
       message_id: null // Not needed for this flow
     });
     setShowIncidentDialog(true);
+  };
+
+  // Handle "Re-analyze Incident" button click
+  const handleReanalyzeIncident = async (incidentId) => {
+    if (!incidentId) {
+      console.error('handleReanalyzeIncident: incidentId is null/undefined');
+      return;
+    }
+
+    console.log(`🔄 Re-analyzing incident: ${incidentId}`);
+    setReanalyzingIncidentId(incidentId);
+
+    try {
+      // Call re-analyze API
+      const result = await reanalyzeIncident(incidentId);
+      
+      console.log('✅ Re-analysis complete:', result);
+
+      // Find the message containing this incident and update it with new results
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.incident?.incident_id === incidentId) {
+            // Parse the updated investigation result
+            const updatedResult = result.investigation_result || result;
+            
+            // Update the incident data with new results
+            return {
+              ...msg,
+              incident: {
+                ...msg.incident,
+                root_cause: updatedResult.root_cause || msg.incident.root_cause,
+                confidence: updatedResult.confidence || msg.incident.confidence,
+                execution_type: updatedResult.full_state?.remediation?.execution_type || 
+                               updatedResult.execution_type || 
+                               msg.incident.execution_type,
+                error_count: updatedResult.full_state?.analysis?.error_count || 
+                            updatedResult.error_count || 
+                            msg.incident.error_count,
+                full_state: updatedResult.full_state || msg.incident.full_state,
+                investigation_result: updatedResult,
+                // Update text to reflect new analysis
+                text: updatedResult.executive_summary || 
+                      `Re-analyzed: ${updatedResult.root_cause}` || 
+                      msg.text
+              }
+            };
+          }
+          return msg;
+        })
+      );
+
+      // Show success message
+      alert(`Incident ${incidentId} has been re-analyzed successfully. The results have been updated.`);
+    } catch (error) {
+      console.error('❌ Error re-analyzing incident:', error);
+      alert(`Failed to re-analyze incident: ${error.message}`);
+    } finally {
+      setReanalyzingIncidentId(null);
+    }
   };
   
   // Start polling for remediation status
@@ -1112,6 +1261,17 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* CloudWatch Incidents Button */}
+            <button
+              onClick={() => setShowCloudWatchIncidentsDialog(true)}
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
+              title="View CloudWatch alarm incidents"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              CW Incidents
+            </button>
             {/* Save/Load Session Button */}
             <button
               onClick={() => setShowSessionDialog(true)}
@@ -1122,6 +1282,56 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
               </svg>
               Sessions
+            </button>
+            {/* Admin/Utility Panel Button */}
+            {onShowUtilityPanel && (
+              <button
+                onClick={onShowUtilityPanel}
+                className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
+                title="Open Utility Panel (Create alarms, manage logs, view incidents)"
+              >
+                ⚙️ Admin
+              </button>
+            )}
+            {/* Refresh Incidents Button */}
+            <button
+              onClick={async () => {
+                console.log('Manual refresh triggered');
+                try {
+                  const incidents = await fetchIncidents({
+                    limit: 10,
+                    source: 'cloudwatch_alarm',
+                    status: 'all'
+                  });
+                  console.log(`Manual refresh found ${incidents.length} CloudWatch incidents`, incidents);
+                  
+                  if (incidents.length > 0) {
+                    const incidentMessages = incidents.map(incidentItem => incidentToMessage(incidentItem));
+                    setMessages(prev => {
+                      const welcomeMessage = prev[0];
+                      const otherMessages = prev.slice(1);
+                      const existingIncidentIds = new Set(
+                        otherMessages
+                          .filter(m => m.incident?.incident_id)
+                          .map(m => m.incident.incident_id)
+                      );
+                      const newIncidentMessages = incidentMessages.filter(
+                        msg => !existingIncidentIds.has(msg.incident?.incident_id)
+                      );
+                      if (newIncidentMessages.length > 0) {
+                        return [welcomeMessage, ...newIncidentMessages, ...otherMessages];
+                      }
+                      return prev;
+                    });
+                  }
+                } catch (error) {
+                  console.error('Failed to refresh incidents:', error);
+                }
+              }}
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
+              title="Refresh CloudWatch incidents"
+            >
+              🔄 Refresh
             </button>
             {/* MCP Toggle - Always visible, default ON */}
             <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-1.5">
@@ -1351,6 +1561,8 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
                 isPollingActive={message.incident?.incident_id ? isPollingActive(message.incident.incident_id) : false}
                 isPollingPaused={message.incident?.incident_id ? isPollingPaused(message.incident.incident_id) : false}
                 onCheckPRStatus={() => message.incident?.incident_id && checkPRStatus(message.incident.incident_id)}
+                onReanalyzeIncident={handleReanalyzeIncident}
+                isReanalyzing={message.incident?.incident_id === reanalyzingIncidentId}
               />
             ))}
 
@@ -1471,7 +1683,16 @@ export default function ChatWindow({ isFullScreen = false, onToggleFullScreen })
         currentIncidentData={pendingIncidentData || (messages.find(m => m.incident)?.incident || null)}
         currentRemediationStatuses={remediationStatuses}
       />
+
+      {/* CloudWatch Incidents Dialog */}
+      <CloudWatchIncidentsDialog
+        isOpen={showCloudWatchIncidentsDialog}
+        onClose={() => setShowCloudWatchIncidentsDialog(false)}
+        onLoadIncident={handleLoadCloudWatchIncident}
+      />
     </div>
   );
-}
+});
+
+export default ChatWindow;
 

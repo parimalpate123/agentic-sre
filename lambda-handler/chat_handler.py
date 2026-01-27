@@ -318,6 +318,7 @@ Your task:
 
 IMPORTANT - Log Group Selection:
 - If the question is about a SPECIFIC service (e.g., "errors in payment-service"), use that service's log group
+- If the question is about CloudWatch alarms, triggers, or incident handling, use: /aws/lambda/sre-poc-incident-handler
 - If the question is about a GENERAL issue type (e.g., "database connection issues", "any timeout errors") WITHOUT specifying a service, you should search across MULTIPLE relevant log groups
 - For Lambda services (payment-service, order-service, api-gateway, user-service, inventory-service, policy-service, rating-service, notification-service), use: /aws/lambda/service-name
 - For ECS services, use: /aws/ecs/service-name
@@ -413,6 +414,18 @@ A: {{
     {{
       "purpose": "Find logs with policy ID POL-201519",
       "query": "fields @timestamp, @message | filter @message like /POL-201519/ | sort @timestamp desc | limit 50"
+    }}
+  ]
+}}
+
+Q: "Show me logs containing 'alarm' or 'trigger'"
+A: {{
+  "intent": "Find logs about CloudWatch alarms or triggers",
+  "log_group": "/aws/lambda/sre-poc-incident-handler",
+  "queries": [
+    {{
+      "purpose": "Find alarm and trigger related logs",
+      "query": "fields @timestamp, @message | filter @message like /(?i)(alarm|trigger)/ | sort @timestamp desc | limit 50"
     }}
   ]
 }}
@@ -545,6 +558,14 @@ def extract_filter_pattern(query: str, original_question: str = '') -> str:
     # Check for database connection related terms - use the most specific match
     question_lower = (original_question or query).lower()
     
+    # Check for alarm/trigger patterns first (before database patterns)
+    if 'alarm' in question_lower or 'alarm' in query.lower():
+        logger.info(f"Extracted 'alarm' pattern from query/question")
+        return "alarm"
+    elif 'trigger' in question_lower or 'trigger' in query.lower():
+        logger.info(f"Extracted 'trigger' pattern from query/question")
+        return "trigger"
+    
     # Check in order of specificity (most specific first)
     if 'connection timeout' in question_lower or 'connection timeout' in query.lower():
         logger.info(f"Extracted 'connection timeout' pattern from query/question")
@@ -588,8 +609,8 @@ def extract_filter_pattern(query: str, original_question: str = '') -> str:
             logger.info(f"Extracted quoted term from original question (fallback): {pattern}")
             return pattern
         
-        # Extract key terms from question (database, connection, timeout, etc.)
-        key_terms = ['database', 'connection', 'timeout', 'error', 'exception']
+        # Extract key terms from question (database, connection, timeout, alarm, trigger, etc.)
+        key_terms = ['database', 'connection', 'timeout', 'error', 'exception', 'alarm', 'trigger']
         for term in key_terms:
             if term in original_question.lower():
                 logger.info(f"Extracted key term from original question (fallback): {term}")

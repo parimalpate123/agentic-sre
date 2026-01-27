@@ -909,6 +909,7 @@ Confidence: {diagnosis.confidence}%
         return InvestigationResult(
             incident_id=incident.incident_id,
             service=incident.service,
+            source=incident.source,  # Preserve source from incident
             severity=severity,
             root_cause=root_cause,
             confidence=confidence,
@@ -1006,6 +1007,7 @@ Confidence: {diagnosis.confidence}%
         return InvestigationResult(
             incident_id=incident.incident_id,
             service=incident.service,
+            source=incident.source,  # Preserve source from incident
             severity=Severity.P2,
             root_cause=f"Investigation failed: {error}",
             confidence=0,

@@ -464,6 +464,15 @@ def generate_service_message(
     if service == 'payment-service':
         if is_error:
             error_types = [
+                # Code fix error patterns (TypeError, NullPointer, Logic errors)
+                f"ERROR: TypeError: Cannot read property 'amount' of undefined at PaymentService.processPayment (payment.js:45) transaction={transaction_id} correlation_id={correlation_id}",
+                f"ERROR: NullPointerException: Order ID is null when processing payment. Stack trace: PaymentService.validateOrder -> OrderService.getOrder (order.js:123) transaction={transaction_id} correlation_id={correlation_id}",
+                f"ERROR: ValidationError: Invalid payment method. Expected string, got null. Payment method validation failed at PaymentService.validatePaymentMethod (payment.js:78) transaction={transaction_id} correlation_id={correlation_id}",
+                f"ERROR: LogicError: Payment amount calculation failed - division by zero at PaymentService.calculateTotal (payment.js:156). Amount: null, Tax: 0.08 transaction={transaction_id} correlation_id={correlation_id}",
+                f"ERROR: UnhandledException: Cannot access property 'status' of undefined in payment-service. Payment object is null when updating status. File: payment.js, Line: 89 transaction={transaction_id} correlation_id={correlation_id}",
+                f"ERROR: TypeError: payment.order is undefined. Cannot read property 'orderId' of undefined at PaymentService.processPayment (payment.js:52) transaction={transaction_id} correlation_id={correlation_id}",
+                f"ERROR: ReferenceError: 'customerId' is not defined. Payment processing failed due to undefined variable at PaymentService.createPayment (payment.js:34) transaction={transaction_id} correlation_id={correlation_id}",
+                # Original error patterns (for variety)
                 f"ERROR: Payment processing timeout after 3000ms transaction={transaction_id} correlation_id={correlation_id}",
                 f"ERROR: Payment declined Card_verification_failed transaction={transaction_id} correlation_id={correlation_id}",
                 f"ERROR: Database connection timeout transaction={transaction_id} correlation_id={correlation_id}",
@@ -479,6 +488,11 @@ def generate_service_message(
     elif service == 'order-service':
         if is_error:
             error_types = [
+                # Code fix error patterns
+                f"ERROR: TypeError: Cannot read property 'items' of undefined at OrderService.createOrder (order.js:67) order_id={order_id} correlation_id={correlation_id}",
+                f"ERROR: NullPointerException: Customer ID is null when creating order. Stack trace: OrderService.validateCustomer -> CustomerService.getCustomer (customer.js:45) order_id={order_id} correlation_id={correlation_id}",
+                f"ERROR: ValidationError: Invalid order total. Expected number, got null. Order calculation failed at OrderService.calculateTotal (order.js:123) order_id={order_id} correlation_id={correlation_id}",
+                # Original error patterns
                 f"ERROR: Inventory check failed SKU-{random.randint(1000, 9999)} Item_out_of_stock requested=5 available=0 order_id={order_id} correlation_id={correlation_id}",
                 f"ERROR: Request timeout after 30s upstream_service=inventory-service order_id={order_id} correlation_id={correlation_id}",
                 f"ERROR: Payment service unavailable order_id={order_id} correlation_id={correlation_id}",
