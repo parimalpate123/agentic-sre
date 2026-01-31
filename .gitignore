@@ -53,6 +53,7 @@ npm-debug.log*
 # Temporary/Reference directories
 temp-setup/
 ai-generated-md/
+action-repos/
 
 # Documentation (exclude for now, will commit selectively later)
 docs/

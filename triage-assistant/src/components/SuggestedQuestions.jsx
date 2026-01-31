@@ -39,9 +39,47 @@ export default function SuggestedQuestions({ suggestions = [], onQuestionClick, 
   const totalQuestions = Object.values(PREDEFINED_QUESTIONS).flat().length;
   const selectedQuestions = selectedCategory ? PREDEFINED_QUESTIONS[selectedCategory] || [] : [];
 
+  // Sample questions to show as examples
+  const exampleQuestions = [
+    'What errors occurred in payment-service?',
+    'Show me policy-service errors with policy_number',
+    'What rating calculations failed in rating-service?',
+  ];
+
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-gray-50">
       <div className="px-4 py-3 flex-1">
+        {/* Welcome Message */}
+        <div className="mb-4 pb-3 border-b border-gray-200">
+          <p className="text-xs text-gray-700 leading-relaxed mb-2">
+            Hi! I'm your Triage Assistant. I help analyze CloudWatch logs, identify incidents, and track automated remediation workflows.
+          </p>
+          <p className="text-xs text-gray-500 italic">
+            💡 Try the examples below or select from predefined questions
+          </p>
+        </div>
+
+        {/* Example Questions - Always Visible */}
+        <div className="mb-4">
+          <span className="text-xs text-gray-500 mb-2 block font-medium">Example Questions:</span>
+          <div className="flex flex-col gap-2">
+            {exampleQuestions.map((question, index) => (
+              <button
+                key={index}
+                onClick={() => onQuestionClick(question)}
+                disabled={disabled}
+                className={`w-full text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
+                  disabled
+                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                    : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-300'
+                }`}
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* AI Suggestions from API (flat list - same as before) */}
         {suggestions.length > 0 && (
           <div className="mb-4">
@@ -67,7 +105,7 @@ export default function SuggestedQuestions({ suggestions = [], onQuestionClick, 
 
         {/* Predefined Questions - Compact Dropdown */}
         <div className="flex flex-col gap-2">
-          <span className="text-xs text-gray-500 font-medium">Predefined Questions:</span>
+          <span className="text-xs text-gray-500 font-medium">More Questions:</span>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}

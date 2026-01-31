@@ -13,14 +13,7 @@ import CloudWatchIncidentsDialog from './CloudWatchIncidentsDialog';
 import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession, reanalyzeIncident } from '../services/api';
 
 const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel }, ref) {
-  const [messages, setMessages] = useState([
-    {
-      id: 'welcome',
-      text: "Hi! I'm your Triage Assistant. I can help you analyze CloudWatch logs and identify issues in your services.\n\nAsk me questions like:\n- \"What errors occurred in payment-service?\"\n- \"Show me policy-service errors with policy_number\"\n- \"What rating calculations failed in rating-service?\"\n\nCross-Service Tracing:\n- \"Trace CORR-ABBFE258-2314-494A-B9BB-ADB33142404F across services\"\n- \"Follow request CORR-... through the system\"\n- \"Show me the request flow for correlation_id ...\"\n\nThe trace feature will search across all services to show you the complete request flow!",
-      isUser: false,
-      timestamp: new Date().toISOString(),
-    },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [useMCP, setUseMCP] = useState(true); // Default to ON (true), user can toggle to OFF (false)
@@ -673,7 +666,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     const currentRemediationStatuses = remediationStatusesRef.current;
     
     // Don't auto-save if no messages or too soon since last save
-    if (currentMessages.length <= 1) return; // Only welcome message
+    if (currentMessages.length === 0) return; // No messages to save
     
     const now = Date.now();
     if (lastAutoSaveRef.current && (now - lastAutoSaveRef.current) < 5 * 60 * 1000) {
@@ -686,7 +679,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         (currentMessages.find(m => m.incident)?.incident || null);
       
       // Generate session name from first user question or use default
-      const firstUserMessage = currentMessages.find(m => m.isUser && m.id !== 'welcome');
+      const firstUserMessage = currentMessages.find(m => m.isUser);
       const sessionName = firstUserMessage 
         ? `Auto-saved: ${firstUserMessage.text.substring(0, 50)}...`
         : `Chat Session ${new Date().toLocaleString()}`;
@@ -1254,7 +1247,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   return (
     <div className="flex flex-col h-full bg-white rounded-lg shadow-lg overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4">
+      <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
@@ -1262,7 +1255,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             </div>
             <div>
               <h1 className="text-lg font-semibold">Triage Hub</h1>
-              <p className="text-sm text-blue-100">AI-powered log analysis</p>
+              <p className="text-sm text-purple-100">AI-powered log analysis</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1313,10 +1306,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                   if (incidents.length > 0) {
                     const incidentMessages = incidents.map(incidentItem => incidentToMessage(incidentItem));
                     setMessages(prev => {
-                      const welcomeMessage = prev[0];
-                      const otherMessages = prev.slice(1);
                       const existingIncidentIds = new Set(
-                        otherMessages
+                        prev
                           .filter(m => m.incident?.incident_id)
                           .map(m => m.incident.incident_id)
                       );
@@ -1324,7 +1315,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                         msg => !existingIncidentIds.has(msg.incident?.incident_id)
                       );
                       if (newIncidentMessages.length > 0) {
-                        return [welcomeMessage, ...newIncidentMessages, ...otherMessages];
+                        return [...newIncidentMessages, ...prev];
                       }
                       return prev;
                     });
@@ -1340,12 +1331,12 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             </button>
             {/* MCP Toggle - Always visible, default ON */}
             <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-blue-100">MCP:</span>
+              <span className="text-xs text-purple-100">MCP:</span>
               <button
                 onClick={() => setUseMCP(true)}
                 className={`text-xs px-2 py-1 rounded transition-colors ${
                   useMCP === true
-                    ? 'bg-white text-blue-700 font-semibold'
+                    ? 'bg-white text-purple-700 font-semibold'
                     : 'bg-white/20 text-white hover:bg-white/30'
                 }`}
                 title="Use MCP server for log queries"
@@ -1356,7 +1347,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                 onClick={() => setUseMCP(false)}
                 className={`text-xs px-2 py-1 rounded transition-colors ${
                   useMCP === false
-                    ? 'bg-white text-blue-700 font-semibold'
+                    ? 'bg-white text-purple-700 font-semibold'
                     : 'bg-white/20 text-white hover:bg-white/30'
                 }`}
                 title="Use Direct API for log queries"
@@ -1439,7 +1430,12 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                     ? 'bg-white text-blue-700 font-semibold shadow-sm'
                     : 'text-gray-600 hover:text-gray-800'
                 }`}
-                title="Real-time search using filter_log_events (no indexing delay)"
+                title="Quick Search (70-75% accuracy)
+• Real-time: No indexing delay, instant results
+• Speed: 1-3 seconds
+• Best for: Recent logs, simple keywords, live incidents
+• Limitations: No aggregation or statistics
+• Use when: You need the latest logs or correlation tracing"
               >
                 Quick
               </button>
@@ -1450,7 +1446,12 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                     ? 'bg-white text-blue-700 font-semibold shadow-sm'
                     : 'text-gray-600 hover:text-gray-800'
                 }`}
-                title="CloudWatch Logs Insights (may have 5-15 min indexing delay for new logs)"
+                title="Deep Search (75-85% accuracy)
+• Complex queries: SQL-like with aggregation & grouping
+• Speed: 5-10 seconds
+• Best for: Error patterns, statistics, historical analysis
+• Note: 5-15 min indexing delay for new logs
+• Use when: You need grouped results or trend analysis"
               >
                 Deep
               </button>
@@ -1500,44 +1501,17 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
               ))}
             </select>
           </div>
-
-          {/* Log Management Button */}
-          <div className="flex items-center gap-2 ml-auto">
-            <button
-              onClick={() => handleManageLogs('clean_and_regenerate')}
-              disabled={isManagingLogs}
-              className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-              title="Clean existing sample logs and regenerate new ones with enhanced patterns"
-            >
-              {isManagingLogs ? (
-                <>
-                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Generate Logs
-                </>
-              )}
-            </button>
-          </div>
         </div>
 
         {/* Always Visible Disclaimer */}
         <div className="mt-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
           {searchMode === 'quick' ? (
             <span>
-              <strong className="text-blue-600">Quick Search:</strong> Real-time results with no delay. Searches multiple log groups in parallel. Best for recent logs and immediate troubleshooting.
+              <strong className="text-blue-600">Quick Search:</strong> Real-time results (1-3s) with no indexing delay. Features: Fuzzy matching for typos, relevance scoring, duplicate removal. Best for live incidents and recent logs.
             </span>
           ) : (
             <span>
-              <strong className="text-orange-600">Deep Search:</strong> Uses CloudWatch Logs Insights for complex queries and analytics. Note: New logs may take 5-15 minutes to be indexed.
+              <strong className="text-orange-600">Deep Search:</strong> Advanced analytics with aggregation and grouping (5-10s). Features: Error patterns, statistics, trend analysis. <strong>Note:</strong> 5-15 min indexing delay for new logs.
             </span>
           )}
         </div>
