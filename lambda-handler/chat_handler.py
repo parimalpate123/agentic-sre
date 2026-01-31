@@ -19,7 +19,8 @@ from datetime import datetime, timedelta
 import boto3
 
 # Import search utilities for fuzzy matching, deduplication, and relevance scoring
-from search_utils import improve_search_results, extract_keywords_from_question
+# DISABLED - Uncomment after deploying search_utils.py with Lambda
+# from search_utils import improve_search_results, extract_keywords_from_question
 
 # Configure logging
 logger = logging.getLogger()
@@ -821,28 +822,28 @@ async def execute_queries_via_mcp(
     logger.info(f"Total results across all queries: {total_count}")
     logger.info(f"Results before improvements: {len(all_results)}")
 
-    # Apply search improvements: fuzzy matching, deduplication, relevance scoring
-    original_question = query_plan.get('original_question', '')
-    if all_results and original_question:
-        logger.info("Applying search improvements (deduplication + relevance scoring)...")
-        improved_results = improve_search_results(all_results, original_question)
-        logger.info(f"Results after deduplication: {len(improved_results)}")
-        logger.info(f"Removed {len(all_results) - len(improved_results)} exact duplicates")
-
-        # Log top result's relevance score for debugging
-        if improved_results:
-            top_score = improved_results[0].get('_relevance_score', 0)
-            logger.info(f"Top result relevance score: {top_score:.1f}/100")
-
-        all_results = improved_results
+    # DISABLED - Uncomment after deploying search_utils.py with Lambda
+    # # Apply search improvements: deduplication based on message + timestamp
+    # original_question = query_plan.get('original_question', '')
+    # if all_results and original_question:
+    #     logger.info("Applying search improvements (deduplication + relevance scoring)...")
+    #     improved_results = improve_search_results(all_results, original_question)
+    #     logger.info(f"Results after deduplication: {len(improved_results)}")
+    #     logger.info(f"Removed {len(all_results) - len(improved_results)} exact duplicates")
+    #
+    #     # Log top result's relevance score for debugging
+    #     if improved_results:
+    #         top_score = improved_results[0].get('_relevance_score', 0)
+    #         logger.info(f"Top result relevance score: {top_score:.1f}/100")
+    #
+    #     all_results = improved_results
 
     logger.info(f"Sample logs count: {len(all_results[:50])}")
     logger.info(f"Log group used: {log_group}")
 
     return {
-        'sample_logs': all_results[:50],  # First 50 for analysis (now ranked by relevance)
+        'sample_logs': all_results[:50],  # First 50 for analysis
         'total_count': total_count,
-        'unique_count': len(all_results),  # Count after deduplication
         'log_group': log_group
     }
 
@@ -1056,19 +1057,19 @@ async def execute_queries_direct(
     logger.info(f"Sample logs count: {len(all_results[:50])}")
     logger.info(f"Log group used: {log_group}")
 
-    # Apply search improvements: fuzzy matching, deduplication, relevance scoring
-    original_question = query_plan.get('original_question', '')
-    if all_results and original_question:
-        logger.info("Applying search improvements (deduplication + relevance scoring)...")
-        improved_results = improve_search_results(all_results, original_question)
-        logger.info(f"Results after deduplication: {len(improved_results)}")
-        logger.info(f"Removed {len(all_results) - len(improved_results)} exact duplicates")
-        all_results = improved_results
+    # DISABLED - Uncomment after deploying search_utils.py with Lambda
+    # # Apply search improvements: deduplication based on message + timestamp
+    # original_question = query_plan.get('original_question', '')
+    # if all_results and original_question:
+    #     logger.info("Applying search improvements (deduplication + relevance scoring)...")
+    #     improved_results = improve_search_results(all_results, original_question)
+    #     logger.info(f"Results after deduplication: {len(improved_results)}")
+    #     logger.info(f"Removed {len(all_results) - len(improved_results)} exact duplicates")
+    #     all_results = improved_results
 
     return {
-        'sample_logs': all_results[:50],  # First 50 for analysis (now ranked by relevance)
+        'sample_logs': all_results[:50],  # First 50 for analysis
         'total_count': total_count,
-        'unique_count': len(all_results),  # Count after deduplication
         'log_group': log_group
     }
 

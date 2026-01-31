@@ -1507,7 +1507,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         <div className="mt-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
           {searchMode === 'quick' ? (
             <span>
-              <strong className="text-blue-600">Quick Search:</strong> Real-time results (1-3s) with no indexing delay. Features: Fuzzy matching for typos, relevance scoring, duplicate removal. Best for live incidents and recent logs.
+              <strong className="text-blue-600">Quick Search:</strong> Real-time results (1-3s) with no indexing delay. Shows all log occurrences with timestamps. Best for live incidents and recent logs.
             </span>
           ) : (
             <span>

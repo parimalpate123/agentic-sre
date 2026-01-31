@@ -131,17 +131,17 @@ export default function MessageBubble({
                 </a>
               )}
             </div>
-            <div className="bg-gray-800 rounded-lg p-2 max-h-32 overflow-y-auto">
-              {message.logEntries.slice(0, 3).map((entry, index) => (
-                <p key={index} className="text-xs text-green-400 font-mono truncate">
-                  {entry['@message'] || JSON.stringify(entry)}
-                </p>
+            <div className="bg-gray-800 rounded-lg p-3 max-h-96 overflow-y-auto space-y-2">
+              {message.logEntries.map((entry, index) => (
+                <div key={index} className="border-l-2 border-yellow-500 pl-2">
+                  <p className="text-xs text-gray-400 font-mono mb-1">
+                    🕐 {entry['@timestamp'] || 'No timestamp'}
+                  </p>
+                  <p className="text-xs text-green-400 font-mono whitespace-pre-wrap break-words">
+                    {entry['@message'] || JSON.stringify(entry)}
+                  </p>
+                </div>
               ))}
-              {message.logEntries.length > 3 && (
-                <p className="text-xs text-gray-400 mt-1">
-                  ... and {message.logEntries.length - 3} more
-                </p>
-              )}
             </div>
           </div>
         )}
