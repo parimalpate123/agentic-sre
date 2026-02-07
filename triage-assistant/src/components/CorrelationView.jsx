@@ -3,7 +3,12 @@
  * Displays cross-service correlation results with timeline and request flow visualization
  */
 
+import { useState } from 'react';
+import TraceGraphModal from './TraceGraphModal';
+
 export default function CorrelationView({ correlationData }) {
+  const [showGraphModal, setShowGraphModal] = useState(false);
+
   if (!correlationData) return null;
 
   const {
@@ -39,7 +44,7 @@ export default function CorrelationView({ correlationData }) {
             <span className="text-lg">🔗</span>
             <span className="font-semibold text-blue-800">Cross-Service Trace</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {duration && (
               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
                 {duration}
@@ -48,6 +53,18 @@ export default function CorrelationView({ correlationData }) {
             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
               {total_events} events
             </span>
+            {request_flow.length > 0 && (
+              <button
+                onClick={() => setShowGraphModal(true)}
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium flex items-center gap-1"
+                title="View Datadog-style topology"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                View topology
+              </button>
+            )}
           </div>
         </div>
         <p className="text-xs text-blue-600 mt-1 font-mono break-all">{correlation_id}</p>
@@ -163,6 +180,13 @@ export default function CorrelationView({ correlationData }) {
           </p>
         </div>
       )}
+
+      {/* Trace Graph Modal (Datadog-style topology) */}
+      <TraceGraphModal
+        isOpen={showGraphModal}
+        onClose={() => setShowGraphModal(false)}
+        correlationData={correlationData}
+      />
 
       {/* Footer with timing info */}
       {first_seen && last_seen && (

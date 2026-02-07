@@ -1507,29 +1507,61 @@ def process_correlation_results(raw_results: Dict[str, Any], correlation_id: str
     }
 
 
+def _derive_service_status(service: str, timeline: List[Dict]) -> str:
+    """Derive health status from a service's timeline events (error > warn > ok)."""
+    status = 'ok'
+    for event in timeline:
+        if event.get('service') != service:
+            continue
+        msg = event.get('message', '')
+        if re.search(r'error|fail|exception|Status=[45]\d{2}', msg, re.IGNORECASE):
+            return 'error'
+        if re.search(r'warn|timeout|retry', msg, re.IGNORECASE):
+            status = 'warn'
+    return status
+
+
 def determine_request_flow(timeline: List[Dict]) -> List[Dict]:
     """
-    Determine the order of services in the request flow
-    Based on first appearance in the timeline
+    Determine the order of services in the request flow with latency and status.
+    Based on first appearance in the timeline.
 
     Args:
-        timeline: Sorted list of events
+        timeline: Sorted list of events with timestamp_ms, service, message
 
     Returns:
-        List of services in order of first appearance
+        List of services in order of first appearance, enriched with
+        latency_to_next_ms, status, event_count
     """
     seen_services = []
     flow = []
+    first_ts_by_service = {}
 
     for event in timeline:
         service = event.get('service')
         if service and service not in seen_services:
             seen_services.append(service)
+            ts_ms = event.get('timestamp_ms') or 0
+            first_ts_by_service[service] = ts_ms
             flow.append({
                 'order': len(flow) + 1,
                 'service': service,
-                'first_timestamp': event.get('timestamp', '')
+                'first_timestamp': event.get('timestamp', ''),
+                'first_timestamp_ms': ts_ms,
             })
+
+    # Enrich with latency_to_next_ms, status, event_count
+    for i, step in enumerate(flow):
+        service = step['service']
+        step['event_count'] = sum(1 for e in timeline if e.get('service') == service)
+        step['status'] = _derive_service_status(service, timeline)
+        if i < len(flow) - 1:
+            next_service = flow[i + 1]['service']
+            next_ts = first_ts_by_service.get(next_service, 0)
+            curr_ts = step.get('first_timestamp_ms', 0)
+            step['latency_to_next_ms'] = max(0, next_ts - curr_ts) if curr_ts and next_ts else None
+        else:
+            step['latency_to_next_ms'] = None
 
     return flow
 
