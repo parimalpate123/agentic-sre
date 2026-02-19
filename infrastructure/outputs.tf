@@ -70,6 +70,22 @@ output "mcp_server_log_group" {
   value       = aws_cloudwatch_log_group.mcp_server.name
 }
 
+# Incident MCP Server Outputs
+output "incident_mcp_ecr_repository_url" {
+  description = "ECR repository URL for Incident MCP server"
+  value       = aws_ecr_repository.incident_mcp_server.repository_url
+}
+
+output "incident_mcp_endpoint" {
+  description = "Incident MCP server internal endpoint"
+  value       = "http://incident-mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8010"
+}
+
+output "incident_mcp_ecs_service_name" {
+  description = "ECS service name for Incident MCP server"
+  value       = aws_ecs_service.incident_mcp_server.name
+}
+
 # ============================================
 # Lambda Outputs
 # ============================================

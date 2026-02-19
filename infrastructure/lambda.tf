@@ -41,8 +41,11 @@ resource "aws_lambda_function" "incident_handler" {
       REMEDIATION_STATE_TABLE = aws_dynamodb_table.remediation_state.name
       CHAT_SESSIONS_TABLE = aws_dynamodb_table.chat_sessions.name
 
-      # MCP Server Endpoint
+      # MCP Server Endpoint (Log Analyzer)
       MCP_ENDPOINT = "http://mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8000"
+
+      # Incident MCP Server Endpoint (mock ServiceNow, Jira, KB)
+      MCP_INCIDENT_ENDPOINT = "http://incident-mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8010"
 
       # MCP Client Toggle (default: true - use MCP for chat queries)
       USE_MCP_CLIENT = "true"

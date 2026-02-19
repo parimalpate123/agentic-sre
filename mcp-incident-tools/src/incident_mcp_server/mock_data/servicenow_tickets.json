@@ -1,0 +1,80 @@
+[
+  {
+    "number": "INC001",
+    "short_description": "Payment gateway timeout affecting checkout",
+    "description": "Customers report checkout failures. Payment service times out after 30s. Started around 14:00 UTC. Affects payment-service.",
+    "urgency": "2",
+    "impact": "2",
+    "state": "2",
+    "category": "payment",
+    "assignment_group": "Payment Platform",
+    "assigned_to": "john.doe",
+    "opened_at": "2026-02-19T14:05:00Z",
+    "service": "payment-service"
+  },
+  {
+    "number": "INC002",
+    "short_description": "Card declined errors spike in production",
+    "description": "Error rate for card declined responses increased from 0.1% to 2.5%. Logs show connection pool exhaustion to acquirer.",
+    "urgency": "1",
+    "impact": "2",
+    "state": "1",
+    "category": "payment",
+    "assignment_group": "Payment Platform",
+    "assigned_to": "jane.smith",
+    "opened_at": "2026-02-19T11:30:00Z",
+    "service": "payment-service"
+  },
+  {
+    "number": "INC003",
+    "short_description": "Rating calculation failure for bulk requests",
+    "description": "Bulk rating API returns 500 for requests with more than 50 items. Stack trace points to timeout in rating-engine.",
+    "urgency": "2",
+    "impact": "2",
+    "state": "2",
+    "category": "rating",
+    "assignment_group": "Pricing & Rating",
+    "assigned_to": "alex.wong",
+    "opened_at": "2026-02-18T16:20:00Z",
+    "service": "rating-service"
+  },
+  {
+    "number": "INC004",
+    "short_description": "Premium computation returning incorrect values",
+    "description": "Premium for multi-coverage policies is under-calculated. Affects policy renewals. Suspected rounding in rating-service.",
+    "urgency": "2",
+    "impact": "3",
+    "state": "3",
+    "category": "rating",
+    "assignment_group": "Pricing & Rating",
+    "assigned_to": "alex.wong",
+    "opened_at": "2026-02-18T09:15:00Z",
+    "service": "rating-service"
+  },
+  {
+    "number": "INC005",
+    "short_description": "Policy validation timeout on policy-service",
+    "description": "Policy validation endpoint times out under load. P99 latency > 10s. Redis cache hit rate dropped to 60%.",
+    "urgency": "2",
+    "impact": "2",
+    "state": "2",
+    "category": "policy",
+    "assignment_group": "Policy Engine",
+    "assigned_to": "sarah.chen",
+    "opened_at": "2026-02-19T08:45:00Z",
+    "service": "policy-service"
+  },
+  {
+    "number": "INC006",
+    "short_description": "Policy-service 5xx errors during peak load",
+    "description": "5xx error rate increased during 18:00-20:00 UTC. Correlated with high request volume. Possible DB connection exhaustion.",
+    "urgency": "1",
+    "impact": "2",
+    "state": "1",
+    "category": "policy",
+    "assignment_group": "Policy Engine",
+    "assigned_to": "sarah.chen",
+    "opened_at": "2026-02-19T18:10:00Z",
+    "service": "policy-service"
+  }
+]

@@ -28,6 +28,7 @@ AWS_REGION="us-east-1"
 # Parse command line arguments
 DEPLOY_INFRA=true
 DEPLOY_MCP=true
+DEPLOY_MCP_INCIDENT=true
 DEPLOY_LAMBDA=true
 DEPLOY_UI=false
 RUN_TEST=true
@@ -36,20 +37,21 @@ show_help() {
     echo "Usage: ./scripts/deploy.sh [options]"
     echo ""
     echo "Options:"
-    echo "  --all              Deploy everything (default: infra, MCP, Lambda)"
+    echo "  --all              Deploy everything (default: infra, Log MCP, Incident MCP, Lambda)"
     echo "  --infra            Deploy only infrastructure (Terraform)"
-    echo "  --mcp              Deploy only MCP server (Docker + ECS)"
+    echo "  --mcp              Deploy only Log MCP server (Docker + ECS)"
+    echo "  --mcp-incident     Deploy only Incident MCP server (mock ServiceNow/Jira)"
     echo "  --lambda           Deploy only Lambda function"
     echo "  --ui               Deploy UI to CloudFront/S3"
     echo "  --skip-test        Skip test invocation"
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/deploy.sh                    # Deploy everything (infra, MCP, Lambda)"
+    echo "  ./scripts/deploy.sh                    # Deploy everything (infra, both MCPs, Lambda)"
     echo "  ./scripts/deploy.sh --ui               # Deploy everything including UI"
     echo "  ./scripts/deploy.sh --infra            # Deploy only Terraform"
-    echo "  ./scripts/deploy.sh --mcp --lambda     # Deploy MCP and Lambda, skip Terraform"
-    echo "  ./scripts/deploy.sh --lambda --skip-test   # Deploy Lambda without testing"
+    echo "  ./scripts/deploy.sh --mcp --mcp-incident --lambda   # Deploy both MCPs and Lambda"
+    echo "  ./scripts/deploy.sh --mcp-incident     # Deploy only Incident MCP server"
     exit 0
 }
 
@@ -57,6 +59,7 @@ show_help() {
 if [ $# -gt 0 ]; then
     DEPLOY_INFRA=false
     DEPLOY_MCP=false
+    DEPLOY_MCP_INCIDENT=false
     DEPLOY_LAMBDA=false
 
     for arg in "$@"; do
@@ -64,6 +67,7 @@ if [ $# -gt 0 ]; then
             --all)
                 DEPLOY_INFRA=true
                 DEPLOY_MCP=true
+                DEPLOY_MCP_INCIDENT=true
                 DEPLOY_LAMBDA=true
                 ;;
             --infra)
@@ -71,6 +75,9 @@ if [ $# -gt 0 ]; then
                 ;;
             --mcp)
                 DEPLOY_MCP=true
+                ;;
+            --mcp-incident)
+                DEPLOY_MCP_INCIDENT=true
                 ;;
             --lambda)
                 DEPLOY_LAMBDA=true
@@ -98,7 +105,8 @@ echo "======================================"
 echo ""
 echo -e "${BLUE}Deployment Plan:${NC}"
 echo "  • Infrastructure (Terraform): $([ "$DEPLOY_INFRA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
-echo "  • MCP Server (Docker+ECS): $([ "$DEPLOY_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
+echo "  • Log MCP Server (Docker+ECS): $([ "$DEPLOY_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
+echo "  • Incident MCP Server (Docker+ECS): $([ "$DEPLOY_MCP_INCIDENT" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Lambda Function: $([ "$DEPLOY_LAMBDA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • UI (CloudFront/S3): $([ "$DEPLOY_UI" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Test Invocation: $([ "$RUN_TEST" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
@@ -370,7 +378,67 @@ if [ "$DEPLOY_MCP" = true ]; then
     fi
     echo ""
 else
-    echo "⏭️  Steps 2-3/5: Skipping MCP server deployment"
+    echo "⏭️  Steps 2-3/5: Skipping Log MCP server deployment"
+    echo ""
+fi
+
+# Step 3b: Deploy Incident MCP Server (inline - no separate script)
+if [ "$DEPLOY_MCP_INCIDENT" = true ]; then
+    echo "🐳 Step 3b: Building and deploying Incident MCP server..."
+    ECR_INCIDENT_REPO="$AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/sre-poc-incident-mcp-server"
+
+    echo "  Logging into ECR..."
+    aws ecr get-login-password --region $AWS_REGION | \
+      docker login --username AWS --password-stdin $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+
+    echo "  Building Docker image (linux/amd64)..."
+    cd "$PROJECT_ROOT/mcp-incident-tools"
+    docker build --platform linux/amd64 -t sre-poc-incident-mcp-server:latest . --quiet
+
+    echo "  Pushing to ECR..."
+    docker tag sre-poc-incident-mcp-server:latest $ECR_INCIDENT_REPO:latest
+    docker push $ECR_INCIDENT_REPO:latest --quiet
+
+    cd "$PROJECT_ROOT"
+
+    echo "  Restarting ECS service (sre-poc-incident-mcp-server)..."
+    INCIDENT_SERVICE_EXISTS=$(aws ecs describe-services \
+      --cluster sre-poc-mcp-cluster \
+      --services sre-poc-incident-mcp-server \
+      --region $AWS_REGION \
+      --query 'services[0].status' \
+      --output text 2>/dev/null)
+
+    if [ "$INCIDENT_SERVICE_EXISTS" == "ACTIVE" ]; then
+      aws ecs update-service \
+        --cluster sre-poc-mcp-cluster \
+        --service sre-poc-incident-mcp-server \
+        --desired-count 0 \
+        --region $AWS_REGION \
+        --no-cli-pager > /dev/null
+      sleep 5
+      aws ecs update-service \
+        --cluster sre-poc-mcp-cluster \
+        --service sre-poc-incident-mcp-server \
+        --desired-count 1 \
+        --force-new-deployment \
+        --region $AWS_REGION \
+        --no-cli-pager > /dev/null
+      echo "  Waiting for service to stabilize..."
+      if aws ecs wait services-stable \
+        --cluster sre-poc-mcp-cluster \
+        --services sre-poc-incident-mcp-server \
+        --region $AWS_REGION 2>/dev/null; then
+        echo -e "${GREEN}✅ Incident MCP server deployed and running${NC}"
+      else
+        echo -e "${YELLOW}⚠️  Service starting, check: aws logs tail /ecs/sre-poc-incident-mcp-server --follow${NC}"
+      fi
+    else
+      echo -e "${YELLOW}⚠️  ECS service sre-poc-incident-mcp-server not found. Run ./scripts/deploy-infrastructure.sh first${NC}"
+    fi
+    echo ""
+else
+    echo "⏭️  Step 3b: Skipping Incident MCP server deployment"
     echo ""
 fi
 
