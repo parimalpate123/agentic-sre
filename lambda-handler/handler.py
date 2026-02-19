@@ -70,6 +70,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if http_method == 'GET' and query_params.get('action') == 'list_incidents':
             logger.info("Routing to list_incidents_handler (GET request for listing incidents)")
             return list_incidents_handler(event, context)
+
+        # Check if this is a GET request for ServiceNow or Jira (Incident MCP)
+        if http_method == 'GET' and query_params.get('action') in ('list_servicenow_tickets', 'list_jira_issues'):
+            from incident_sources_handler import incident_sources_handler
+            logger.info(f"Routing to incident_sources_handler (action={query_params.get('action')})")
+            return incident_sources_handler(event, context)
         
         # Check if this is a POST request for remediation webhook
         if http_method == 'POST':

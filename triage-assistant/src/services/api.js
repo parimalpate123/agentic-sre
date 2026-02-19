@@ -521,6 +521,80 @@ export async function fetchIncidents(options = {}) {
   }
 }
 
+// Fallback mock data when Incident MCP is not deployed or unreachable (demo only)
+const MOCK_SERVICENOW_TICKETS = [
+  { number: 'INC001', short_description: 'Payment gateway timeout affecting checkout', description: 'Customers report checkout failures. Payment service times out after 30s. Started around 14:00 UTC. Steps: 1) Reproduce via checkout flow, 2) Check payment-service logs for timeouts.', opened_at: '2026-02-19T14:05:00Z', state: '2', urgency: '2', service: 'payment-service', assigned_to: 'john.doe' },
+  { number: 'INC002', short_description: 'Card declined errors spike in production', description: 'Error rate for card declined responses increased from 0.1% to 2.5%. Logs show connection pool exhaustion to acquirer. Reproduce: run load test against payment API.', opened_at: '2026-02-19T11:30:00Z', state: '1', urgency: '1', service: 'payment-service', assigned_to: 'jane.smith' },
+  { number: 'INC003', short_description: 'Rating calculation failure for bulk requests', description: 'Bulk rating API returns 500 for requests with more than 50 items. Stack trace points to timeout in rating-engine.', opened_at: '2026-02-18T16:20:00Z', state: '2', urgency: '2', service: 'rating-service', assigned_to: 'alex.wong' },
+  { number: 'INC004', short_description: 'Premium computation returning incorrect values', description: 'Premium for multi-coverage policies is under-calculated. Affects policy renewals. Suspected rounding in rating-service.', opened_at: '2026-02-18T09:15:00Z', state: '3', urgency: '2', service: 'rating-service', assigned_to: 'alex.wong' },
+  { number: 'INC005', short_description: 'Policy validation timeout on policy-service', description: 'Policy validation endpoint times out under load. P99 latency > 10s. Redis cache hit rate dropped to 60%.', opened_at: '2026-02-19T08:45:00Z', state: '2', urgency: '2', service: 'policy-service', assigned_to: 'sarah.chen' },
+  { number: 'INC006', short_description: 'Policy-service 5xx errors during peak load', description: '5xx error rate increased during 18:00-20:00 UTC. Correlated with high request volume. Possible DB connection exhaustion.', opened_at: '2026-02-19T18:10:00Z', state: '1', urgency: '1', service: 'policy-service', assigned_to: 'sarah.chen' },
+];
+const MOCK_JIRA_ISSUES = [
+  { key: 'PAY-101', summary: 'Payment service p99 latency above threshold', description: 'CloudWatch alarm: p99 latency for payment-service exceeds 2000ms. Occurs during peak checkout hours. Steps to reproduce: run load test; check DB queries and external gateway calls.', priority: 'High', status: 'Open', created: '2026-02-19T13:00:00Z', service: 'payment-service', assignee: 'john.doe' },
+  { key: 'PAY-102', summary: 'Idempotency key collision under high load', description: 'Duplicate payment attempts when same idempotency key used within 1s. Race condition in payment-service idempotency store.', priority: 'Medium', status: 'In Progress', created: '2026-02-18T10:30:00Z', service: 'payment-service', assignee: 'jane.smith' },
+  { key: 'RAT-201', summary: 'Rating API returning 500 for discount rules', description: 'POST /rating/quote returns 500 when discount rules contain null effective_date. Stack trace in rating-service discount engine.', priority: 'High', status: 'Open', created: '2026-02-19T09:45:00Z', service: 'rating-service', assignee: 'alex.wong' },
+  { key: 'RAT-202', summary: 'Discount calculation wrong for multi-tier policies', description: 'Premium discount not applied correctly when policy has multiple tiers. Calculation uses wrong tier index in rating-service.', priority: 'Medium', status: 'In Progress', created: '2026-02-17T14:00:00Z', service: 'rating-service', assignee: 'alex.wong' },
+  { key: 'POL-301', summary: 'Policy cache returning stale data', description: 'Policy lookup returns outdated coverage after policy update. TTL on Redis cache may be too long or invalidation missing in policy-service.', priority: 'High', status: 'Open', created: '2026-02-19T07:20:00Z', service: 'policy-service', assignee: 'sarah.chen' },
+  { key: 'POL-302', summary: 'Policy lookup timeout in API gateway', description: 'Policy validation calls from API gateway time out after 5s. policy-service P95 latency increased to 4.2s. Check DB and dependency calls.', priority: 'High', status: 'Open', created: '2026-02-19T15:00:00Z', service: 'policy-service', assignee: 'sarah.chen' },
+];
+
+/**
+ * Fetch ServiceNow tickets from Incident MCP (Lambda proxy).
+ * Uses mock data when backend returns empty (e.g. Incident MCP not deployed).
+ * @param {Object} options - { service?, category?, limit? }
+ * @returns {Promise<Array>} Array of ticket objects (with source: 'servicenow')
+ */
+export async function fetchServiceNowTickets(options = {}) {
+  const { service = null, category = null, limit = 20 } = options;
+  try {
+    const params = new URLSearchParams({
+      action: 'list_servicenow_tickets',
+      limit: String(limit),
+    });
+    if (service) params.append('service', service);
+    if (category) params.append('category', category);
+    const url = `${API_ENDPOINT}?${params.toString()}`;
+    const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+    if (!response.ok) throw new Error(`API error: ${response.status} ${response.statusText}`);
+    const data = await response.json();
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+    const tickets = result.tickets || [];
+    return tickets.length > 0 ? tickets : MOCK_SERVICENOW_TICKETS;
+  } catch (error) {
+    console.warn('ServiceNow tickets unavailable, using mock data:', error?.message || error);
+    return MOCK_SERVICENOW_TICKETS;
+  }
+}
+
+/**
+ * Fetch Jira issues from Incident MCP (Lambda proxy).
+ * Uses mock data when backend returns empty (e.g. Incident MCP not deployed).
+ * @param {Object} options - { project?, service?, limit? }
+ * @returns {Promise<Array>} Array of issue objects (with source: 'jira')
+ */
+export async function fetchJiraIssues(options = {}) {
+  const { project = null, service = null, limit = 20 } = options;
+  try {
+    const params = new URLSearchParams({
+      action: 'list_jira_issues',
+      limit: String(limit),
+    });
+    if (project) params.append('project', project);
+    if (service) params.append('service', service);
+    const url = `${API_ENDPOINT}?${params.toString()}`;
+    const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+    if (!response.ok) throw new Error(`API error: ${response.status} ${response.statusText}`);
+    const data = await response.json();
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+    const issues = result.issues || [];
+    return issues.length > 0 ? issues : MOCK_JIRA_ISSUES;
+  } catch (error) {
+    console.warn('Jira issues unavailable, using mock data:', error?.message || error);
+    return MOCK_JIRA_ISSUES;
+  }
+}
+
 /**
  * Delete an incident from DynamoDB
  * @param {string} incidentId - Incident ID to delete
@@ -596,6 +670,8 @@ export default {
   createGitHubIssueAfterApproval,
   getRemediationStatus,
   fetchIncidents,
+  fetchServiceNowTickets,
+  fetchJiraIssues,
   deleteIncident,
   reanalyzeIncident,
   saveChatSession,

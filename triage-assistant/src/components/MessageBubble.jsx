@@ -328,10 +328,10 @@ export default function MessageBubble({
           />
         )}
 
-        {/* Action Buttons for CloudWatch incidents loaded from CW Incidents dialog */}
+        {/* Action Buttons for incidents loaded from Incidents dialog (CloudWatch, ServiceNow, Jira) */}
         {!isUser &&
          message.incident &&
-         message.incident.source === 'cloudwatch_alarm' &&
+         (message.incident.source === 'cloudwatch_alarm' || message.incident.source === 'servicenow' || message.incident.source === 'jira') &&
          !message.incident.execution_results?.github_issue &&
          !message.diagnosis &&
          !message.investigationStarted && (
@@ -594,10 +594,11 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* Re-analyze Button - Show when incident needs re-analysis */}
+        {/* Re-analyze Button - only for CloudWatch incidents (backend supports re-analyze) */}
         {!isUser && 
          message.incident && 
          message.incident.incident_id &&
+         message.incident.source === 'cloudwatch_alarm' &&
          onReanalyzeIncident && (
           <div className="mt-3 pt-3 border-t border-gray-200">
             {/* Show Re-analyze button if:
@@ -643,10 +644,15 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* Timestamp */}
-        <p className={`text-xs mt-2 ${isUser ? 'text-blue-200' : 'text-gray-400'}`}>
-          {new Date(message.timestamp).toLocaleTimeString()}
-        </p>
+        {/* Timestamp - guard against invalid date for SN/Jira loaded messages */}
+        {(message.timestamp && !Number.isNaN(new Date(message.timestamp).getTime())) ||
+         (message.incident?.timestamp && !Number.isNaN(new Date(message.incident.timestamp).getTime())) ? (
+          <p className={`text-xs mt-2 ${isUser ? 'text-blue-200' : 'text-gray-400'}`}>
+            {message.timestamp && !Number.isNaN(new Date(message.timestamp).getTime())
+              ? new Date(message.timestamp).toLocaleTimeString()
+              : new Date(message.incident.timestamp).toLocaleString()}
+          </p>
+        ) : null}
       </div>
     </div>
   );
