@@ -54,6 +54,7 @@ npm-debug.log*
 temp-setup/
 ai-generated-md/
 action-repos/
+temp-files/
 
 # Documentation (exclude for now, will commit selectively later)
 docs/

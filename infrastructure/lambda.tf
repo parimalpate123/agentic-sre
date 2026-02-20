@@ -28,38 +28,41 @@ resource "aws_lambda_function" "incident_handler" {
   }
 
   environment {
-    variables = {
-      # Bedrock Configuration
-      BEDROCK_MODEL_ID = var.bedrock_model_id
-      BEDROCK_MODEL_ID_DIAGNOSIS = var.bedrock_model_id_diagnosis
-      BEDROCK_REGION   = var.aws_region
+    variables = merge(
+      {
+        # Bedrock Configuration
+        BEDROCK_MODEL_ID           = var.bedrock_model_id
+        BEDROCK_MODEL_ID_DIAGNOSIS = var.bedrock_model_id_diagnosis
+        BEDROCK_REGION             = var.aws_region
 
-      # DynamoDB Tables
-      INCIDENTS_TABLE = aws_dynamodb_table.incidents.name
-      PLAYBOOKS_TABLE = aws_dynamodb_table.playbooks.name
-      MEMORY_TABLE    = aws_dynamodb_table.memory.name
-      REMEDIATION_STATE_TABLE = aws_dynamodb_table.remediation_state.name
-      CHAT_SESSIONS_TABLE = aws_dynamodb_table.chat_sessions.name
+        # DynamoDB Tables
+        INCIDENTS_TABLE          = aws_dynamodb_table.incidents.name
+        PLAYBOOKS_TABLE         = aws_dynamodb_table.playbooks.name
+        MEMORY_TABLE            = aws_dynamodb_table.memory.name
+        REMEDIATION_STATE_TABLE = aws_dynamodb_table.remediation_state.name
+        CHAT_SESSIONS_TABLE     = aws_dynamodb_table.chat_sessions.name
 
-      # MCP Server Endpoint
-      MCP_ENDPOINT = "http://mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8000"
+        # MCP Server Endpoint
+        MCP_ENDPOINT = "http://mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8000"
 
-      # MCP Client Toggle (default: true - use MCP for chat queries)
-      USE_MCP_CLIENT = "true"
+        # MCP Client Toggle (default: true - use MCP for chat queries)
+        USE_MCP_CLIENT = "true"
 
-      # Logging
-      LOG_LEVEL  = "INFO"
+        # Logging
+        LOG_LEVEL = "INFO"
 
-      # GitHub Configuration (for auto-remediation code fixes)
-      # Note: GITHUB_TOKEN is read from SSM Parameter Store at runtime
-      GITHUB_ORG = var.github_org
-      GITHUB_TOKEN_SSM_PARAM = aws_ssm_parameter.github_token.name
-      
-      # Webhook Configuration (for GitHub Actions and GitHub webhooks)
-      WEBHOOK_SECRET_SSM_PARAM = aws_ssm_parameter.webhook_secret.name
+        # GitHub Configuration (for auto-remediation code fixes)
+        # Note: GITHUB_TOKEN is read from SSM Parameter Store at runtime
+        GITHUB_ORG            = var.github_org
+        GITHUB_TOKEN_SSM_PARAM = aws_ssm_parameter.github_token.name
 
-      # AWS_REGION is reserved and set automatically by Lambda
-    }
+        # Webhook Configuration (for GitHub Actions and GitHub webhooks)
+        WEBHOOK_SECRET_SSM_PARAM = aws_ssm_parameter.webhook_secret.name
+
+        # AWS_REGION is reserved and set automatically by Lambda
+      },
+      var.enable_incident_mcp ? { INCIDENT_MCP_ENDPOINT = "http://incident-mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8010" } : {}
+    )
   }
 
   depends_on = [

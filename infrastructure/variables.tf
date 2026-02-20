@@ -75,6 +75,13 @@ variable "github_org" {
   default     = ""
 }
 
+# Incident MCP (ServiceNow, Jira) - optional, on by default
+variable "enable_incident_mcp" {
+  description = "Deploy Incident MCP server (ECS/ECR) for ServiceNow and Jira integration"
+  type        = bool
+  default     = true
+}
+
 # Note: github_token is stored in SSM Parameter Store, not as a Terraform variable
 # Use AWS CLI or Console to set it: 
 # aws ssm put-parameter --name "/sre-poc/github/token" --value "ghp_xxx" --type "SecureString"

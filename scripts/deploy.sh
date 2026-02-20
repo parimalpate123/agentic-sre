@@ -31,6 +31,7 @@ DEPLOY_MCP=true
 DEPLOY_LAMBDA=true
 DEPLOY_UI=false
 RUN_TEST=true
+DEPLOY_INCIDENT_MCP=false
 
 show_help() {
     echo "Usage: ./scripts/deploy.sh [options]"
@@ -39,6 +40,7 @@ show_help() {
     echo "  --all              Deploy everything (default: infra, MCP, Lambda)"
     echo "  --infra            Deploy only infrastructure (Terraform)"
     echo "  --mcp              Deploy only MCP server (Docker + ECS)"
+    echo "  --incident-mcp     Also build/push Incident MCP server (requires enable_incident_mcp=true in Terraform)"
     echo "  --lambda           Deploy only Lambda function"
     echo "  --ui               Deploy UI to CloudFront/S3"
     echo "  --skip-test        Skip test invocation"
@@ -75,6 +77,9 @@ if [ $# -gt 0 ]; then
             --lambda)
                 DEPLOY_LAMBDA=true
                 ;;
+            --incident-mcp)
+                DEPLOY_INCIDENT_MCP=true
+                ;;
             --ui)
                 DEPLOY_UI=true
                 ;;
@@ -99,6 +104,7 @@ echo ""
 echo -e "${BLUE}Deployment Plan:${NC}"
 echo "  • Infrastructure (Terraform): $([ "$DEPLOY_INFRA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • MCP Server (Docker+ECS): $([ "$DEPLOY_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
+echo "  • Incident MCP (optional): $([ "$DEPLOY_INCIDENT_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Lambda Function: $([ "$DEPLOY_LAMBDA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • UI (CloudFront/S3): $([ "$DEPLOY_UI" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Test Invocation: $([ "$RUN_TEST" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
@@ -179,10 +185,10 @@ if [ "$DEPLOY_INFRA" = true ]; then
     fi
 
     echo "  Planning infrastructure changes..."
-    terraform plan -out=tfplan
+    terraform plan -lock=false -out=tfplan
 
     echo "  Applying infrastructure..."
-    terraform apply tfplan
+    terraform apply -lock=false tfplan
 
     echo "  Saving outputs..."
     terraform output > "$PROJECT_ROOT/outputs.txt"
@@ -371,6 +377,33 @@ if [ "$DEPLOY_MCP" = true ]; then
     echo ""
 else
     echo "⏭️  Steps 2-3/5: Skipping MCP server deployment"
+    echo ""
+fi
+
+# Optional: Build and push Incident MCP server (only when --incident-mcp and enable_incident_mcp in Terraform)
+PROJECT_NAME="${PROJECT_NAME:-sre-poc}"
+if [ "$DEPLOY_INCIDENT_MCP" = true ]; then
+    echo "🐳 Step 3b/5: Building and pushing Incident MCP server..."
+    INCIDENT_MCP_DIR="$PROJECT_ROOT/mcp-incident-tools"
+    ECR_INCIDENT_REPO="$AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/${PROJECT_NAME}-incident-mcp-server"
+    if [ -d "$INCIDENT_MCP_DIR" ]; then
+        aws ecr get-login-password --region $AWS_REGION | \
+            docker login --username AWS --password-stdin $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+        cd "$INCIDENT_MCP_DIR"
+        docker build --platform linux/amd64 -t ${PROJECT_NAME}-incident-mcp-server:latest . --quiet
+        docker tag ${PROJECT_NAME}-incident-mcp-server:latest $ECR_INCIDENT_REPO:latest
+        docker push $ECR_INCIDENT_REPO:latest --quiet
+        cd "$PROJECT_ROOT"
+        SERVICE_EXISTS=$(aws ecs describe-services --cluster ${PROJECT_NAME}-mcp-cluster --services ${PROJECT_NAME}-incident-mcp-server --region $AWS_REGION --query 'services[0].status' --output text 2>/dev/null)
+        if [ "$SERVICE_EXISTS" = "ACTIVE" ]; then
+            aws ecs update-service --cluster ${PROJECT_NAME}-mcp-cluster --service ${PROJECT_NAME}-incident-mcp-server --force-new-deployment --region $AWS_REGION --no-cli-pager > /dev/null
+            echo -e "${GREEN}✅ Incident MCP image pushed and ECS service updated${NC}"
+        else
+            echo -e "${GREEN}✅ Incident MCP image pushed (ECS service not found; run Terraform with enable_incident_mcp=true first)${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  mcp-incident-tools not found, skipping Incident MCP${NC}"
+    fi
     echo ""
 fi
 

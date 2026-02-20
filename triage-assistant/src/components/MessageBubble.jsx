@@ -187,7 +187,7 @@ export default function MessageBubble({
                 ) : (
                   <>
                     <span>🔍</span>
-                    Diagnose Root Cause
+                    Investigate
                   </>
                 )}
               </button>
@@ -300,7 +300,14 @@ export default function MessageBubble({
 
         {/* Diagnosis View (if diagnosis is available) */}
         {!isUser && message.diagnosis && (
-          <DiagnosisView diagnosis={message.diagnosis} />
+          <>
+            {(message.incident?.source === 'servicenow' || message.incident?.source === 'jira') && message.incident?.incident_id && (
+              <p className="text-sm font-medium text-gray-700 mb-2">
+                {message.incident.source === 'servicenow' ? 'ServiceNow' : 'Jira'} {message.incident.source === 'servicenow' ? 'ticket' : 'issue'}: <strong>#{message.incident.incident_id}</strong>
+              </p>
+            )}
+            <DiagnosisView diagnosis={message.diagnosis} />
+          </>
         )}
 
         {/* Show incident analysis text BEFORE Execution Results */}
@@ -328,10 +335,66 @@ export default function MessageBubble({
           />
         )}
 
-        {/* Action Buttons for CloudWatch incidents loaded from CW Incidents dialog */}
+        {/* Action Buttons for ServiceNow/Jira incidents loaded from Incidents dialog (exclusive: do not show if this message has log/pattern data - that uses the block above) */}
+        {!isUser &&
+         message.incident &&
+         (message.incident.source === 'servicenow' || message.incident.source === 'jira') &&
+         !(message.logEntries?.length > 0 || message.patternData || message.correlationData) &&
+         !message.diagnosis &&
+         !message.investigationStarted && (
+          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-col sm:flex-row gap-2">
+            {onDiagnose && (
+              <button
+                onClick={() => onDiagnose(message)}
+                disabled={isDiagnosing || isCreatingIncident}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDiagnosing ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <span>🔍</span>
+                    Investigate
+                  </>
+                )}
+              </button>
+            )}
+            {onCreateIncident && (
+              <button
+                onClick={() => onCreateIncident(message)}
+                disabled={isDiagnosing || isCreatingIncident}
+                className="flex-1 bg-blue-800 hover:bg-blue-900 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isCreatingIncident ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Creating Incident...
+                  </>
+                ) : (
+                  <>
+                    <span>🚨</span>
+                    Create Incident & Run Full Investigation
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Action Buttons for CloudWatch incidents loaded from Incidents dialog (exclusive: do not show if this message has log/pattern data - that uses the block above) */}
         {!isUser &&
          message.incident &&
          message.incident.source === 'cloudwatch_alarm' &&
+         !(message.logEntries?.length > 0 || message.patternData || message.correlationData) &&
          !message.incident.execution_results?.github_issue &&
          !message.diagnosis &&
          !message.investigationStarted && (
@@ -354,7 +417,7 @@ export default function MessageBubble({
                 ) : (
                   <>
                     <span>🔍</span>
-                    Diagnose Root Cause
+                    Investigate
                   </>
                 )}
               </button>
@@ -594,9 +657,10 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* Re-analyze Button - Show when incident needs re-analysis */}
-        {!isUser && 
-         message.incident && 
+        {/* Re-analyze Button - CloudWatch only (not for ServiceNow/Jira) */}
+        {!isUser &&
+         message.incident &&
+         message.incident.source === 'cloudwatch_alarm' &&
          message.incident.incident_id &&
          onReanalyzeIncident && (
           <div className="mt-3 pt-3 border-t border-gray-200">

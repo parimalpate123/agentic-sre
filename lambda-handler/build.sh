@@ -56,6 +56,7 @@ cp remediation_status_handler.py package/ && echo "  ✓ remediation_status_hand
 cp create_github_issue_handler.py package/ && echo "  ✓ create_github_issue_handler.py"
 cp chat_session_handler.py package/ && echo "  ✓ chat_session_handler.py"
 cp list_incidents_handler.py package/ && echo "  ✓ list_incidents_handler.py"
+cp incident_mcp_client.py package/ && echo "  ✓ incident_mcp_client.py"
 cp cloudwatch_alarm_handler.py package/ && echo "  ✓ cloudwatch_alarm_handler.py"
 cp delete_incident_handler.py package/ && echo "  ✓ delete_incident_handler.py"
 cp reanalyze_incident_handler.py package/ && echo "  ✓ reanalyze_incident_handler.py"

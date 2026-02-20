@@ -41,6 +41,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   const messagesEndRef = useRef(null);
   const [showSessionDialog, setShowSessionDialog] = useState(false); // Show chat session dialog
   const [showCloudWatchIncidentsDialog, setShowCloudWatchIncidentsDialog] = useState(false); // Show CloudWatch incidents dialog
+  const [defaultIncidentSource, setDefaultIncidentSource] = useState('cloudwatch_alarm'); // Default source for Incidents dialog: cloudwatch_alarm | servicenow | jira
   const currentSessionIdRef = useRef(null); // Track current session ID for auto-save
   const lastAutoSaveRef = useRef(null); // Track last auto-save time
   
@@ -356,20 +357,22 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         full_state: fullState,  // Store full_state for GitHub issue creation
       };
 
-      // For CloudWatch incidents loaded from CW dialog, add investigation as a NEW message
-      // instead of replacing the original CW incident message
-      const isCloudWatchIncident = message.incident?.source === 'cloudwatch_alarm';
+      // For incidents loaded from Incidents dialog (CloudWatch, ServiceNow, Jira), add investigation
+      // as a NEW message so the original incident detail stays visible
+      const isLoadedIncident = message.incident?.source === 'cloudwatch_alarm' ||
+        message.incident?.source === 'servicenow' ||
+        message.incident?.source === 'jira';
 
-      if (isCloudWatchIncident) {
+      if (isLoadedIncident) {
         const investigationMessage = {
           id: `investigation-${Date.now()}`,
           text: incidentAnalysisText,
           isUser: false,
           timestamp: new Date().toISOString(),
-          incident: { ...incidentObj, source: 'cloudwatch_alarm' },
+          incident: { ...incidentObj, source: message.incident?.source || 'chat' },
         };
         setMessages((prev) => {
-          // Mark original CW message to hide action buttons, then append new message
+          // Mark original message to hide action buttons, then append new message
           const updated = prev.map((msg) =>
             msg.id === message.id
               ? { ...msg, investigationStarted: true }
@@ -378,7 +381,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           return [...updated, investigationMessage];
         });
       } else {
-        // Normal flow: update the existing message with incident creation result
+        // Normal flow (e.g. chat search result): update the existing message with incident creation result
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === message.id
@@ -631,14 +634,14 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       return [...prev, incidentMessage];
     });
     
-    // If incident has remediation status, start polling
-    if (incidentMessage.incident?.incident_id) {
+    // Start remediation polling only for CloudWatch incidents (not ServiceNow/Jira)
+    if (incidentMessage.incident?.incident_id && incidentMessage.incident?.source === 'cloudwatch_alarm') {
       const incidentId = incidentMessage.incident.incident_id;
       console.log(`🔄 Starting remediation polling for incident: ${incidentId}`);
       startRemediationPolling(incidentId);
     }
-    
-    console.log('✅ CloudWatch incident loaded successfully');
+
+    console.log('✅ Incident loaded successfully');
   };
 
   // Store refs for auto-save to access current values
@@ -1259,7 +1262,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* CloudWatch Incidents Button */}
+            {/* Incidents Button */}
             <button
               onClick={() => setShowCloudWatchIncidentsDialog(true)}
               className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
@@ -1268,7 +1271,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
               <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              CW Incidents
+              Incidents
             </button>
             {/* Save/Load Session Button */}
             <button
@@ -1374,43 +1377,58 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         </div>
       </div>
 
-      {/* Log Source Selector */}
+      {/* Source (log) and Incident source selectors */}
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 font-medium">Log Source:</span>
-          <div className="flex gap-2">
-            {/* CloudWatch - Enabled */}
-            <button
-              disabled={false}
-              className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white font-medium cursor-default"
-              title="CloudWatch Logs (Active)"
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 font-medium">Source:</span>
+            <div className="flex gap-2">
+              {/* CloudWatch - Enabled */}
+              <button
+                disabled={false}
+                className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white font-medium cursor-default"
+                title="CloudWatch Logs (Active)"
+              >
+                CloudWatch
+              </button>
+              {/* Elasticsearch - Disabled */}
+              <button
+                disabled={true}
+                className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+                title="Elasticsearch (Coming soon)"
+              >
+                Elasticsearch
+              </button>
+              {/* Datadog - Disabled */}
+              <button
+                disabled={true}
+                className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+                title="Datadog (Coming soon)"
+              >
+                Datadog
+              </button>
+              {/* Dynatrace - Disabled */}
+              <button
+                disabled={true}
+                className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+                title="Dynatrace (Coming soon)"
+              >
+                Dynatrace
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 font-medium">Incident source:</span>
+            <select
+              value={defaultIncidentSource}
+              onChange={(e) => setDefaultIncidentSource(e.target.value)}
+              className="text-xs border border-gray-300 rounded-md px-2 py-1.5 text-gray-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              title="Default source when opening Incidents"
             >
-              CloudWatch
-            </button>
-            {/* Elasticsearch - Disabled */}
-            <button
-              disabled={true}
-              className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
-              title="Elasticsearch (Coming soon)"
-            >
-              Elasticsearch
-            </button>
-            {/* Datadog - Disabled */}
-            <button
-              disabled={true}
-              className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
-              title="Datadog (Coming soon)"
-            >
-              Datadog
-            </button>
-            {/* Dynatrace - Disabled */}
-            <button
-              disabled={true}
-              className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
-              title="Dynatrace (Coming soon)"
-            >
-              Dynatrace
-            </button>
+              <option value="cloudwatch_alarm">CloudWatch</option>
+              <option value="servicenow">ServiceNow</option>
+              <option value="jira">Jira</option>
+            </select>
           </div>
           <span className="text-xs text-gray-400 italic ml-auto">Multi-source support coming soon</span>
         </div>
@@ -1668,6 +1686,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         isOpen={showCloudWatchIncidentsDialog}
         onClose={() => setShowCloudWatchIncidentsDialog(false)}
         onLoadIncident={handleLoadCloudWatchIncident}
+        initialSource={defaultIncidentSource}
       />
     </div>
   );
