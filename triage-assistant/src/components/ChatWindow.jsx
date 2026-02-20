@@ -11,7 +11,6 @@ import IncidentApprovalDialog from './IncidentApprovalDialog';
 import ChatSessionDialog from './ChatSessionDialog';
 import CloudWatchIncidentsDialog from './CloudWatchIncidentsDialog';
 import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession, reanalyzeIncident } from '../services/api';
-import { SOURCE_STRIP_SOURCES } from '../config/sources';
 
 const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel }, ref) {
   const [messages, setMessages] = useState([]);
@@ -48,9 +47,6 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   // Hardcoded password for log management (matches backend)
   const LOG_MANAGEMENT_PASSWORD = '13579';
   
-  // Source strip: which sources are selected (multi-select for CW + Incident)
-  const [selectedSourceIds, setSelectedSourceIds] = useState(['cloudwatch', 'incident']);
-
   // Log groups state
   const [logGroups, setLogGroups] = useState([]);
   const [isLoadingLogGroups, setIsLoadingLogGroups] = useState(false);
@@ -1263,16 +1259,16 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Incidents Button (CloudWatch, ServiceNow, Jira) */}
+            {/* CloudWatch Incidents Button */}
             <button
               onClick={() => setShowCloudWatchIncidentsDialog(true)}
               className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
-              title="View incidents (CloudWatch, ServiceNow, Jira)"
+              title="View CloudWatch alarm incidents"
             >
               <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              Incidents
+              CW Incidents
             </button>
             {/* Save/Load Session Button */}
             <button
@@ -1329,7 +1325,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                 }
               }}
               className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
-              title="Refresh incidents"
+              title="Refresh CloudWatch incidents"
             >
               🔄 Refresh
             </button>
@@ -1378,44 +1374,45 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         </div>
       </div>
 
-      {/* Sources - config-driven, CloudWatch + Incident selectable */}
+      {/* Log Source Selector */}
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5">
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 font-medium">Sources:</span>
-          <div className="flex gap-2 flex-wrap">
-            {SOURCE_STRIP_SOURCES.map((source) => {
-              const isSelected = selectedSourceIds.includes(source.id);
-              const isDisabled = source.comingSoon || !source.enabled;
-              return (
-                <button
-                  key={source.id}
-                  type="button"
-                  disabled={isDisabled}
-                  onClick={() => {
-                    if (isDisabled) return;
-                    setSelectedSourceIds((prev) => {
-                      const next = isSelected ? prev.filter((id) => id !== source.id) : [...prev, source.id];
-                      return next.length > 0 ? next : prev; // keep at least one selected
-                    });
-                  }}
-                  className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
-                    isDisabled
-                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-60'
-                      : isSelected
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                  title={source.comingSoon ? `${source.label} (Coming soon)` : (isSelected ? `${source.label} (Active)` : `Select ${source.label}`)}
-                >
-                  {source.label}
-                  {source.comingSoon ? ' (soon)' : ''}
-                </button>
-              );
-            })}
+          <span className="text-xs text-gray-500 font-medium">Log Source:</span>
+          <div className="flex gap-2">
+            {/* CloudWatch - Enabled */}
+            <button
+              disabled={false}
+              className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white font-medium cursor-default"
+              title="CloudWatch Logs (Active)"
+            >
+              CloudWatch
+            </button>
+            {/* Elasticsearch - Disabled */}
+            <button
+              disabled={true}
+              className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+              title="Elasticsearch (Coming soon)"
+            >
+              Elasticsearch
+            </button>
+            {/* Datadog - Disabled */}
+            <button
+              disabled={true}
+              className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+              title="Datadog (Coming soon)"
+            >
+              Datadog
+            </button>
+            {/* Dynatrace - Disabled */}
+            <button
+              disabled={true}
+              className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+              title="Dynatrace (Coming soon)"
+            >
+              Dynatrace
+            </button>
           </div>
-          {selectedSourceIds.length > 1 && (
-            <span className="text-xs text-gray-500 ml-auto">Multiple sources selected</span>
-          )}
+          <span className="text-xs text-gray-400 italic ml-auto">Multi-source support coming soon</span>
         </div>
       </div>
 

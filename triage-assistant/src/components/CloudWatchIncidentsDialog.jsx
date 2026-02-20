@@ -4,19 +4,16 @@
  */
 
 import { useState, useEffect } from 'react';
-import { fetchIncidents, fetchServiceNowTickets, fetchJiraIssues, deleteIncident, reanalyzeIncident, getRemediationStatus } from '../services/api';
+import { fetchIncidents, deleteIncident, reanalyzeIncident, getRemediationStatus } from '../services/api';
 import { incidentToMessage, parseIncidentData } from '../utils/incidentParser';
-import { normalizeCloudWatchIncident, normalizeServiceNowTicket, normalizeJiraIssue } from '../utils/incidentNormalizer';
 
 export default function CloudWatchIncidentsDialog({ 
   isOpen, 
   onClose, 
   onLoadIncident
 }) {
-  const [incidents, setIncidents] = useState([]); // Filtered list for display (by source + timeframe)
-  const [allIncidents, setAllIncidents] = useState([]); // Legacy: CW-only raw list for remediation fetch
-  const [allItems, setAllItems] = useState([]); // Combined normalized items: { source, id, title, service, timestamp, raw }
-  const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'cloudwatch_alarm' | 'servicenow' | 'jira'
+  const [incidents, setIncidents] = useState([]);
+  const [allIncidents, setAllIncidents] = useState([]); // Store all incidents for client-side filtering
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [timeframe, setTimeframe] = useState('24h'); // Default to last 24 hours
@@ -55,72 +52,56 @@ export default function CloudWatchIncidentsDialog({
     }
   }, [expandedIncident]);
 
-  // Filter combined list by source and timeframe
+  // Filter incidents when timeframe changes
   useEffect(() => {
     filterIncidentsByTimeframe();
-  }, [timeframe, sourceFilter, allItems]);
+  }, [timeframe, allIncidents]);
 
   const loadIncidents = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [cwResult, snTickets, jiraIssues] = await Promise.all([
-        fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'all' }),
-        fetchServiceNowTickets({ limit: 20 }).catch(() => []),
-        fetchJiraIssues({ limit: 20 }).catch(() => [])
-      ]);
-
-      const cwList = cwResult || [];
-      const sortedCw = [...cwList].sort((a, b) => {
-        const getTs = (inc) => {
-          const raw = inc.data ? (typeof inc.data === 'string' ? JSON.parse(inc.data) : inc.data) : (inc.investigation_result || inc);
-          const p = parseIncidentData(raw);
-          return p.timestamp || inc.timestamp || inc.created_at || '';
+      const result = await fetchIncidents({
+        limit: 100, // Fetch more to allow client-side filtering
+        source: 'cloudwatch_alarm',
+        status: 'all'
+      });
+      console.log('📋 Loaded CloudWatch incidents:', result);
+      
+      // Sort incidents by timestamp descending (newest first)
+      const sorted = (result || []).sort((a, b) => {
+        const getTimestamp = (incident) => {
+          const rawData = incident.data
+            ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data)
+            : (incident.investigation_result || incident);
+          const parsed = parseIncidentData(rawData);
+          return parsed.timestamp || incident.timestamp || incident.created_at || '';
         };
-        const ta = getTs(a);
-        const tb = getTs(b);
-        if (!ta && !tb) return 0;
-        if (!ta) return 1;
-        if (!tb) return -1;
+        
+        const timestampA = getTimestamp(a);
+        const timestampB = getTimestamp(b);
+        
+        if (!timestampA && !timestampB) return 0;
+        if (!timestampA) return 1; // Put items without timestamp at end
+        if (!timestampB) return -1;
+        
         try {
-          return new Date(tb).getTime() - new Date(ta).getTime();
+          const dateA = new Date(timestampA);
+          const dateB = new Date(timestampB);
+          return dateB.getTime() - dateA.getTime(); // Descending (newest first)
         } catch {
           return 0;
         }
       });
-
-      setAllIncidents(sortedCw);
-      fetchRemediationStatusesForAll(sortedCw);
-
-      const cwNormalized = sortedCw.map((inc) => {
-        const n = normalizeCloudWatchIncident(inc, parseIncidentData);
-        return { ...n, raw: inc };
-      });
-      const snNormalized = (snTickets || []).map((t) => {
-        const n = normalizeServiceNowTicket(t);
-        return { ...n, raw: t };
-      });
-      const jiraNormalized = (jiraIssues || []).map((i) => {
-        const n = normalizeJiraIssue(i);
-        return { ...n, raw: i };
-      });
-
-      const combined = [...cwNormalized, ...snNormalized, ...jiraNormalized].sort((a, b) => {
-        const ta = a.timestamp || '';
-        const tb = b.timestamp || '';
-        if (!ta && !tb) return 0;
-        if (!ta) return 1;
-        if (!tb) return -1;
-        try {
-          return new Date(tb).getTime() - new Date(ta).getTime();
-        } catch {
-          return 0;
-        }
-      });
-      setAllItems(combined);
+      
+      setAllIncidents(sorted);
+      
+      // Fetch remediation status for all incidents in the background
+      // This allows us to show status upfront without expanding
+      fetchRemediationStatusesForAll(sorted);
     } catch (err) {
-      console.error('Error loading incidents:', err);
-      setError('Failed to load incidents. Please try again.');
+      console.error('Error loading CloudWatch incidents:', err);
+      setError('Failed to load CloudWatch incidents. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -169,82 +150,59 @@ export default function CloudWatchIncidentsDialog({
   };
 
   const filterIncidentsByTimeframe = () => {
-    let list = sourceFilter === 'all' ? allItems : allItems.filter((item) => item.source === sourceFilter);
-
-    if (timeframe !== 'all') {
-      const now = new Date();
-      let cutoffTime;
-      switch (timeframe) {
-        case '1h':
-          cutoffTime = new Date(now - 60 * 60 * 1000);
-          break;
-        case '6h':
-          cutoffTime = new Date(now - 6 * 60 * 60 * 1000);
-          break;
-        case '24h':
-          cutoffTime = new Date(now - 24 * 60 * 60 * 1000);
-          break;
-        case '7d':
-          cutoffTime = new Date(now - 7 * 24 * 60 * 60 * 1000);
-          break;
-        case '30d':
-          cutoffTime = new Date(now - 30 * 24 * 60 * 60 * 1000);
-          break;
-        default:
-          setIncidents(list);
-          return;
-      }
-      list = list.filter((item) => {
-        if (item.source !== 'cloudwatch_alarm') return true;
-        const ts = item.timestamp || item.raw?.timestamp || item.raw?.created_at;
-        if (!ts) return true;
-        try {
-          return new Date(ts) >= cutoffTime;
-        } catch {
-          return true;
-        }
-      });
+    if (timeframe === 'all') {
+      setIncidents(allIncidents);
+      return;
     }
-    setIncidents(list);
+
+    const now = new Date();
+    let cutoffTime;
+
+    switch (timeframe) {
+      case '1h':
+        cutoffTime = new Date(now - 60 * 60 * 1000);
+        break;
+      case '6h':
+        cutoffTime = new Date(now - 6 * 60 * 60 * 1000);
+        break;
+      case '24h':
+        cutoffTime = new Date(now - 24 * 60 * 60 * 1000);
+        break;
+      case '7d':
+        cutoffTime = new Date(now - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '30d':
+        cutoffTime = new Date(now - 30 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        setIncidents(allIncidents);
+        return;
+    }
+
+    const filtered = allIncidents.filter(incident => {
+      const timestamp = incident.timestamp || incident.created_at || incident.investigation_result?.timestamp;
+      if (!timestamp) return true; // Include incidents without timestamp
+      
+      try {
+        const incidentDate = new Date(timestamp);
+        return incidentDate >= cutoffTime;
+      } catch {
+        return true; // Include incidents with invalid timestamp
+      }
+    });
+
+    setIncidents(filtered);
   };
 
-  const handleLoadIncident = (item) => {
+  const handleLoadIncident = (incidentItem) => {
     try {
-      if (item.source === 'cloudwatch_alarm' && item.raw) {
-        const incidentMessage = incidentToMessage(item.raw);
-        onLoadIncident(incidentMessage);
-      } else if (item.source === 'servicenow' || item.source === 'jira') {
-        const sourceLabel = item.source === 'servicenow' ? 'ServiceNow' : 'Jira';
-        const raw = item.raw || {};
-        const description = raw.description || raw.short_description || raw.summary || '';
-        const priority = item.priority || raw.priority || raw.urgency || 'N/A';
-        const assignee = raw.assigned_to || raw.assignee || '';
-        const timeLabel = item.timestamp ? formatDate(item.timestamp) : 'N/A';
-        let detailLines = `📋 **${sourceLabel}** ${item.id}: ${item.title || 'No title'}\n\n**Service:** ${item.service || 'N/A'}\n**Status:** ${item.status || 'N/A'}\n**Priority:** ${priority}\n**Time:** ${timeLabel}`;
-        if (assignee) detailLines += `\n**Assignee:** ${assignee}`;
-        if (description) detailLines += `\n\n**Description:**\n${description}`;
-        const message = {
-          id: item.id,
-          role: 'system',
-          timestamp: item.timestamp || new Date().toISOString(),
-          text: detailLines,
-          incident: {
-            incident_id: item.id,
-            source: item.source,
-            service: item.service,
-            title: item.title,
-            status: item.status,
-            timestamp: item.timestamp,
-            description,
-            priority,
-            assignee,
-          },
-        };
-        onLoadIncident(message);
-      } else {
-        const incidentMessage = incidentToMessage(item.raw || item);
-        onLoadIncident(incidentMessage);
-      }
+      // Convert incident to message format
+      const incidentMessage = incidentToMessage(incidentItem);
+      
+      // Call parent callback to add incident to chat
+      onLoadIncident(incidentMessage);
+      
+      // Close dialog
       onClose();
     } catch (err) {
       console.error('Error loading incident:', err);
@@ -253,18 +211,25 @@ export default function CloudWatchIncidentsDialog({
   };
 
   const handleDeleteIncident = async (incidentId, e) => {
-    e.stopPropagation();
+    e.stopPropagation(); // Prevent loading the incident when clicking delete
+    
     if (!window.confirm(`Are you sure you want to delete incident ${incidentId}? This action cannot be undone.`)) {
       return;
     }
+
     setIsLoading(true);
     setError(null);
+
     try {
       await deleteIncident(incidentId);
+      
+      // Remove from local state
       setAllIncidents(prev => prev.filter(inc => {
         const id = inc.incident_id || inc.investigation_result?.incident_id;
         return id !== incidentId;
       }));
+      
+      // Reload incidents to refresh the list
       await loadIncidents();
     } catch (err) {
       console.error('Error deleting incident:', err);
@@ -304,22 +269,21 @@ export default function CloudWatchIncidentsDialog({
   };
 
   const handleDeleteAllUnknown = async () => {
-    const cwIncidents = incidents.filter((inc) => inc.source === 'cloudwatch_alarm' && inc.raw);
-    const unknownIncidents = cwIncidents.filter((inc) => {
-      const rawData = inc.raw?.data
-        ? (typeof inc.raw.data === 'string' ? JSON.parse(inc.raw.data) : inc.raw.data)
-        : (inc.raw?.investigation_result || inc.raw);
+    const unknownIncidents = incidents.filter(incident => {
+      const rawData = incident.data
+        ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data)
+        : (incident.investigation_result || incident);
       const parsed = parseIncidentData(rawData);
       return parsed.service === 'unknown';
     });
 
     if (unknownIncidents.length === 0) {
-      alert('No CloudWatch incidents with "unknown" service found.');
+      alert('No incidents with "unknown" service found.');
       return;
     }
 
     if (!window.confirm(
-      `Are you sure you want to delete ${unknownIncidents.length} CloudWatch incident(s) with "unknown" service? This action cannot be undone.`
+      `Are you sure you want to delete ${unknownIncidents.length} incident(s) with "unknown" service? This action cannot be undone.`
     )) {
       return;
     }
@@ -331,12 +295,12 @@ export default function CloudWatchIncidentsDialog({
       let deletedCount = 0;
       let failedCount = 0;
 
-      for (const inc of unknownIncidents) {
-        const rawData = inc.raw?.data
-          ? (typeof inc.raw.data === 'string' ? JSON.parse(inc.raw.data) : inc.raw.data)
-          : (inc.raw?.investigation_result || inc.raw);
+      for (const incident of unknownIncidents) {
+        const rawData = incident.data
+          ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data)
+          : (incident.investigation_result || incident);
         const parsed = parseIncidentData(rawData);
-        const incidentId = parsed.incident_id || inc.raw?.incident_id || inc.id;
+        const incidentId = parsed.incident_id || incident.incident_id;
 
         try {
           await deleteIncident(incidentId);
@@ -347,6 +311,7 @@ export default function CloudWatchIncidentsDialog({
         }
       }
 
+      // Reload incidents
       await loadIncidents();
 
       if (failedCount > 0) {
@@ -534,14 +499,13 @@ export default function CloudWatchIncidentsDialog({
   };
 
   const handleDeleteAll = async () => {
-    const cwOnly = incidents.filter((inc) => inc.source === 'cloudwatch_alarm' && inc.raw);
-    if (cwOnly.length === 0) {
-      alert('No CloudWatch incidents to delete.');
+    if (incidents.length === 0) {
+      alert('No incidents to delete.');
       return;
     }
 
     if (!window.confirm(
-      `Are you sure you want to delete ALL ${cwOnly.length} CloudWatch incident(s)? This action cannot be undone.`
+      `Are you sure you want to delete ALL ${incidents.length} CloudWatch incident(s)? This action cannot be undone.`
     )) {
       return;
     }
@@ -553,12 +517,12 @@ export default function CloudWatchIncidentsDialog({
       let deletedCount = 0;
       let failedCount = 0;
 
-      for (const inc of cwOnly) {
-        const rawData = inc.raw?.data
-          ? (typeof inc.raw.data === 'string' ? JSON.parse(inc.raw.data) : inc.raw.data)
-          : (inc.raw?.investigation_result || inc.raw);
+      for (const incident of incidents) {
+        const rawData = incident.data
+          ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data)
+          : (incident.investigation_result || incident);
         const parsed = parseIncidentData(rawData);
-        const incidentId = parsed.incident_id || inc.raw?.incident_id || inc.id;
+        const incidentId = parsed.incident_id || incident.incident_id;
 
         try {
           await deleteIncident(incidentId);
@@ -569,6 +533,7 @@ export default function CloudWatchIncidentsDialog({
         }
       }
 
+      // Reload incidents
       await loadIncidents();
 
       if (failedCount > 0) {
@@ -673,7 +638,7 @@ export default function CloudWatchIncidentsDialog({
         <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-4 rounded-t-lg">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold">⚠️ Incidents (CloudWatch, ServiceNow, Jira)</h2>
+              <h2 className="text-lg font-semibold">⚠️ CloudWatch Alarm Incidents</h2>
               <p className="text-xs text-purple-100 mt-1">Click an incident to load it into the chat for detailed analysis</p>
             </div>
             <button
@@ -700,22 +665,6 @@ export default function CloudWatchIncidentsDialog({
                 Incidents ({incidents.length})
               </h3>
               <div className="flex items-center gap-2">
-                <label htmlFor="source-filter" className="text-xs text-gray-600 font-medium">
-                  Source:
-                </label>
-                <select
-                  id="source-filter"
-                  value={sourceFilter}
-                  onChange={(e) => setSourceFilter(e.target.value)}
-                  className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="all">All</option>
-                  <option value="cloudwatch_alarm">CloudWatch</option>
-                  <option value="servicenow">ServiceNow</option>
-                  <option value="jira">Jira</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
                 <label htmlFor="timeframe" className="text-xs text-gray-600 font-medium">
                   Timeframe:
                 </label>
@@ -734,14 +683,14 @@ export default function CloudWatchIncidentsDialog({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Bulk Delete Options - CloudWatch only */}
-              {incidents.filter((i) => i.source === 'cloudwatch_alarm').length > 0 && (
+              {/* Bulk Delete Options */}
+              {incidents.length > 0 && (
                 <div className="flex items-center gap-2 border-r border-gray-300 pr-2 mr-2">
                   <button
                     onClick={handleDeleteAllUnknown}
                     disabled={isLoading}
                     className="text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 font-medium px-2 py-1 rounded disabled:opacity-50 flex items-center gap-1"
-                    title="Delete CloudWatch incidents with 'unknown' service"
+                    title="Delete all incidents with 'unknown' service"
                   >
                     🗑️ Delete Unknown
                   </button>
@@ -774,66 +723,19 @@ export default function CloudWatchIncidentsDialog({
             </div>
           ) : incidents.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              <p className="text-sm">No incidents found.</p>
-              <p className="text-xs mt-2">CloudWatch: create and trigger an alarm. ServiceNow/Jira: ensure Incident MCP is deployed.</p>
+              <p className="text-sm">No CloudWatch incidents found.</p>
+              <p className="text-xs mt-2">Create and trigger a CloudWatch alarm to see incidents here.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {incidents.map((item) => {
-                // ServiceNow / Jira: simple card (source badge, title, Load only)
-                if (item.source === 'servicenow' || item.source === 'jira') {
-                  const sourceBadge = item.source === 'servicenow' ? 'SN' : 'Jira';
-                  const raw = item.raw || {};
-                  const description = raw.description || raw.short_description || raw.summary || '';
-                  const assignee = raw.assigned_to || raw.assignee || '';
-                  const descSnippet = description ? (description.length > 120 ? `${description.slice(0, 120)}…` : description) : '';
-                  return (
-                    <div
-                      key={`${item.source}-${item.id}`}
-                      className="border border-gray-200 rounded-lg p-4 hover:border-purple-300 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-gray-200 text-gray-700">
-                              {sourceBadge}
-                            </span>
-                            <h4 className="font-semibold text-gray-800 text-sm truncate">{item.title || item.id}</h4>
-                            {item.priority && (
-                              <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800 shrink-0">
-                                {item.priority}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-600 flex flex-wrap gap-x-4 gap-y-1">
-                            <span><span className="font-medium">Service:</span> {item.service || 'N/A'}</span>
-                            <span><span className="font-medium">Status:</span> {item.status || 'N/A'}</span>
-                            {assignee && <span><span className="font-medium">Assignee:</span> {assignee}</span>}
-                            {item.timestamp && (
-                              <span className="font-semibold text-gray-700">🕐 {formatDate(item.timestamp)}</span>
-                            )}
-                          </div>
-                          {descSnippet && (
-                            <p className="text-xs text-gray-500 mt-2 line-clamp-2">{descSnippet}</p>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => handleLoadIncident(item)}
-                          className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors whitespace-nowrap shrink-0"
-                        >
-                          Load
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-
-                // CloudWatch: full card with Re-analyze, Delete, Load
-                const incident = item.raw;
-                const rawData = incident?.data
+              {incidents.map((incident) => {
+                // Parse incident data to extract fields correctly
+                const rawData = incident.data
                   ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data)
-                  : (incident?.investigation_result || incident);
+                  : (incident.investigation_result || incident);
+
                 const parsed = parseIncidentData(rawData);
+
                 const incidentId = parsed.incident_id;
                 const service = parsed.service;
                 const severity = parsed.severity;
@@ -848,11 +750,15 @@ export default function CloudWatchIncidentsDialog({
                 const isExpanded = expandedIncident === incidentId;
                 const remediationStatus = remediationStatuses[incidentId];
                 const currentStageInfo = getCurrentStage(parsed, remediationStatus);
+                
+                // Get issue and PR URLs
                 const githubIssue = parsed.execution_results?.github_issue || remediationStatus?.issue;
                 const issue = remediationStatus?.issue;
                 const pr = remediationStatus?.pr;
                 const issueUrl = githubIssue?.issue_url || issue?.issue_url;
                 const prUrl = pr?.pr_url;
+                
+                // Define stages for lifecycle display
                 const stages = [
                   { id: 'issue', name: 'Issue', icon: '📋' },
                   { id: 'analysis', name: 'Analysis', icon: '🔍' },
@@ -866,6 +772,7 @@ export default function CloudWatchIncidentsDialog({
                     key={incidentId}
                     className={`border rounded-lg transition-colors ${isExpanded ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}
                   >
+                    {/* Compact header — click to expand/collapse */}
                     <div
                       className="p-4 cursor-pointer"
                       onClick={() => setExpandedIncident(isExpanded ? null : incidentId)}
@@ -915,6 +822,8 @@ export default function CloudWatchIncidentsDialog({
                               </a>
                             )}
                           </div>
+                          
+                          {/* Remediation Lifecycle Status - Show in collapsed view */}
                           {(remediationStatus || githubIssue || executionType === 'code_fix') && (
                             <div className="mt-2 ml-5">
                               <div className="flex items-center gap-1">
@@ -922,16 +831,23 @@ export default function CloudWatchIncidentsDialog({
                                   const stageStatus = getStageStatus(stage.id, currentStageInfo, remediationStatus);
                                   const isCompleted = stageStatus === 'completed';
                                   const isInProgress = stageStatus === 'in_progress';
+                                  
                                   return (
                                     <div key={stage.id} className="flex items-center">
                                       <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs ${
-                                        isCompleted ? 'bg-green-100 text-green-800' : isInProgress ? 'bg-blue-100 text-blue-800 animate-pulse' : 'bg-gray-100 text-gray-400'
+                                        isCompleted 
+                                          ? 'bg-green-100 text-green-800' 
+                                          : isInProgress 
+                                          ? 'bg-blue-100 text-blue-800 animate-pulse' 
+                                          : 'bg-gray-100 text-gray-400'
                                       }`}>
                                         <span>{isCompleted ? '✅' : isInProgress ? '⏳' : '○'}</span>
                                         <span className="hidden sm:inline">{stage.name}</span>
                                       </div>
                                       {index < stages.length - 1 && (
-                                        <div className={`w-2 h-0.5 mx-0.5 ${isCompleted ? 'bg-green-300' : 'bg-gray-200'}`} />
+                                        <div className={`w-2 h-0.5 mx-0.5 ${
+                                          isCompleted ? 'bg-green-300' : 'bg-gray-200'
+                                        }`} />
                                       )}
                                     </div>
                                   );
@@ -960,7 +876,7 @@ export default function CloudWatchIncidentsDialog({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleLoadIncident(item);
+                              handleLoadIncident(incident);
                             }}
                             className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors whitespace-nowrap"
                           >

@@ -46,7 +46,6 @@ BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-3-5-sonn
 INCIDENTS_TABLE = os.environ.get('INCIDENTS_TABLE')
 PLAYBOOKS_TABLE = os.environ.get('PLAYBOOKS_TABLE')
 MEMORY_TABLE = os.environ.get('MEMORY_TABLE')
-REMEDIATION_STATE_TABLE = os.environ.get('REMEDIATION_STATE_TABLE')
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -230,52 +229,34 @@ async def investigate_incident_async(event: Dict[str, Any]) -> Dict[str, Any]:
     # Auto-execute GitHub issue creation for CloudWatch incidents with code_fix execution type
     # NOTE: This only runs for CloudWatch alarm incidents (source='cloudwatch_alarm')
     # Chat-initiated incidents (source='chat') will NOT trigger auto-execution and require manual approval
-    # Skip test alarms (name starts with "test-") so deploy script / manual test invokes don't create real GitHub issues
-    # Deduplication: skip if we already created a GitHub issue for this incident_id (stops duplicate issues on re-invoke)
-    try:
-        inc = investigation_result.full_state.incident if investigation_result.full_state else None
-        alert_name = (getattr(inc, 'alert_name', None) or (inc.get('alert_name') if isinstance(inc, dict) else None)) or ''
-    except Exception:
-        alert_name = ''
-    is_test_alarm = (alert_name or '').strip().lower().startswith('test-')
-    if is_test_alarm and investigation_result.source == 'cloudwatch_alarm':
-        logger.info(
-            f"⏭️ SKIP auto-create: alarm '{alert_name}' is a test alarm. No GitHub issue created."
-        )
-
     if (investigation_result.source == 'cloudwatch_alarm' and 
         investigation_result.full_state.remediation and
-        investigation_result.full_state.remediation.execution_type == 'code_fix' and
-        not is_test_alarm):
+        investigation_result.full_state.remediation.execution_type == 'code_fix'):
         
-        existing = get_existing_remediation_state(investigation_result.incident_id)
-        if existing and existing.get('issue_url'):
-            logger.info(
-                f"⏭️ SKIP auto-create: GitHub issue already exists for incident {investigation_result.incident_id} "
-                f"(issue #{existing.get('issue_number')}, {existing.get('issue_url')}). No duplicate created."
+        logger.info(
+            f"🚀 AUTO-EXECUTION: CloudWatch incident {investigation_result.incident_id} "
+            f"requires code_fix. Auto-creating GitHub issue..."
+        )
+        
+        try:
+            # Auto-create GitHub issue
+            await auto_create_github_issue(
+                incident_id=investigation_result.incident_id,
+                service=final_service,
+                investigation_result=investigation_result,
+                investigation_dict=investigation_dict
             )
-        else:
-            logger.info(
-                f"🚀 AUTO-EXECUTION: CloudWatch incident {investigation_result.incident_id} "
-                f"requires code_fix. Auto-creating GitHub issue..."
+            logger.info(f"✅ Auto-execution successful for incident {investigation_result.incident_id}")
+        except Exception as e:
+            # Log error but don't fail incident creation
+            logger.error(
+                f"❌ Auto-execution failed for incident {investigation_result.incident_id}: {str(e)}",
+                exc_info=True
             )
-            try:
-                await auto_create_github_issue(
-                    incident_id=investigation_result.incident_id,
-                    service=final_service,
-                    investigation_result=investigation_result,
-                    investigation_dict=investigation_dict
-                )
-                logger.info(f"✅ Auto-execution successful for incident {investigation_result.incident_id}")
-            except Exception as e:
-                logger.error(
-                    f"❌ Auto-execution failed for incident {investigation_result.incident_id}: {str(e)}",
-                    exc_info=True
-                )
-                logger.warning(
-                    f"Incident {investigation_result.incident_id} saved successfully, but GitHub issue "
-                    f"auto-creation failed. User can manually create issue if needed."
-                )
+            logger.warning(
+                f"Incident {investigation_result.incident_id} saved successfully, but GitHub issue "
+                f"auto-creation failed. User can manually create issue if needed."
+            )
 
     # Check if immediate action needed
     if investigation_result.recommended_action and investigation_result.full_state.remediation:
@@ -405,23 +386,6 @@ def parse_cloudwatch_event(event: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     return incident_data
-
-
-def get_existing_remediation_state(incident_id: str) -> Dict[str, Any]:
-    """
-    Check if a GitHub issue was already created for this incident_id (deduplication).
-    Returns existing state dict if found, else None.
-    """
-    if not REMEDIATION_STATE_TABLE:
-        return None
-    try:
-        dynamodb = boto3.resource('dynamodb')
-        table = dynamodb.Table(REMEDIATION_STATE_TABLE)
-        response = table.get_item(Key={'incident_id': incident_id})
-        return response.get('Item')
-    except Exception as e:
-        logger.warning(f"Could not check remediation state for {incident_id}: {e}")
-        return None
 
 
 async def auto_create_github_issue(
