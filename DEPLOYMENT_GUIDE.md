@@ -7,8 +7,7 @@ This document describes all deployment scripts and the recommended deployment or
 All deployment scripts are located in the `scripts/` directory:
 
 - `scripts/deploy-infrastructure.sh` - Deploy AWS infrastructure (Terraform)
-- `scripts/deploy-mcp.sh` - Deploy Log MCP server (Docker + ECS)
-- `scripts/deploy-incident-mcp.sh` - Deploy Incident MCP server (mock ServiceNow/Jira, Docker + ECS)
+- `scripts/deploy-mcp.sh` - Deploy MCP server (Docker + ECS)
 - `scripts/deploy-lambda.sh` - Deploy Lambda function
 - `scripts/deploy-ui.sh` - Deploy UI to CloudFront/S3
 
@@ -34,17 +33,14 @@ This creates:
 - IAM roles and policies
 - S3 bucket and CloudFront distribution (for UI)
 
-**Step 2: Deploy Log MCP Server**
+**Step 2: Deploy MCP Server**
 ```bash
 ./scripts/deploy-mcp.sh
 ```
-This builds and deploys the CloudWatch Log Analyzer MCP (Docker + ECR + ECS).
-
-**Step 2b: Deploy Incident MCP Server (optional)**
-```bash
-./scripts/deploy-incident-mcp.sh
-```
-This builds and deploys the Incident MCP (mock ServiceNow, Jira, KB stub) to the same ECS cluster. Requires infrastructure deployed first (Terraform creates the ECR repo and ECS service for Incident MCP).
+This:
+- Builds Docker image for MCP server
+- Pushes image to ECR
+- Restarts ECS service with new image
 
 **Step 3: Deploy Lambda Function**
 ```bash
