@@ -45,10 +45,10 @@ export default function CloudWatchIncidentsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
 
-  // Fetch remediation status when incident is expanded (if not already fetched)
+  // Fetch remediation status when incident is expanded (always refetch so expanded card is up to date)
   useEffect(() => {
-    if (expandedIncident && !remediationStatuses[expandedIncident]) {
-      fetchRemediationStatusForIncident(expandedIncident);
+    if (expandedIncident) {
+      fetchRemediationStatusForIncident(expandedIncident, true);
     }
   }, [expandedIncident]);
 
@@ -57,7 +57,7 @@ export default function CloudWatchIncidentsDialog({
     filterIncidentsByTimeframe();
   }, [timeframe, allIncidents]);
 
-  const loadIncidents = async () => {
+  const loadIncidents = async (forceRefresh = false) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -95,10 +95,10 @@ export default function CloudWatchIncidentsDialog({
       });
       
       setAllIncidents(sorted);
-      
-      // Fetch remediation status for all incidents in the background
-      // This allows us to show status upfront without expanding
-      fetchRemediationStatusesForAll(sorted);
+
+      // Fetch remediation status for all incidents. When forceRefresh (e.g. user clicked Refresh),
+      // refetch every incident so the list shows up-to-date state without reopening the page.
+      fetchRemediationStatusesForAll(sorted, forceRefresh);
     } catch (err) {
       console.error('Error loading CloudWatch incidents:', err);
       setError('Failed to load CloudWatch incidents. Please try again.');
@@ -107,8 +107,10 @@ export default function CloudWatchIncidentsDialog({
     }
   };
 
-  const fetchRemediationStatusesForAll = async (incidentsList) => {
-    // Fetch remediation status for all incidents in parallel
+  const fetchRemediationStatusesForAll = async (incidentsList, forceRefresh = false) => {
+    // Fetch remediation status for all incidents in parallel.
+    // When forceRefresh is true (e.g. user clicked Refresh), refetch for every incident
+    // so the list shows up-to-date state without reopening the page.
     const statusPromises = incidentsList.map(async (incident) => {
       try {
         const rawData = incident.data
@@ -116,13 +118,13 @@ export default function CloudWatchIncidentsDialog({
           : (incident.investigation_result || incident);
         const parsed = parseIncidentData(rawData);
         const incidentId = parsed.incident_id;
-        
-        // Only fetch if we don't already have it
-        if (!remediationStatuses[incidentId] && incidentId) {
-          const status = await getRemediationStatus(incidentId);
-          if (status) {
-            return { incidentId, status };
-          }
+
+        if (!incidentId) return null;
+        if (!forceRefresh && remediationStatuses[incidentId]) return null;
+
+        const status = await getRemediationStatus(incidentId);
+        if (status) {
+          return { incidentId, status };
         }
         return null;
       } catch (err) {
@@ -327,9 +329,8 @@ export default function CloudWatchIncidentsDialog({
     }
   };
 
-  const fetchRemediationStatusForIncident = async (incidentId) => {
-    // Only fetch if we don't already have it
-    if (remediationStatuses[incidentId]) {
+  const fetchRemediationStatusForIncident = async (incidentId, forceRefresh = false) => {
+    if (!forceRefresh && remediationStatuses[incidentId]) {
       return;
     }
 
@@ -356,8 +357,9 @@ export default function CloudWatchIncidentsDialog({
     const timeline = remediationStatus?.timeline || [];
 
     // Determine current stage based on timeline and status
-    const hasIssue = issue?.issue_url || githubIssue?.issue_url;
-    const hasPR = pr?.pr_url || pr?.number;
+    // API returns issue.url / pr.url; support both for backwards compatibility
+    const hasIssue = issue?.issue_url || issue?.url || githubIssue?.issue_url;
+    const hasPR = pr?.pr_url || pr?.url || pr?.number;
     const reviewStatus = pr?.review_status;
 
     // Check timeline events to determine stage
@@ -473,23 +475,23 @@ export default function CloudWatchIncidentsDialog({
     
     switch (stageId) {
       case 'issue':
-        isCompleted = !!issue?.issue_url || timelineEvents.includes('issue_created');
+        isCompleted = !!(issue?.issue_url || issue?.url) || timelineEvents.includes('issue_created');
         break;
       case 'analysis':
         isCompleted = timelineEvents.includes('fix_generation_started') || timelineEvents.includes('pr_creation_started');
         isInProgress = timelineEvents.includes('analysis_started') && !isCompleted;
         break;
       case 'fix_generation':
-        isCompleted = timelineEvents.includes('pr_creation_started') || !!pr?.pr_url;
+        isCompleted = timelineEvents.includes('pr_creation_started') || !!(pr?.pr_url || pr?.url);
         isInProgress = timelineEvents.includes('fix_generation_started') && !isCompleted;
         break;
       case 'pr_creation':
-        isCompleted = !!pr?.pr_url || timelineEvents.includes('pr_created');
+        isCompleted = !!(pr?.pr_url || pr?.url) || timelineEvents.includes('pr_created');
         isInProgress = timelineEvents.includes('pr_creation_started') && !isCompleted;
         break;
       case 'pr_review':
         isCompleted = pr?.review_status && pr.review_status !== 'pending';
-        isInProgress = (timelineEvents.includes('pr_review_started') || !!pr?.pr_url) && !isCompleted;
+        isInProgress = (timelineEvents.includes('pr_review_started') || !!(pr?.pr_url || pr?.url)) && !isCompleted;
         break;
     }
     
@@ -705,7 +707,7 @@ export default function CloudWatchIncidentsDialog({
                 </div>
               )}
               <button
-                onClick={loadIncidents}
+                onClick={() => loadIncidents(true)}
                 disabled={isLoading}
                 className="text-xs text-purple-600 hover:text-purple-800 font-medium disabled:opacity-50 flex items-center gap-1"
               >
@@ -755,8 +757,8 @@ export default function CloudWatchIncidentsDialog({
                 const githubIssue = parsed.execution_results?.github_issue || remediationStatus?.issue;
                 const issue = remediationStatus?.issue;
                 const pr = remediationStatus?.pr;
-                const issueUrl = githubIssue?.issue_url || issue?.issue_url;
-                const prUrl = pr?.pr_url;
+                const issueUrl = githubIssue?.issue_url || issue?.issue_url || issue?.url;
+                const prUrl = pr?.pr_url || pr?.url;
                 
                 // Define stages for lifecycle display
                 const stages = [
