@@ -577,17 +577,10 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         )
       );
 
-      // Only show success and start polling when the backend actually reports success
+      // On success: start polling and auto-save; no extra chat message (Execution Results already show status)
       if (result.github_issue?.status === 'success') {
         console.log(`🔄 Starting remediation polling for incident: ${incidentData.incident_id}`);
         startRemediationPolling(incidentData.incident_id);
-        const successMessage = {
-          id: `issue-created-${Date.now()}`,
-          text: `✅ GitHub issue created successfully!\n\nIssue: ${result.github_issue?.issue_url || 'N/A'}\n\nRemediation workflow has started. The Issue Agent will analyze and create a PR automatically.`,
-          isUser: false,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, successMessage]);
         setTimeout(() => autoSaveSession(), 1000);
       } else {
         const errorDetail = result.github_issue?.error || result.github_issue?.message || result.error || 'Unknown error';
