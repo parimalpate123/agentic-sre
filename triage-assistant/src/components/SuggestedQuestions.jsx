@@ -6,8 +6,8 @@ import { useState } from 'react';
  * AI suggestions from API are shown separately as a flat list
  */
 
-// Categorized predefined questions
-const PREDEFINED_QUESTIONS = {
+// Categorized predefined questions (exported for use in compact suggestions strip)
+export const PREDEFINED_QUESTIONS = {
   'Pattern Analysis': [
     'Show me error patterns in payment-service',
     'What are the common errors in rating-service?',
@@ -52,26 +52,26 @@ export default function SuggestedQuestions({ suggestions = [], onQuestionClick, 
         {/* Welcome Message */}
         <div className="mb-4 pb-3 border-b border-gray-200">
           <p className="text-xs text-gray-700 leading-relaxed mb-2">
-            Hi! I'm your Triage Assistant. I help analyze CloudWatch logs, identify incidents, and track automated remediation workflows.
+            Hi! I'm <span className="font-bold text-violet-800">TARS</span><span className="text-gray-500"> - Telemetry Analysis & Resolution System</span>. I help analyze CloudWatch logs, identify incidents, and track automated remediation workflows.
           </p>
           <p className="text-xs text-gray-500 italic">
             💡 Try the examples below or select from predefined questions
           </p>
         </div>
 
-        {/* Example Questions - Always Visible */}
+        {/* Example Questions - Single line, wrap to 2nd line; full text, smaller font */}
         <div className="mb-4">
-          <span className="text-xs text-gray-500 mb-2 block font-medium">Example Questions:</span>
-          <div className="flex flex-col gap-2">
+          <span className="text-[11px] text-gray-500 mb-2 block font-medium">Example Questions:</span>
+          <div className="flex flex-wrap items-center gap-2">
             {exampleQuestions.map((question, index) => (
               <button
                 key={index}
                 onClick={() => onQuestionClick(question)}
                 disabled={disabled}
-                className={`w-full text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
+                className={`shrink-0 text-left text-[11px] px-2.5 py-1.5 rounded-lg border transition-colors max-w-[320px] ${
                   disabled
                     ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                    : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-300'
+                    : 'bg-white text-violet-600 border-violet-200 hover:bg-violet-50 hover:border-violet-300'
                 }`}
               >
                 {question}
@@ -93,7 +93,7 @@ export default function SuggestedQuestions({ suggestions = [], onQuestionClick, 
                   className={`w-full text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
                     disabled
                       ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                      : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-300'
+                      : 'bg-white text-violet-600 border-violet-200 hover:bg-violet-50 hover:border-violet-300'
                   }`}
                 >
                   {question}
@@ -103,14 +103,14 @@ export default function SuggestedQuestions({ suggestions = [], onQuestionClick, 
           </div>
         )}
 
-        {/* Predefined Questions - Compact Dropdown */}
-        <div className="flex flex-col gap-2">
-          <span className="text-xs text-gray-500 font-medium">More Questions:</span>
+        {/* More Questions - Single line only (horizontal scroll if needed) */}
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+          <span className="text-[11px] text-gray-500 font-medium shrink-0">More Questions:</span>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
             disabled={disabled}
-            className={`w-full text-xs px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+            className={`shrink-0 text-[11px] px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 min-w-[160px] ${
               disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
             }`}
           >
@@ -121,27 +121,22 @@ export default function SuggestedQuestions({ suggestions = [], onQuestionClick, 
               </option>
             ))}
           </select>
+          {selectedCategory && selectedQuestions.length > 0 && selectedQuestions.map((question, index) => (
+            <button
+              key={index}
+              onClick={() => onQuestionClick(question)}
+              disabled={disabled}
+              className={`shrink-0 text-left text-[11px] px-2.5 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
+                disabled
+                  ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                  : 'bg-white text-violet-600 border-violet-200 hover:bg-violet-50 hover:border-violet-300'
+              }`}
+              title={question}
+            >
+              {question}
+            </button>
+          ))}
         </div>
-
-        {/* Questions for selected category */}
-        {selectedCategory && selectedQuestions.length > 0 && (
-          <div className="mt-3 flex flex-col gap-2">
-            {selectedQuestions.map((question, index) => (
-              <button
-                key={index}
-                onClick={() => onQuestionClick(question)}
-                disabled={disabled}
-                className={`w-full text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
-                  disabled
-                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                    : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-300'
-                }`}
-              >
-                {question}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

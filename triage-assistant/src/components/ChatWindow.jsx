@@ -4,15 +4,20 @@
  */
 
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
 import IncidentApprovalDialog from './IncidentApprovalDialog';
 import ChatSessionDialog from './ChatSessionDialog';
 import CloudWatchIncidentsDialog from './CloudWatchIncidentsDialog';
-import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession, reanalyzeIncident } from '../services/api';
+import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession, reanalyzeIncident, loadChatSession, fetchIncidents } from '../services/api';
+import { incidentToMessage } from '../utils/incidentParser';
+import { PREDEFINED_QUESTIONS } from './SuggestedQuestions';
 
-const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel }, ref) {
+const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel, onSessionCreated, onUntriagedCountChange }, ref) {
+  const { sessionId: routeSessionId } = useParams();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
@@ -42,6 +47,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   const [showSessionDialog, setShowSessionDialog] = useState(false); // Show chat session dialog
   const [showCloudWatchIncidentsDialog, setShowCloudWatchIncidentsDialog] = useState(false); // Show CloudWatch incidents dialog
   const [defaultIncidentSource, setDefaultIncidentSource] = useState('cloudwatch_alarm'); // Default source for Incidents dialog: cloudwatch_alarm | servicenow | jira
+  const [untriagedCount, setUntriagedCount] = useState(0); // Alarm-triggered incidents today, not triaged (for bell icon)
   const currentSessionIdRef = useRef(null); // Track current session ID for auto-save
   const lastAutoSaveRef = useRef(null); // Track last auto-save time
   
@@ -85,6 +91,57 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Sync session from route: load when sessionId present, clear when new chat
+  useEffect(() => {
+    currentSessionIdRef.current = routeSessionId || null;
+    if (routeSessionId) {
+      let cancelled = false;
+      loadChatSession(routeSessionId)
+        .then((session) => {
+          if (cancelled) return;
+          if (session.messages?.length) setMessages(session.messages);
+          if (session.incident_data) setPendingIncidentData(session.incident_data);
+          if (session.remediation_statuses) {
+            setRemediationStatuses(session.remediation_statuses);
+            Object.keys(session.remediation_statuses).forEach((incidentId) => {
+              const status = session.remediation_statuses[incidentId];
+              if (status?.issue && status?.pr?.merge_status !== 'merged') {
+                startRemediationPolling(incidentId);
+              }
+            });
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) console.error('Failed to load session:', err);
+        });
+      return () => { cancelled = true; };
+    } else {
+      setMessages([]);
+      setPendingIncidentData(null);
+      setRemediationStatuses({});
+    }
+  }, [routeSessionId]);
+
+  // Fetch untriaged alarm count for bell icon (open cloudwatch incidents, optionally today)
+  useEffect(() => {
+    let cancelled = false;
+    fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'open' })
+      .then((incidents) => {
+        if (cancelled) return;
+        const today = new Date().toDateString();
+        const count = incidents.filter((inc) => {
+          const raw = inc.data ? (typeof inc.data === 'string' ? JSON.parse(inc.data) : inc.data) : inc;
+          const created = raw?.created_at || raw?.timestamp || inc.created_at;
+          if (!created) return true; // no date = include
+          return new Date(created).toDateString() === today;
+        }).length;
+        setUntriagedCount(count);
+        onUntriagedCountChange?.(count);
+      })
+      .catch(() => { if (!cancelled) { setUntriagedCount(0); onUntriagedCountChange?.(0); } });
+    return () => { cancelled = true; };
+  }, [showCloudWatchIncidentsDialog, onUntriagedCountChange]); // Re-fetch when incidents dialog closes
 
   // Fetch log groups on mount (CloudWatch is always selected for now)
   useEffect(() => {
@@ -570,39 +627,12 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   };
 
-  // Handle loading a saved chat session
+  // Handle loading a saved chat session (from Sessions dialog). Navigate to session URL so route effect loads it.
   const handleLoadSession = (session) => {
-    console.log('📥 Loading chat session:', session);
-    
-    // Restore messages
-    if (session.messages && session.messages.length > 0) {
-      setMessages(session.messages);
+    const id = session?.session_id || session?.id;
+    if (id) {
+      navigate(`/chat/${id}`);
     }
-    
-    // Restore incident data
-    if (session.incident_data) {
-      setPendingIncidentData(session.incident_data);
-    }
-    
-    // Restore remediation statuses
-    if (session.remediation_statuses) {
-      setRemediationStatuses(session.remediation_statuses);
-      
-      // Resume polling for any incidents that have remediation status
-      Object.keys(session.remediation_statuses).forEach(incidentId => {
-        const status = session.remediation_statuses[incidentId];
-        // Resume polling if there's an issue (continue polling to track PR review status)
-        if (status.issue && (!status.pr?.merge_status || status.pr?.merge_status !== 'merged')) {
-          console.log(`🔄 Resuming polling for incident: ${incidentId}`);
-          startRemediationPolling(incidentId);
-        }
-      });
-    }
-    
-    // Set current session ID for auto-save
-    currentSessionIdRef.current = session.session_id;
-    
-    console.log('✅ Chat session loaded successfully');
   };
 
   const handleLoadCloudWatchIncident = (incidentMessage) => {
@@ -677,6 +707,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
     
     try {
+      const wasNewChat = !currentSessionIdRef.current;
       // Extract incident data from messages
       const incidentData = currentIncidentData || 
         (currentMessages.find(m => m.incident)?.incident || null);
@@ -698,6 +729,10 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       currentSessionIdRef.current = result.session_id;
       lastAutoSaveRef.current = now;
       console.log('💾 Auto-saved chat session:', result.session_id);
+      if (wasNewChat && result.session_id) {
+        navigate(`/chat/${result.session_id}`);
+        onSessionCreated?.();
+      }
     } catch (error) {
       console.error('Error auto-saving session:', error);
       // Don't show error to user - auto-save failures are silent
@@ -1226,10 +1261,10 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         requestFlow: response.request_flow || null,
         servicesFound: response.services_found || null,
         patternData: response.pattern_data || null,
+        followUpQuestions: response.follow_up_questions || [],
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Update suggestions
       if (response.follow_up_questions && response.follow_up_questions.length > 0) {
         setSuggestions(response.follow_up_questions);
       }
@@ -1247,351 +1282,143 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   };
 
+  useImperativeHandle(ref, () => ({
+    sendMessage: handleSendMessage,
+    openIncidents: () => setShowCloudWatchIncidentsDialog(true),
+  }), [handleSendMessage]);
+
+  const handleRefreshIncidents = async () => {
+    try {
+      const incidents = await fetchIncidents({ limit: 10, source: 'cloudwatch_alarm', status: 'all' });
+      if (incidents.length > 0) {
+        const incidentMessages = incidents.map((incidentItem) => incidentToMessage(incidentItem));
+        setMessages((prev) => {
+          const existingIncidentIds = new Set(prev.filter((m) => m.incident?.incident_id).map((m) => m.incident.incident_id));
+          const newIncidentMessages = incidentMessages.filter((msg) => !existingIncidentIds.has(msg.incident?.incident_id));
+          if (newIncidentMessages.length > 0) return [...newIncidentMessages, ...prev];
+          return prev;
+        });
+      }
+      setUntriagedCount((c) => (c > 0 ? c - 1 : 0));
+    } catch (error) {
+      console.error('Failed to refresh incidents:', error);
+    }
+  };
+
+  const handleClearChat = () => {
+    setMessages([]);
+    setSuggestions([]);
+    currentSessionIdRef.current = null;
+    navigate('/chat');
+  };
+
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow-lg overflow-hidden">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-              <span className="text-xl">🔍</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">Triage Hub</h1>
-              <p className="text-sm text-purple-100">AI-powered log analysis</p>
-            </div>
+    <div className="flex flex-col h-full bg-white overflow-hidden">
+      {/* Minimal top bar: refresh, save, clear (TARS, Incidents, Admin moved to left sidebar) */}
+      <header className="flex items-center justify-end px-4 py-2 bg-white border-b border-gray-200 shrink-0">
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={handleRefreshIncidents} className="text-xs text-gray-500 hover:text-violet-600 p-1.5 rounded" title="Refresh incidents from CloudWatch">🔄</button>
+          <button type="button" onClick={() => setShowSessionDialog(true)} className="text-xs text-gray-500 hover:text-violet-600 p-1.5 rounded" title="Save or load a chat session">💾</button>
+          <button type="button" onClick={handleClearChat} className="flex items-center gap-1.5 text-gray-600 hover:text-violet-600 p-1.5 rounded transition-colors" title="Clear chat and start over" aria-label="Clear chat">
+            <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+              <path d="M6 20L8 8l12-2 2 10-2 4H6z" />
+              <path d="M10 8l8-1M10 10l8-1" />
+            </svg>
+            <span className="text-xs font-medium">Clear</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Compact filters */}
+      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-4 flex-wrap text-xs text-gray-600">
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium">Search:</span>
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <button type="button" onClick={() => setSearchMode('quick')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'quick' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Quick</button>
+            <button type="button" onClick={() => setSearchMode('deep')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'deep' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Deep</button>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Incidents Button */}
-            <button
-              onClick={() => setShowCloudWatchIncidentsDialog(true)}
-              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
-              title="View CloudWatch alarm incidents"
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              Incidents
-            </button>
-            {/* Save/Load Session Button */}
-            <button
-              onClick={() => setShowSessionDialog(true)}
-              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
-              title="Save or load chat session"
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-              </svg>
-              Sessions
-            </button>
-            {/* Admin/Utility Panel Button */}
-            {onShowUtilityPanel && (
-              <button
-                onClick={onShowUtilityPanel}
-                className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
-                title="Open Utility Panel (Create alarms, manage logs, view incidents)"
-              >
-                ⚙️ Admin
-              </button>
-            )}
-            {/* Refresh Incidents Button */}
-            <button
-              onClick={async () => {
-                console.log('Manual refresh triggered');
-                try {
-                  const incidents = await fetchIncidents({
-                    limit: 10,
-                    source: 'cloudwatch_alarm',
-                    status: 'all'
-                  });
-                  console.log(`Manual refresh found ${incidents.length} CloudWatch incidents`, incidents);
-                  
-                  if (incidents.length > 0) {
-                    const incidentMessages = incidents.map(incidentItem => incidentToMessage(incidentItem));
-                    setMessages(prev => {
-                      const existingIncidentIds = new Set(
-                        prev
-                          .filter(m => m.incident?.incident_id)
-                          .map(m => m.incident.incident_id)
-                      );
-                      const newIncidentMessages = incidentMessages.filter(
-                        msg => !existingIncidentIds.has(msg.incident?.incident_id)
-                      );
-                      if (newIncidentMessages.length > 0) {
-                        return [...newIncidentMessages, ...prev];
-                      }
-                      return prev;
-                    });
-                  }
-                } catch (error) {
-                  console.error('Failed to refresh incidents:', error);
-                }
-              }}
-              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 text-xs text-white font-medium transition-colors"
-              title="Refresh CloudWatch incidents"
-            >
-              🔄 Refresh
-            </button>
-            {/* MCP Toggle - Always visible, default ON */}
-            <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-purple-100">MCP:</span>
-              <button
-                onClick={() => setUseMCP(true)}
-                className={`text-xs px-2 py-1 rounded transition-colors ${
-                  useMCP === true
-                    ? 'bg-white text-purple-700 font-semibold'
-                    : 'bg-white/20 text-white hover:bg-white/30'
-                }`}
-                title="Use MCP server for log queries"
-              >
-                ON
-              </button>
-              <button
-                onClick={() => setUseMCP(false)}
-                className={`text-xs px-2 py-1 rounded transition-colors ${
-                  useMCP === false
-                    ? 'bg-white text-purple-700 font-semibold'
-                    : 'bg-white/20 text-white hover:bg-white/30'
-                }`}
-                title="Use Direct API for log queries"
-              >
-                OFF
-              </button>
-            </div>
-            <button
-              onClick={onToggleFullScreen}
-              className="bg-white/20 hover:bg-white/30 rounded-lg p-2 transition-colors"
-              title={isFullScreen ? 'Exit full screen' : 'Enter full screen'}
-            >
-              {isFullScreen ? (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                </svg>
-              )}
-            </button>
-          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium">Service:</span>
+          <select value={selectedService} onChange={(e) => setSelectedService(e.target.value)} disabled={isLoadingLogGroups} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white min-w-[140px]">
+            {isLoadingLogGroups ? <option>Loading…</option> : logGroups.length > 0 ? logGroups.map((g) => <option key={g.value || g.fullName} value={g.fullName || g.value}>{g.label}</option>) : defaultServices.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <span className="font-medium">Time:</span>
+          <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white">
+            {timeRanges.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
         </div>
       </div>
 
-      {/* Source (log) and Incident source selectors */}
-      <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 font-medium">Source:</span>
-            <div className="flex gap-2">
-              {/* CloudWatch - Enabled */}
-              <button
-                disabled={false}
-                className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white font-medium cursor-default"
-                title="CloudWatch Logs (Active)"
-              >
-                CloudWatch
-              </button>
-              {/* Elasticsearch - Disabled */}
-              <button
-                disabled={true}
-                className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
-                title="Elasticsearch (Coming soon)"
-              >
-                Elasticsearch
-              </button>
-              {/* Datadog - Disabled */}
-              <button
-                disabled={true}
-                className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
-                title="Datadog (Coming soon)"
-              >
-                Datadog
-              </button>
-              {/* Dynatrace - Disabled */}
-              <button
-                disabled={true}
-                className="text-xs px-3 py-1.5 rounded-md bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
-                title="Dynatrace (Coming soon)"
-              >
-                Dynatrace
-              </button>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 bg-white">
+        <div className="max-w-[90rem] mx-auto w-full">
+          {messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isUser={message.isUser}
+              onQuestionClick={handleSendMessage}
+              onDiagnose={handleDiagnose}
+              isDiagnosing={diagnosingMessageId === message.id}
+              onCreateIncident={handleCreateIncident}
+              onCreateGitHubIssue={handleCreateGitHubIssue}
+              isCreatingIncident={creatingIncidentMessageId === message.id}
+              remediationStatus={message.incident?.incident_id ? remediationStatuses[message.incident.incident_id] : null}
+              onRefreshRemediation={() => message.incident?.incident_id && fetchRemediationStatus(message.incident.incident_id)}
+              onPausePolling={() => message.incident?.incident_id && pauseRemediationPolling(message.incident.incident_id)}
+              onResumePolling={() => message.incident?.incident_id && resumeRemediationPolling(message.incident.incident_id)}
+              isPollingActive={message.incident?.incident_id ? isPollingActive(message.incident.incident_id) : false}
+              isPollingPaused={message.incident?.incident_id ? isPollingPaused(message.incident.incident_id) : false}
+              onCheckPRStatus={() => message.incident?.incident_id && checkPRStatus(message.incident.incident_id)}
+              onReanalyzeIncident={handleReanalyzeIncident}
+              isReanalyzing={message.incident?.incident_id === reanalyzingIncidentId}
+            />
+          ))}
+          {isLoading && (
+            <div className="flex justify-start mb-4">
+              <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-2 text-gray-500 text-sm">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Analyzing logs...
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">Incident source:</span>
-            <select
-              value={defaultIncidentSource}
-              onChange={(e) => setDefaultIncidentSource(e.target.value)}
-              className="text-xs border border-gray-300 rounded-md px-2 py-1.5 text-gray-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              title="Default source when opening Incidents"
-            >
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      {/* Welcome when empty */}
+      {messages.length === 0 && (
+        <div className="px-4 pb-2 max-w-[90rem] mx-auto w-full border-t border-gray-100 pt-2">
+          <p className="text-xs text-gray-600">
+            Hi! I'm <span className="font-bold text-violet-800">TARS</span>
+            <span className="text-gray-500"> - Telemetry Analysis & Resolution System</span>. Ask a question or open sample questions from the left pane.
+          </p>
+        </div>
+      )}
+
+      {/* Input + source row below */}
+      <div className="p-4 bg-white border-t border-gray-200">
+        <div className="max-w-[90rem] mx-auto w-full">
+          <InputBox onSend={handleSendMessage} disabled={isLoading} />
+          <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3 text-xs">
+            <span className="text-gray-600 font-medium">Source:</span>
+            <div className="flex gap-1.5">
+              <button type="button" className="px-2.5 py-1.5 rounded-md bg-violet-50 text-violet-600 font-medium border border-violet-200" title="CloudWatch Logs">CloudWatch</button>
+              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">Elasticsearch</button>
+              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">Datadog</button>
+              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">Dynatrace</button>
+            </div>
+            <span className="text-gray-300">|</span>
+            <span className="text-gray-600 font-medium">Incident source:</span>
+            <select value={defaultIncidentSource} onChange={(e) => setDefaultIncidentSource(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-md text-gray-700 bg-white text-xs">
               <option value="cloudwatch_alarm">CloudWatch</option>
               <option value="servicenow">ServiceNow</option>
               <option value="jira">Jira</option>
             </select>
           </div>
-          <span className="text-xs text-gray-400 italic ml-auto">Multi-source support coming soon</span>
-        </div>
-      </div>
-
-      {/* Search Controls */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Quick/Deep Search Toggle */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">Search:</span>
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              <button
-                onClick={() => setSearchMode('quick')}
-                className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
-                  searchMode === 'quick'
-                    ? 'bg-white text-blue-700 font-semibold shadow-sm'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-                title="Quick Search (70-75% accuracy)
-• Real-time: No indexing delay, instant results
-• Speed: 1-3 seconds
-• Best for: Recent logs, simple keywords, live incidents
-• Limitations: No aggregation or statistics
-• Use when: You need the latest logs or correlation tracing"
-              >
-                Quick
-              </button>
-              <button
-                onClick={() => setSearchMode('deep')}
-                className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
-                  searchMode === 'deep'
-                    ? 'bg-white text-blue-700 font-semibold shadow-sm'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-                title="Deep Search (75-85% accuracy)
-• Complex queries: SQL-like with aggregation & grouping
-• Speed: 5-10 seconds
-• Best for: Error patterns, statistics, historical analysis
-• Note: 5-15 min indexing delay for new logs
-• Use when: You need grouped results or trend analysis"
-              >
-                Deep
-              </button>
-            </div>
-          </div>
-
-          {/* Service/Log Group Dropdown */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">Service:</span>
-            <select
-              value={selectedService}
-              onChange={(e) => setSelectedService(e.target.value)}
-              disabled={isLoadingLogGroups}
-              className="text-xs bg-gray-100 border-0 rounded-lg px-2 py-1.5 text-gray-700 focus:ring-2 focus:ring-blue-500 disabled:opacity-50 min-w-[180px]"
-              title={selectedService || 'Auto-detect'}
-            >
-              {isLoadingLogGroups ? (
-                <option>Loading log groups...</option>
-              ) : logGroups.length > 0 ? (
-                logGroups.map((group) => (
-                  <option key={group.value || group.fullName} value={group.fullName || group.value} title={group.fullName}>
-                    {group.label}
-                  </option>
-                ))
-              ) : (
-                defaultServices.map((service) => (
-                  <option key={service.value} value={service.value}>
-                    {service.label}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-
-          {/* Time Range Dropdown */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">Time:</span>
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value)}
-              className="text-xs bg-gray-100 border-0 rounded-lg px-2 py-1.5 text-gray-700 focus:ring-2 focus:ring-blue-500"
-            >
-              {timeRanges.map((range) => (
-                <option key={range.value} value={range.value}>
-                  {range.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Always Visible Disclaimer */}
-        <div className="mt-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-          {searchMode === 'quick' ? (
-            <span>
-              <strong className="text-blue-600">Quick Search:</strong> Real-time results (1-3s) with no indexing delay. Shows all log occurrences with timestamps. Best for live incidents and recent logs.
-            </span>
-          ) : (
-            <span>
-              <strong className="text-orange-600">Deep Search:</strong> Advanced analytics with aggregation and grouping (5-10s). Features: Error patterns, statistics, trend analysis. <strong>Note:</strong> 5-15 min indexing delay for new logs.
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Main content area with sidebar */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Messages and Input area (main content) */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
-            {messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                isUser={message.isUser}
-                onDiagnose={handleDiagnose}
-                isDiagnosing={diagnosingMessageId === message.id}
-                onCreateIncident={handleCreateIncident}
-                onCreateGitHubIssue={handleCreateGitHubIssue}
-                isCreatingIncident={creatingIncidentMessageId === message.id}
-                remediationStatus={message.incident?.incident_id ? remediationStatuses[message.incident.incident_id] : null}
-                onRefreshRemediation={() => message.incident?.incident_id && fetchRemediationStatus(message.incident.incident_id)}
-                onPausePolling={() => message.incident?.incident_id && pauseRemediationPolling(message.incident.incident_id)}
-                onResumePolling={() => message.incident?.incident_id && resumeRemediationPolling(message.incident.incident_id)}
-                isPollingActive={message.incident?.incident_id ? isPollingActive(message.incident.incident_id) : false}
-                isPollingPaused={message.incident?.incident_id ? isPollingPaused(message.incident.incident_id) : false}
-                onCheckPRStatus={() => message.incident?.incident_id && checkPRStatus(message.incident.incident_id)}
-                onReanalyzeIncident={handleReanalyzeIncident}
-                isReanalyzing={message.incident?.incident_id === reanalyzingIncidentId}
-              />
-            ))}
-
-            {/* Loading indicator */}
-            {isLoading && (
-              <div className="flex justify-start mb-4">
-                <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3">
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    <span className="text-sm">Analyzing logs...</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input box */}
-          <InputBox onSend={handleSendMessage} disabled={isLoading} />
-        </div>
-
-        {/* Right sidebar - Suggested questions */}
-        <div className="w-96 border-l border-gray-200 bg-white flex flex-col">
-          <SuggestedQuestions
-            suggestions={suggestions}
-            onQuestionClick={handleSendMessage}
-            disabled={isLoading}
-          />
         </div>
       </div>
 
@@ -1654,7 +1481,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
               <button
                 onClick={handlePasswordSubmit}
                 disabled={!passwordInput.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Continue
               </button>

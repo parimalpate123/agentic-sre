@@ -692,18 +692,19 @@ export default function CloudWatchIncidentsDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-4 rounded-t-lg">
+    <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col border border-gray-200">
+        {/* Header – same theme as app (white, violet accent) */}
+        <div className="px-6 py-4 border-b border-gray-200 bg-white rounded-t-xl">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold">⚠️ Incidents</h2>
-              <p className="text-xs text-purple-100 mt-1">Click an incident to load it into the chat for detailed analysis</p>
+              <h2 className="text-lg font-semibold text-violet-800">Incidents</h2>
+              <p className="text-xs text-gray-500 mt-1">Click an incident to load it into the chat for detailed analysis</p>
             </div>
             <button
               onClick={onClose}
-              className="text-white hover:text-gray-200 text-xl font-bold"
+              className="p-1 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 text-xl font-medium"
+              aria-label="Close"
             >
               ×
             </button>
@@ -732,7 +733,7 @@ export default function CloudWatchIncidentsDialog({
                   id="timeframe"
                   value={timeframe}
                   onChange={(e) => setTimeframe(e.target.value)}
-                  className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
                 >
                   {timeframeOptions.map(option => (
                     <option key={option.value} value={option.value}>
@@ -749,7 +750,7 @@ export default function CloudWatchIncidentsDialog({
                   id="incident-source"
                   value={incidentSource}
                   onChange={(e) => setIncidentSource(e.target.value)}
-                  className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
                 >
                   <option value="cloudwatch_alarm">CloudWatch</option>
                   <option value="servicenow">ServiceNow</option>
@@ -782,7 +783,7 @@ export default function CloudWatchIncidentsDialog({
               <button
                 onClick={() => loadIncidents(true)}
                 disabled={isLoading}
-                className="text-xs text-purple-600 hover:text-purple-800 font-medium disabled:opacity-50 flex items-center gap-1"
+                className="text-xs text-violet-600 hover:text-violet-800 font-medium disabled:opacity-50 flex items-center gap-1"
               >
                 🔄 Refresh
               </button>
@@ -791,7 +792,7 @@ export default function CloudWatchIncidentsDialog({
 
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <svg className="animate-spin h-6 w-6 text-purple-600" viewBox="0 0 24 24">
+              <svg className="animate-spin h-6 w-6 text-violet-600" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
@@ -814,7 +815,7 @@ export default function CloudWatchIncidentsDialog({
                   return (
                     <div
                       key={incident.id}
-                      className="border rounded-lg border-gray-200 hover:border-purple-300 p-4"
+                      className="border rounded-lg border-gray-200 hover:border-violet-300 p-4"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
@@ -843,7 +844,7 @@ export default function CloudWatchIncidentsDialog({
                         </div>
                         <button
                           onClick={() => handleLoadIncident(incident)}
-                          className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-800 font-medium px-3 py-1.5 rounded shrink-0"
+                          className="text-xs bg-violet-100 hover:bg-violet-200 text-violet-800 font-medium px-3 py-1.5 rounded shrink-0"
                         >
                           Load
                         </button>
@@ -893,7 +894,7 @@ export default function CloudWatchIncidentsDialog({
                 return (
                   <div
                     key={incidentId}
-                    className={`border rounded-lg transition-colors ${isExpanded ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}
+                    className={`border rounded-lg transition-colors ${isExpanded ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-violet-300'}`}
                   >
                     {/* Compact header — click to expand/collapse */}
                     <div
@@ -983,7 +984,7 @@ export default function CloudWatchIncidentsDialog({
                           <button
                             onClick={(e) => handleReanalyzeIncident(incidentId, e)}
                             disabled={isLoading}
-                            className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors whitespace-nowrap disabled:opacity-50"
+                            className="px-3 py-1.5 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 transition-colors whitespace-nowrap disabled:opacity-50"
                             title="Re-analyze incident"
                           >
                             🔄 Re-analyze
@@ -1001,7 +1002,7 @@ export default function CloudWatchIncidentsDialog({
                               e.stopPropagation();
                               handleLoadIncident(incident);
                             }}
-                            className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors whitespace-nowrap"
+                            className="px-3 py-1.5 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 transition-colors whitespace-nowrap"
                           >
                             Load
                           </button>
@@ -1011,7 +1012,7 @@ export default function CloudWatchIncidentsDialog({
 
                     {/* Expanded detail section */}
                     {isExpanded && (
-                      <div className="px-4 pb-4 border-t border-purple-200 pt-3 ml-5 space-y-3">
+                      <div className="px-4 pb-4 border-t border-violet-200 pt-3 ml-5 space-y-3">
                         {/* Alert description */}
                         {alertDescription && (
                           <div>

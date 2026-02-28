@@ -1,5 +1,5 @@
 /**
- * API Service for Triage Assistant
+ * API Service for TARS (Telemetry Analysis & Resolution System)
  * Connects to the Lambda chat API endpoint
  */
 

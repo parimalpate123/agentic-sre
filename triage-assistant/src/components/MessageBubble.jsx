@@ -11,6 +11,7 @@ import RemediationStatus from './RemediationStatus';
 export default function MessageBubble({ 
   message, 
   isUser, 
+  onQuestionClick = null,
   onDiagnose, 
   isDiagnosing = false, 
   onCreateIncident, 
@@ -65,11 +66,12 @@ export default function MessageBubble({
   const badge = getSearchModeBadge();
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 w-full`}>
+      <div className={`flex flex-col w-full max-w-full ${isUser ? 'items-end' : ''}`}>
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 ${
           isUser
-            ? 'bg-blue-600 text-white rounded-br-md'
+            ? 'bg-violet-100 text-gray-900 rounded-br-md shadow-sm border-l-4 border-violet-600'
             : 'bg-gray-100 text-gray-800 rounded-bl-md'
         }`}
       >
@@ -121,7 +123,7 @@ export default function MessageBubble({
                   href={message.cloudwatchUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 transition-colors"
+                  className="text-xs text-violet-600 hover:text-violet-800 hover:underline flex items-center gap-1 transition-colors"
                   title="Open in CloudWatch Logs Console"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -151,74 +153,56 @@ export default function MessageBubble({
           <CorrelationView correlationData={message.correlationData} />
         )}
 
-        {/* Recommendations (for assistant messages) */}
+        {/* Recommendations (for assistant messages) - clickable as follow-up questions */}
         {!isUser && message.recommendations && message.recommendations.length > 0 && (
           <div className="mt-3 pt-3 border-t border-gray-200">
-            <p className="text-xs font-semibold text-gray-500 mb-2">🎯 Recommendations:</p>
-            <ul className="space-y-1">
+            <p className="text-xs font-semibold text-gray-900 mb-2">🎯 Recommendations:</p>
+            <ul className="space-y-1.5">
               {message.recommendations.map((recommendation, index) => (
-                <li key={index} className="text-xs text-gray-600 flex items-start">
+                <li key={index} className="text-xs text-gray-900 flex items-start">
                   <span className="mr-2">→</span>
-                  <span>{recommendation}</span>
+                  {onQuestionClick ? (
+                    <button
+                      type="button"
+                      onClick={() => onQuestionClick(recommendation)}
+                      className="text-left text-gray-900 hover:text-black hover:underline focus:outline-none focus:underline"
+                    >
+                      {recommendation}
+                    </button>
+                  ) : (
+                    <span>{recommendation}</span>
+                  )}
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        {/* Action Buttons (for assistant messages with log data) */}
+        {/* Action links (for assistant messages with log data) – link-style, content-first UX */}
         {!isUser && (message.logEntries?.length > 0 || message.patternData || message.correlationData) && !message.diagnosis && (
-          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-col sm:flex-row gap-2">
-            {/* Diagnose Button */}
-            {onDiagnose && (
-              <button
-                onClick={() => onDiagnose(message)}
-                disabled={isDiagnosing || isCreatingIncident}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isDiagnosing ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <span>🔍</span>
-                    Investigate
-                  </>
-                )}
-              </button>
-            )}
-            
-            {/* Create Incident Button 
-                - Show for: chat-initiated incidents (source='chat'), escalated incidents, or non-code_fix types
-                - Hide for: CloudWatch incidents with code_fix (auto-executed, no manual intervention needed)
-            */}
+          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
             {onCreateIncident && 
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
-                onClick={() => onCreateIncident(message)}
-                disabled={isDiagnosing || isCreatingIncident}
-                className="flex-1 bg-blue-800 hover:bg-blue-900 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isCreatingIncident ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Creating Incident...
-                  </>
-                ) : (
-                  <>
-                    <span>🚨</span>
-                    Create Incident & Run Full Investigation
-                  </>
-                )}
-              </button>
+                  onClick={() => onCreateIncident(message)}
+                  disabled={isDiagnosing || isCreatingIncident}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-violet-600 hover:text-violet-800 hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                >
+                  {isCreatingIncident ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Running investigation...
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-base" aria-hidden>🚨</span>
+                      Run full investigation
+                    </>
+                  )}
+                </button>
             )}
             
             {/* Auto-execution status for CloudWatch incidents with code_fix */}
@@ -342,47 +326,25 @@ export default function MessageBubble({
          !(message.logEntries?.length > 0 || message.patternData || message.correlationData) &&
          !message.diagnosis &&
          !message.investigationStarted && (
-          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-col sm:flex-row gap-2">
-            {onDiagnose && (
-              <button
-                onClick={() => onDiagnose(message)}
-                disabled={isDiagnosing || isCreatingIncident}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isDiagnosing ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <span>🔍</span>
-                    Investigate
-                  </>
-                )}
-              </button>
-            )}
+          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
             {onCreateIncident && (
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
-                className="flex-1 bg-blue-800 hover:bg-blue-900 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-violet-600 hover:text-violet-800 hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
               >
                 {isCreatingIncident ? (
                   <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Creating Incident...
+                    Running investigation...
                   </>
                 ) : (
                   <>
-                    <span>🚨</span>
-                    Create Incident & Run Full Investigation
+                    <span className="text-base" aria-hidden>🚨</span>
+                    Run full investigation
                   </>
                 )}
               </button>
@@ -390,7 +352,7 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* Action Buttons for CloudWatch incidents loaded from Incidents dialog (exclusive: do not show if this message has log/pattern data - that uses the block above) */}
+        {/* Action links for CloudWatch incidents loaded from Incidents dialog */}
         {!isUser &&
          message.incident &&
          message.incident.source === 'cloudwatch_alarm' &&
@@ -398,60 +360,32 @@ export default function MessageBubble({
          !message.incident.execution_results?.github_issue &&
          !message.diagnosis &&
          !message.investigationStarted && (
-          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-col sm:flex-row gap-2">
-            {/* Diagnose Button */}
-            {onDiagnose && (
-              <button
-                onClick={() => onDiagnose(message)}
-                disabled={isDiagnosing || isCreatingIncident}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isDiagnosing ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <span>🔍</span>
-                    Investigate
-                  </>
-                )}
-              </button>
-            )}
-
-            {/* Create Incident & Run Full Investigation Button 
-                - Show for: chat-initiated incidents (source='chat'), escalated incidents, or non-code_fix types
-                - Hide for: CloudWatch incidents with code_fix (auto-executed, no manual intervention needed)
-            */}
+          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
             {onCreateIncident && 
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
-                className="flex-1 bg-blue-800 hover:bg-blue-900 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-violet-600 hover:text-violet-800 hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
               >
                 {isCreatingIncident ? (
                   <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Creating Incident...
+                    Running investigation...
                   </>
                 ) : (
                   <>
-                    <span>🚨</span>
-                    Create Incident & Run Full Investigation
+                    <span className="text-base" aria-hidden>🚨</span>
+                    Run full investigation
                   </>
                 )}
               </button>
             )}
             
-            {/* Auto-execution status for CloudWatch incidents with code_fix (in action buttons section) */}
+            {/* Auto-execution status for CloudWatch incidents with code_fix */}
             {message.incident?.source === 'cloudwatch_alarm' && 
              message.incident?.execution_type === 'code_fix' && (
               <div className="mt-3 pt-3 border-t border-gray-200">
@@ -687,7 +621,7 @@ export default function MessageBubble({
                   className={`${
                     isReanalyzing 
                       ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-violet-600 hover:bg-violet-700'
                   } text-white text-xs font-medium py-2 px-4 rounded transition-colors inline-flex items-center justify-center gap-2`}
                 >
                   {isReanalyzing ? (
@@ -708,9 +642,27 @@ export default function MessageBubble({
         )}
 
         {/* Timestamp */}
-        <p className={`text-xs mt-2 ${isUser ? 'text-blue-200' : 'text-gray-400'}`}>
+        <p className={`text-xs mt-2 ${isUser ? 'text-violet-600' : 'text-gray-400'}`}>
           {new Date(message.timestamp).toLocaleTimeString()}
         </p>
+      </div>
+
+      {/* Suggested questions - outside response block, below in a single line that wraps */}
+      {!isUser && message.followUpQuestions && message.followUpQuestions.length > 0 && (
+        <div className="mt-2 w-full flex flex-wrap gap-2 items-center">
+          <span className="text-xs font-semibold text-gray-500 shrink-0">💡 Suggested questions:</span>
+          {message.followUpQuestions.map((question, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => onQuestionClick?.(question)}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:border-gray-400 hover:text-gray-600 text-left shrink-0"
+            >
+              {question}
+            </button>
+          ))}
+        </div>
+      )}
       </div>
     </div>
   );

@@ -24,7 +24,7 @@ export default function InputBox({ onSend, disabled = false, placeholder = "Ask 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2 p-4 bg-white border-t border-gray-200">
+    <form onSubmit={handleSubmit} className="flex items-center gap-2">
       <input
         type="text"
         value={input}
@@ -32,7 +32,7 @@ export default function InputBox({ onSend, disabled = false, placeholder = "Ask 
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
-        className={`flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm ${
+        className={`flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent text-sm ${
           disabled ? 'bg-gray-100 text-gray-400' : 'bg-white'
         }`}
       />
@@ -42,7 +42,7 @@ export default function InputBox({ onSend, disabled = false, placeholder = "Ask 
         className={`px-6 py-3 rounded-full font-medium text-sm transition-colors ${
           disabled || !input.trim()
             ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            : 'bg-blue-600 text-white hover:bg-blue-700'
+            : 'bg-violet-500 text-white hover:bg-violet-600'
         }`}
       >
         {disabled ? (
