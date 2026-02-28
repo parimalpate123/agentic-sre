@@ -27,12 +27,17 @@ export default function ChatLayout({
     chatWindowRef.current?.openIncidents?.();
   }, [chatWindowRef]);
 
+  const handleOpenSessionDialog = useCallback(() => {
+    chatWindowRef.current?.openSessionDialog?.();
+  }, [chatWindowRef]);
+
   return (
     <div className="flex h-full bg-gray-50">
       <SessionSidebar
         onRefreshTrigger={sessionListRefreshTrigger}
         onSampleQuestionClick={handleSampleQuestionClick}
         onOpenIncidents={handleOpenIncidents}
+        onOpenSessionDialog={handleOpenSessionDialog}
         onShowAdmin={onShowUtilityPanel}
         untriagedCount={untriagedCount}
       />

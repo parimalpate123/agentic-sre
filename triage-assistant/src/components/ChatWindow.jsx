@@ -46,7 +46,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   const messagesEndRef = useRef(null);
   const [showSessionDialog, setShowSessionDialog] = useState(false); // Show chat session dialog
   const [showCloudWatchIncidentsDialog, setShowCloudWatchIncidentsDialog] = useState(false); // Show CloudWatch incidents dialog
-  const [defaultIncidentSource, setDefaultIncidentSource] = useState('cloudwatch_alarm'); // Default source for Incidents dialog: cloudwatch_alarm | servicenow | jira
+  const [defaultIncidentSource, setDefaultIncidentSource] = useState('all'); // Default source for Incidents dialog: all | cloudwatch_alarm | servicenow | jira
   const [untriagedCount, setUntriagedCount] = useState(0); // Alarm-triggered incidents today, not triaged (for bell icon)
   const currentSessionIdRef = useRef(null); // Track current session ID for auto-save
   const lastAutoSaveRef = useRef(null); // Track last auto-save time
@@ -1280,6 +1280,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   useImperativeHandle(ref, () => ({
     sendMessage: handleSendMessage,
     openIncidents: () => setShowCloudWatchIncidentsDialog(true),
+    openSessionDialog: () => setShowSessionDialog(true),
   }), [handleSendMessage]);
 
   const handleRefreshIncidents = async () => {
@@ -1409,6 +1410,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             <span className="text-gray-300">|</span>
             <span className="text-gray-600 font-medium">Incident source:</span>
             <select value={defaultIncidentSource} onChange={(e) => setDefaultIncidentSource(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-md text-gray-700 bg-white text-xs">
+              <option value="all">All</option>
               <option value="cloudwatch_alarm">CloudWatch</option>
               <option value="servicenow">ServiceNow</option>
               <option value="jira">Jira</option>

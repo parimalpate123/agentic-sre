@@ -14,7 +14,7 @@ export default function CloudWatchIncidentsDialog({
   isOpen,
   onClose,
   onLoadIncident,
-  initialSource = 'cloudwatch_alarm'
+  initialSource = 'all'
 }) {
   const [incidents, setIncidents] = useState([]);
   const [allIncidents, setAllIncidents] = useState([]); // Store all incidents for client-side filtering
@@ -752,6 +752,7 @@ export default function CloudWatchIncidentsDialog({
                   onChange={(e) => setIncidentSource(e.target.value)}
                   className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
                 >
+                  <option value="all">All</option>
                   <option value="cloudwatch_alarm">CloudWatch</option>
                   <option value="servicenow">ServiceNow</option>
                   <option value="jira">Jira</option>
@@ -799,9 +800,14 @@ export default function CloudWatchIncidentsDialog({
             </div>
           ) : incidents.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              <p className="text-sm">No {incidentSource === 'cloudwatch_alarm' ? 'CloudWatch' : incidentSource === 'servicenow' ? 'ServiceNow' : 'Jira'} incidents found.</p>
+              <p className="text-sm">
+                No {incidentSource === 'all' ? '' : incidentSource === 'cloudwatch_alarm' ? 'CloudWatch ' : incidentSource === 'servicenow' ? 'ServiceNow ' : 'Jira '}incidents found.
+              </p>
               {incidentSource === 'cloudwatch_alarm' && (
                 <p className="text-xs mt-2">Create and trigger a CloudWatch alarm to see incidents here.</p>
+              )}
+              {incidentSource === 'all' && (
+                <p className="text-xs mt-2">Chat-created and CloudWatch alarm incidents will appear here.</p>
               )}
             </div>
           ) : (
@@ -905,6 +911,11 @@ export default function CloudWatchIncidentsDialog({
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs text-gray-400">{isExpanded ? '▼' : '▶'}</span>
+                            {incidentSource === 'all' && (
+                              <span className="px-2 py-0.5 text-xs font-medium rounded border bg-gray-100 text-gray-700">
+                                {parsed.source === 'cloudwatch_alarm' ? 'CloudWatch' : 'Chat'}
+                              </span>
+                            )}
                             <h4 className="font-semibold text-gray-800 text-sm">
                               {alertName && alertName !== 'Unknown Alert' ? `${alertName} (${incidentId})` : incidentId}
                             </h4>
