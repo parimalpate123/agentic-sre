@@ -577,27 +577,29 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         )
       );
 
-      // Start polling for remediation status
+      // Only show success and start polling when the backend actually reports success
       if (result.github_issue?.status === 'success') {
         console.log(`🔄 Starting remediation polling for incident: ${incidentData.incident_id}`);
         startRemediationPolling(incidentData.incident_id);
+        const successMessage = {
+          id: `issue-created-${Date.now()}`,
+          text: `✅ GitHub issue created successfully!\n\nIssue: ${result.github_issue?.issue_url || 'N/A'}\n\nRemediation workflow has started. The Issue Agent will analyze and create a PR automatically.`,
+          isUser: false,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, successMessage]);
+        setTimeout(() => autoSaveSession(), 1000);
       } else {
-        console.warn(`⚠️ GitHub issue creation status: ${result.github_issue?.status}, not starting polling`);
+        const errorDetail = result.github_issue?.error || result.github_issue?.message || result.error || 'Unknown error';
+        console.warn(`⚠️ GitHub issue creation status: ${result.github_issue?.status}, not showing success`);
+        const failMessage = {
+          id: `issue-failed-${Date.now()}`,
+          text: `❌ GitHub issue could not be created.\n\n${errorDetail}`,
+          isUser: false,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, failMessage]);
       }
-
-      // Show success message
-      const successMessage = {
-        id: `issue-created-${Date.now()}`,
-        text: `✅ GitHub issue created successfully!\n\nIssue: ${result.github_issue?.issue_url || 'N/A'}\n\nRemediation workflow has started. The Issue Agent will analyze and create a PR automatically.`,
-        isUser: false,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, successMessage]);
-      
-      // Auto-save after GitHub issue creation
-      setTimeout(() => {
-        autoSaveSession();
-      }, 1000);
 
     } catch (error) {
       console.error('GitHub issue creation failed:', error);
