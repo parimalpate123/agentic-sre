@@ -7,6 +7,7 @@ import CorrelationView from './CorrelationView';
 import ErrorPatternsView from './ErrorPatternsView';
 import DiagnosisView from './DiagnosisView';
 import RemediationStatus from './RemediationStatus';
+import KBSourceIndicator from './KBSourceIndicator';
 
 export default function MessageBubble({ 
   message, 
@@ -175,6 +176,13 @@ export default function MessageBubble({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* KB Source Indicator (shown when KB context was used) */}
+        {!isUser && message.kbSources?.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <KBSourceIndicator sources={message.kbSources} />
           </div>
         )}
 

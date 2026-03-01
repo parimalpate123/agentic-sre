@@ -601,4 +601,131 @@ export default {
   saveChatSession,
   loadChatSession,
   listChatSessions,
+  kbUpload,
+  kbUploadFile,
+  kbUploadComplete,
+  kbListDocuments,
+  kbDeleteDocument,
+  kbUpdateDocument,
+  kbGetChunks,
 };
+
+// ============================================================
+// Knowledge Base API functions
+// ============================================================
+
+/**
+ * Create a KB document record and get a presigned upload URL
+ * @param {Object} params - {service_name, file_name, feature_name?, ai_context?, doc_type?}
+ * @returns {Promise<{document_id, upload_url, s3_key}>}
+ */
+export async function kbUpload(params) {
+  const response = await fetch(API_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'kb_upload', ...params }),
+  });
+  const data = await response.json();
+  const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  if (!response.ok) throw new Error(result.error || `API error: ${response.status}`);
+  return result;
+}
+
+/**
+ * Upload file bytes directly to S3 via presigned PUT URL
+ * @param {string} uploadUrl - Presigned S3 URL
+ * @param {File} file - File object
+ */
+export async function kbUploadFile(uploadUrl, file) {
+  // Do NOT set Content-Type header — presigned URL is signed without it,
+  // and including extra headers causes S3 to return 403 Forbidden.
+  const response = await fetch(uploadUrl, {
+    method: 'PUT',
+    body: file,
+  });
+  if (!response.ok) throw new Error(`S3 upload failed: ${response.status} ${response.statusText}`);
+}
+
+/**
+ * Trigger backend processing (parse, chunk, embed) for an uploaded document
+ * @param {string} documentId - document_id returned from kbUpload
+ * @returns {Promise<{document_id, status, chunk_count}>}
+ */
+export async function kbUploadComplete(documentId) {
+  const response = await fetch(API_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'kb_upload_complete', document_id: documentId }),
+  });
+  const data = await response.json();
+  const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  if (!response.ok) throw new Error(result.error || `API error: ${response.status}`);
+  return result;
+}
+
+/**
+ * List all KB documents
+ * @param {Object} filters - Optional {service_name?, status?}
+ * @returns {Promise<{documents, count}>}
+ */
+export async function kbListDocuments(filters = {}) {
+  const params = new URLSearchParams({ action: 'kb_list', ...filters });
+  const response = await fetch(`${API_ENDPOINT}?${params}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await response.json();
+  const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  if (!response.ok) throw new Error(result.error || `API error: ${response.status}`);
+  return result;
+}
+
+/**
+ * Delete a KB document and its chunks
+ * @param {string} documentId
+ */
+export async function kbDeleteDocument(documentId) {
+  const response = await fetch(API_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'kb_delete', document_id: documentId }),
+  });
+  const data = await response.json();
+  const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  if (!response.ok) throw new Error(result.error || `API error: ${response.status}`);
+  return result;
+}
+
+/**
+ * Get all chunks for a document (without embeddings)
+ * @param {string} documentId
+ * @returns {Promise<{document_id, chunks, count}>}
+ */
+export async function kbGetChunks(documentId) {
+  const params = new URLSearchParams({ action: 'kb_get_chunks', document_id: documentId });
+  const response = await fetch(`${API_ENDPOINT}?${params}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await response.json();
+  const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  if (!response.ok) throw new Error(result.error || `API error: ${response.status}`);
+  return result;
+}
+
+/**
+ * Update document status (active/disabled)
+ * @param {string} documentId
+ * @param {string} status - 'active' | 'disabled'
+ */
+export async function kbUpdateDocument(documentId, status) {
+  const response = await fetch(API_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'kb_update', document_id: documentId, status }),
+  });
+  const data = await response.json();
+  const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  if (!response.ok) throw new Error(result.error || `API error: ${response.status}`);
+  return result;
+}

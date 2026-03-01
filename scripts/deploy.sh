@@ -30,7 +30,6 @@ DEPLOY_INFRA=true
 DEPLOY_MCP=true
 DEPLOY_LAMBDA=true
 DEPLOY_UI=false
-RUN_TEST=true
 DEPLOY_INCIDENT_MCP=false
 
 show_help() {
@@ -43,8 +42,7 @@ show_help() {
     echo "  --incident-mcp     Also build/push Incident MCP server (requires enable_incident_mcp=true in Terraform)"
     echo "  --lambda           Deploy only Lambda function"
     echo "  --ui               Deploy UI to CloudFront/S3"
-    echo "  --skip-test        Skip test invocation"
-    echo "  --help, -h         Show this help message"
+      echo "  --help, -h         Show this help message"
     echo ""
     echo "Examples:"
     echo "  ./scripts/deploy.sh                    # Deploy everything (infra, MCP, Lambda)"
@@ -82,9 +80,6 @@ if [ $# -gt 0 ]; then
                 ;;
             --ui)
                 DEPLOY_UI=true
-                ;;
-            --skip-test)
-                RUN_TEST=false
                 ;;
             --help|-h)
                 show_help
@@ -444,55 +439,6 @@ else
     echo ""
 fi
 
-# Test deployment
-if [ "$RUN_TEST" = true ]; then
-    echo "🧪 Testing deployment..."
-
-    cat > "$PROJECT_ROOT/test-event.json" << 'EOF'
-{
-  "version": "0",
-  "id": "test-deployment-001",
-  "detail-type": "CloudWatch Alarm State Change",
-  "source": "aws.cloudwatch",
-  "time": "2025-01-10T10:00:00Z",
-  "region": "us-east-1",
-  "account": "123456789012",
-  "detail": {
-    "alarmName": "payment-service-error-rate",
-    "state": {
-      "value": "ALARM",
-      "reason": "Threshold Crossed: 1 datapoint [15.2] was greater than the threshold (5.0)"
-    }
-  }
-}
-EOF
-
-    echo "  Invoking Lambda function..."
-    aws lambda invoke \
-      --function-name sre-poc-incident-handler \
-      --cli-binary-format raw-in-base64-out \
-      --payload "file://$PROJECT_ROOT/test-event.json" \
-      --region $AWS_REGION \
-      "$PROJECT_ROOT/response.json" \
-      --no-cli-pager
-
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Test invocation successful${NC}"
-
-        if command -v jq &> /dev/null; then
-            echo ""
-            echo "Response:"
-            cat "$PROJECT_ROOT/response.json" | jq .
-        fi
-    else
-        echo -e "${RED}❌ Test invocation failed${NC}"
-    fi
-
-    echo ""
-else
-    echo "⏭️  Skipping test invocation"
-    echo ""
-fi
 
 # Step 6: Deploy UI
 if [ "$DEPLOY_UI" = true ]; then

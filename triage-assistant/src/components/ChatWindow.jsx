@@ -1257,6 +1257,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         servicesFound: response.services_found || null,
         patternData: response.pattern_data || null,
         followUpQuestions: response.follow_up_questions || [],
+        kbSources: response.kb_sources || [],
       };
       setMessages((prev) => [...prev, assistantMessage]);
 

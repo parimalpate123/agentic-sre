@@ -48,6 +48,13 @@ secrets.txt
 .env.production
 .env.*.local
 
+# Node
+node_modules/
+package-lock.json
+
+# Generated artifacts
+*.gif
+
 # Logs
 *.log
 npm-debug.log*

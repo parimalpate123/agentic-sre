@@ -42,6 +42,11 @@ resource "aws_lambda_function" "incident_handler" {
         REMEDIATION_STATE_TABLE = aws_dynamodb_table.remediation_state.name
         CHAT_SESSIONS_TABLE     = aws_dynamodb_table.chat_sessions.name
 
+        # Knowledge Base Tables
+        KB_DOCUMENTS_TABLE = aws_dynamodb_table.kb_documents.name
+        KB_CHUNKS_TABLE    = aws_dynamodb_table.kb_chunks.name
+        KB_S3_BUCKET       = aws_s3_bucket.kb_documents.bucket
+
         # MCP Server Endpoint
         MCP_ENDPOINT = "http://mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8000"
 

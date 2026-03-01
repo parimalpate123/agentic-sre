@@ -9,3 +9,4 @@ langgraph==0.2.60
 langchain-core==0.3.40
 aiohttp==3.11.14
 python-json-logger==3.3.0
+PyPDF2>=3.0.0

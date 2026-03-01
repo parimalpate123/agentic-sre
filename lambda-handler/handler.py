@@ -134,6 +134,38 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Re-analyze existing incident
             logger.info(f"Routing to reanalyze_incident_handler (reanalyze_incident action detected)")
             response = reanalyze_incident_handler(event, context)
+        elif action == 'kb_upload':
+            logger.info("Routing to kb_handler (kb_upload)")
+            from kb_handler import handle_kb_upload
+            response = handle_kb_upload(body)
+        elif action == 'kb_upload_complete':
+            logger.info("Routing to kb_handler (kb_upload_complete)")
+            from kb_handler import handle_kb_upload_complete
+            response = handle_kb_upload_complete(body)
+        elif action == 'kb_list':
+            logger.info("Routing to kb_handler (kb_list)")
+            from kb_handler import handle_kb_list
+            response = handle_kb_list(query_params)
+        elif action == 'kb_get_document':
+            logger.info("Routing to kb_handler (kb_get_document)")
+            from kb_handler import handle_kb_get_document
+            response = handle_kb_get_document(query_params)
+        elif action == 'kb_get_chunks':
+            logger.info("Routing to kb_handler (kb_get_chunks)")
+            from kb_handler import handle_kb_get_chunks
+            response = handle_kb_get_chunks(query_params)
+        elif action == 'kb_delete':
+            logger.info("Routing to kb_handler (kb_delete)")
+            from kb_handler import handle_kb_delete
+            response = handle_kb_delete(body)
+        elif action == 'kb_update':
+            logger.info("Routing to kb_handler (kb_update)")
+            from kb_handler import handle_kb_update
+            response = handle_kb_update(body)
+        elif action == 'kb_reembed':
+            logger.info("Routing to kb_handler (kb_reembed)")
+            from kb_handler import handle_kb_reembed
+            response = handle_kb_reembed(body)
         elif 'question' in body:
             # Chat query
             logger.info("Routing to chat_handler (question detected)")

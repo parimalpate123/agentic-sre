@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TARS — User Flow (Light Purple)</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #EDE9FE;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── SLIDE WRAPPER ── */
+    .slide {
+      width: 1200px;
+      height: 675px;
+      position: relative;
+      background: linear-gradient(150deg, #FFFFFF 0%, #FAF8FF 55%, #F0EBFF 100%);
+      overflow: hidden;
+      transform-origin: center center;
+      box-shadow: 0 8px 60px rgba(91,33,182,0.18);
+    }
+
+    /* ── BACKGROUND ── */
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(124,58,237,0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124,58,237,0.055) 1px, transparent 1px);
+      background-size: 50px 50px;
+    }
+    .bg-glow-center {
+      position: absolute;
+      width: 520px; height: 520px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(124,58,237,0.1) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      animation: breathe 5s ease-in-out infinite;
+    }
+    .bg-glow-left {
+      position: absolute;
+      width: 280px; height: 280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(96,165,250,0.07) 0%, transparent 70%);
+      top: 50%; left: 155px;
+      transform: translate(-50%, -50%);
+    }
+    .bg-glow-right {
+      position: absolute;
+      width: 280px; height: 280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(52,211,153,0.05) 0%, transparent 70%);
+      top: 50%; left: 1045px;
+      transform: translate(-50%, -50%);
+    }
+
+    /* ── SVG OVERLAY ── */
+    .svg-layer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 1200px; height: 675px;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* ── HEADER ── */
+    .slide-header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 28px 0 0;
+      text-align: center;
+      z-index: 30;
+      opacity: 0;
+    }
+    .slide-title {
+      font-size: 26px;
+      font-weight: 800;
+      color: #1a0a3d;
+      letter-spacing: -0.5px;
+      line-height: 1;
+    }
+    .slide-subtitle {
+      font-size: 13px;
+      color: #7C3AED;
+      margin-top: 5px;
+      letter-spacing: 0.2px;
+      font-weight: 500;
+    }
+
+    /* ── COLUMN LABELS ── */
+    .col-label {
+      position: absolute;
+      top: 98px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: rgba(91,33,182,0.45);
+      z-index: 30;
+      opacity: 0;
+    }
+    .col-label-left  { left: 60px; }
+    .col-label-mid   { left: 520px; width: 160px; text-align: center; }
+    .col-label-right { left: 950px; }
+
+    /* ── NODE CARDS ── */
+    .node-card {
+      position: absolute;
+      width: 195px;
+      border-radius: 14px;
+      padding: 12px 16px 11px;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid rgba(0,0,0,0.07);
+      box-shadow: 0 2px 20px rgba(91,33,182,0.08), 0 1px 4px rgba(0,0,0,0.06);
+      z-index: 20;
+      opacity: 0;
+      transition: box-shadow 0.3s, transform 0.2s;
+    }
+    .node-card:hover {
+      box-shadow: 0 6px 30px rgba(91,33,182,0.14), 0 2px 8px rgba(0,0,0,0.08);
+      transform: translateY(-1px);
+    }
+    .node-icon {
+      display: flex;
+      align-items: flex-end;
+      gap: 5px;
+      margin-bottom: 5px;
+    }
+    .icon-primary { display: flex; align-items: center; }
+    .icon-primary svg { width: 21px; height: 21px; }
+    .icon-badge   { display: flex; align-items: center; margin-bottom: 1px; }
+    .icon-badge svg   { width: 13px; height: 13px; }
+    .node-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1a0a3d;
+      margin-bottom: 3px;
+      line-height: 1.2;
+    }
+    .node-desc {
+      font-size: 10px;
+      color: #6B7280;
+      line-height: 1.45;
+      margin-bottom: 5px;
+    }
+    .node-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      padding: 3px 8px;
+      border-radius: 8px;
+    }
+
+    /* Left actor accents */
+    .sre-card   { border-color: rgba(59,130,246,0.35);  border-left: 3px solid #3B82F6;  }
+    .dev-card   { border-color: rgba(16,185,129,0.35);  border-left: 3px solid #10B981;  }
+    .alarm-card { border-color: rgba(245,158,11,0.35);  border-left: 3px solid #F59E0B;  }
+
+    .badge-sre   { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+    .badge-dev   { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+    .badge-alarm { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+
+    /* Right agent accents */
+    .chat-card  { border-color: rgba(59,130,246,0.35);  border-left: 3px solid #3B82F6;  }
+    .issue-card { border-color: rgba(245,158,11,0.35);  border-left: 3px solid #F59E0B;  }
+    .pr-card    { border-color: rgba(16,185,129,0.35);  border-left: 3px solid #10B981;  }
+
+    .badge-chat  { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+    .badge-issue { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+    .badge-pr    { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+
+    /* ── TARS HUB ── */
+    .tars-hub {
+      position: absolute;
+      width: 160px; height: 160px;
+      left: 520px; top: 280px;
+      z-index: 20;
+      opacity: 0;
+    }
+    .tars-ring {
+      position: absolute;
+      border-radius: 50%;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(124,58,237,0.3);
+      animation: ringPulse 3.5s ease-in-out infinite;
+    }
+    .ring-1 { width: 178px; height: 178px; animation-delay: 0s; }
+    .ring-2 { width: 212px; height: 212px; animation-delay: 0.6s; border-color: rgba(124,58,237,0.18); }
+    .ring-3 { width: 250px; height: 250px; animation-delay: 1.2s; border-color: rgba(124,58,237,0.09); }
+    @keyframes ringPulse {
+      0%, 100% { opacity: 0.5; transform: translate(-50%,-50%) scale(1); }
+      50%       { opacity: 1;   transform: translate(-50%,-50%) scale(1.04); }
+    }
+    @keyframes breathe {
+      0%, 100% { opacity: 0.8; transform: translate(-50%,-50%) scale(1); }
+      50%       { opacity: 1;   transform: translate(-50%,-50%) scale(1.08); }
+    }
+    .tars-circle {
+      position: absolute;
+      width: 160px; height: 160px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #4c1d95 0%, #7c3aed 55%, #5b21b6 100%);
+      border: 1.5px solid rgba(196,181,253,0.5);
+      box-shadow:
+        0 0 50px rgba(124,58,237,0.5),
+        0 0 100px rgba(124,58,237,0.2),
+        inset 0 1px 0 rgba(255,255,255,0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .tars-wordmark {
+      font-size: 34px;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: -1.5px;
+      line-height: 1;
+    }
+    .tars-tagline {
+      font-size: 8.5px;
+      color: rgba(237,233,254,0.9);
+      text-align: center;
+      letter-spacing: 0.4px;
+      margin-top: 5px;
+      line-height: 1.5;
+      padding: 0 12px;
+    }
+
+    /* ── ARROW LABELS ── */
+    .arrow-label {
+      position: absolute;
+      font-size: 9.5px;
+      font-weight: 600;
+      color: #5B21B6;
+      background: rgba(237,233,254,0.92);
+      border: 1px solid rgba(124,58,237,0.3);
+      padding: 2px 9px;
+      border-radius: 8px;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+      z-index: 25;
+      opacity: 0;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 1px 6px rgba(91,33,182,0.1);
+    }
+
+    /* ── FOOTER ── */
+    .slide-footer {
+      position: absolute;
+      bottom: 16px;
+      left: 0; right: 0;
+      text-align: center;
+      font-size: 10px;
+      color: rgba(91,33,182,0.3);
+      letter-spacing: 1.2px;
+      z-index: 30;
+    }
+
+    /* ── ENTRANCE ANIMATIONS ── */
+    @keyframes slideFromLeft {
+      from { opacity: 0; transform: translateX(-28px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slideFromRight {
+      from { opacity: 0; transform: translateX(28px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.75); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    .anim-left  { animation: slideFromLeft  0.55s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+    .anim-right { animation: slideFromRight 0.55s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+    .anim-pop   { animation: popIn          0.65s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+    .anim-fade  { animation: fadeIn         0.45s ease forwards; }
+
+    /* ── SCROLLING TICKER ── */
+    .ticker-wrap {
+      position: absolute;
+      bottom: 34px;
+      left: 0; right: 0;
+      height: 22px;
+      overflow: hidden;
+      mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
+      /* below node cards (z-index:20) so it never overlaps them */
+      z-index: 10;
+      opacity: 0;
+      background: linear-gradient(90deg, transparent 0%, rgba(245,243,255,0.6) 8%, rgba(245,243,255,0.6) 92%, transparent 100%);
+    }
+    .ticker-track {
+      display: flex;
+      gap: 40px;
+      white-space: nowrap;
+      animation: ticker 20s linear infinite;
+      width: max-content;
+    }
+    @keyframes ticker {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
+    .ticker-item {
+      font-size: 10px;
+      color: rgba(91,33,182,0.45);
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+    .ticker-dot { color: rgba(124,58,237,0.55); margin: 0 4px; }
+  </style>
+</head>
+<body>
+<div class="slide" id="slide">
+
+  <!-- Background layers -->
+  <div class="bg-grid"></div>
+  <div class="bg-glow-center"></div>
+  <div class="bg-glow-left"></div>
+  <div class="bg-glow-right"></div>
+
+  <!-- SVG: connections + particles -->
+  <svg class="svg-layer" viewBox="0 0 1200 675" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arr-blue"   markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(59,130,246,0.9)"/>
+      </marker>
+      <marker id="arr-green"  markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(16,185,129,0.9)"/>
+      </marker>
+      <marker id="arr-orange" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(245,158,11,0.9)"/>
+      </marker>
+      <marker id="arr-purple" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(124,58,237,0.7)"/>
+      </marker>
+      <filter id="glow-sm" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="2" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glow-xs" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="1" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+
+    <!-- ── INCOMING PATHS (left → TARS) ── -->
+    <path id="p-sre"
+      d="M 255,195 C 400,195 520,310 520,360"
+      fill="none" stroke="rgba(59,130,246,0.55)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-blue)" filter="url(#glow-xs)"/>
+
+    <path id="p-dev"
+      d="M 255,367 C 390,367 520,364 520,360"
+      fill="none" stroke="rgba(16,185,129,0.55)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-green)" filter="url(#glow-xs)"/>
+
+    <path id="p-alarm"
+      d="M 255,530 C 400,530 520,432 520,360"
+      fill="none" stroke="rgba(245,158,11,0.55)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-orange)" filter="url(#glow-xs)"/>
+
+    <!-- ── OUTGOING PATHS (TARS → agents) ── -->
+    <path id="p-chat"
+      d="M 680,360 C 820,360 890,250 945,195"
+      fill="none" stroke="rgba(59,130,246,0.55)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-blue)" filter="url(#glow-xs)"/>
+
+    <path id="p-issue"
+      d="M 680,360 C 800,360 900,364 945,367"
+      fill="none" stroke="rgba(245,158,11,0.55)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-orange)" filter="url(#glow-xs)"/>
+
+    <!-- Issue & Fix Agent → PR Agent (wide right-side arc outside both cards) -->
+    <path id="p-i2pr"
+      d="M 1140,372 C 1184,400 1184,505 1140,530"
+      fill="none" stroke="rgba(16,185,129,0.7)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-green)" filter="url(#glow-xs)"/>
+
+    <!-- PR Agent → TARS status (dashed purple) -->
+    <path id="p-status"
+      d="M 945,530 C 870,530 790,445 680,382"
+      fill="none" stroke="rgba(124,58,237,0.45)" stroke-width="1.4"
+      stroke-dasharray="6,4"
+      marker-end="url(#arr-purple)" filter="url(#glow-xs)"/>
+
+    <!-- ── PARTICLES ── -->
+
+    <!-- SRE (blue) -->
+    <circle r="3.5" fill="rgba(59,130,246,0.9)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="1.8s"
+        path="M 255,195 C 400,195 520,310 520,360"/>
+    </circle>
+    <circle r="2.5" fill="rgba(147,197,253,0.75)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="3.0s"
+        path="M 255,195 C 400,195 520,310 520,360"/>
+    </circle>
+
+    <!-- Dev (green) -->
+    <circle r="3.5" fill="rgba(16,185,129,0.9)" filter="url(#glow-sm)">
+      <animateMotion dur="2.0s" repeatCount="indefinite" begin="2.0s"
+        path="M 255,367 C 390,367 520,364 520,360"/>
+    </circle>
+    <circle r="2.5" fill="rgba(52,211,153,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.0s" repeatCount="indefinite" begin="3.2s"
+        path="M 255,367 C 390,367 520,364 520,360"/>
+    </circle>
+
+    <!-- Alarm (orange) -->
+    <circle r="3.5" fill="rgba(245,158,11,0.9)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="2.2s"
+        path="M 255,530 C 400,530 520,432 520,360"/>
+    </circle>
+    <circle r="2.5" fill="rgba(253,186,116,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="3.6s"
+        path="M 255,530 C 400,530 520,432 520,360"/>
+    </circle>
+
+    <!-- Chat (blue) -->
+    <circle r="3.5" fill="rgba(59,130,246,0.9)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="1.9s"
+        path="M 680,360 C 820,360 890,250 945,195"/>
+    </circle>
+    <circle r="2.5" fill="rgba(147,197,253,0.75)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="3.1s"
+        path="M 680,360 C 820,360 890,250 945,195"/>
+    </circle>
+
+    <!-- Issue (orange) -->
+    <circle r="3.5" fill="rgba(245,158,11,0.9)" filter="url(#glow-sm)">
+      <animateMotion dur="2.1s" repeatCount="indefinite" begin="2.1s"
+        path="M 680,360 C 800,360 900,364 945,367"/>
+    </circle>
+    <circle r="2.5" fill="rgba(253,186,116,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.1s" repeatCount="indefinite" begin="3.3s"
+        path="M 680,360 C 800,360 900,364 945,367"/>
+    </circle>
+
+    <!-- Issue→PR (green, outside arc) -->
+    <circle r="3.5" fill="rgba(16,185,129,0.9)" filter="url(#glow-sm)">
+      <animateMotion dur="1.8s" repeatCount="indefinite" begin="2.4s"
+        path="M 1140,372 C 1184,400 1184,505 1140,530"/>
+    </circle>
+    <circle r="2.5" fill="rgba(52,211,153,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="1.8s" repeatCount="indefinite" begin="3.4s"
+        path="M 1140,372 C 1184,400 1184,505 1140,530"/>
+    </circle>
+
+    <!-- PR→TARS status (purple, slow) -->
+    <circle r="2.5" fill="rgba(124,58,237,0.8)" filter="url(#glow-sm)">
+      <animateMotion dur="3.5s" repeatCount="indefinite" begin="2.8s"
+        path="M 945,530 C 870,530 790,445 680,382"/>
+    </circle>
+  </svg>
+
+  <!-- ── HEADER ── -->
+  <div class="slide-header" id="el-header">
+    <div class="slide-title">How TARS Works</div>
+    <div class="slide-subtitle">Analyze telemetry &nbsp;·&nbsp; Diagnose root cause &nbsp;·&nbsp; Automate resolution</div>
+  </div>
+
+  <!-- ── COLUMN LABELS ── -->
+  <div class="col-label col-label-left"  id="el-lbl-l">&#x25B6;&nbsp; INITIATORS</div>
+  <div class="col-label col-label-mid"   id="el-lbl-m">&#x25B6;&nbsp; AGENTIC SYSTEM</div>
+  <div class="col-label col-label-right" id="el-lbl-r">&#x25B6;&nbsp; AGENTS</div>
+
+  <!-- ── LEFT NODES ── -->
+  <div class="node-card sre-card" style="left:60px; top:130px;" id="el-sre">
+    <span class="node-icon">
+      <span class="icon-primary"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4 3.582-7 8-7s8 3 8 7"/></svg></span>
+      <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+    </span>
+    <div class="node-name">SRE Engineer</div>
+    <div class="node-desc">Asks questions, investigates alerts, traces incidents in natural language</div>
+    <span class="node-badge badge-sre">PRIMARY USER</span>
+  </div>
+
+  <div class="node-card dev-card" style="left:60px; top:302px;" id="el-dev">
+    <span class="node-icon">
+      <span class="icon-primary"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4 3.582-7 8-7s8 3 8 7"/></svg></span>
+      <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg></span>
+    </span>
+    <div class="node-name">Developer</div>
+    <div class="node-desc">Debugs failures, queries service logs, understands what broke and why</div>
+    <span class="node-badge badge-dev">USER</span>
+  </div>
+
+  <div class="node-card alarm-card" style="left:60px; top:462px;" id="el-alarm">
+    <span class="node-icon">
+      <span class="icon-primary"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+      <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/></svg></span>
+    </span>
+    <div class="node-name">CloudWatch Alarm</div>
+    <div class="node-desc">Auto-triggers TARS the moment an alert fires — no human needed to start</div>
+    <span class="node-badge badge-alarm">AUTO-TRIGGER</span>
+  </div>
+
+  <!-- ── TARS CENTER HUB ── -->
+  <div class="tars-hub" id="el-tars">
+    <div class="tars-ring ring-1"></div>
+    <div class="tars-ring ring-2"></div>
+    <div class="tars-ring ring-3"></div>
+    <div class="tars-circle">
+      <div class="tars-wordmark">TARS</div>
+      <div class="tars-tagline">Agentic<br>Observability</div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT NODES (Agents) ── -->
+  <div class="node-card chat-card" style="left:945px; top:130px;" id="el-chat">
+    <span class="node-icon">
+      <span class="icon-primary"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+      <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+    </span>
+    <div class="node-name">Chat &amp; Analysis</div>
+    <div class="node-desc">Log synthesis, root cause diagnosis, correlation traces — instant answers</div>
+    <span class="node-badge badge-chat">RESPONSE</span>
+  </div>
+
+  <div class="node-card issue-card" style="left:945px; top:302px;" id="el-issue">
+    <span class="node-icon">
+      <span class="icon-primary"><svg viewBox="0 0 24 24" fill="#374151"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg></span>
+      <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="14" r="4"/><path d="M12 10V8"/><path d="M9.5 9.5 L7.5 7.5M14.5 9.5 L16.5 7.5"/><line x1="8" y1="14" x2="4" y2="14"/><line x1="20" y1="14" x2="16" y2="14"/><line x1="9" y1="18" x2="7" y2="20"/><line x1="15" y1="18" x2="17" y2="20"/></svg></span>
+    </span>
+    <div class="node-name">GitHub Issue &amp; Fix Agent</div>
+    <div class="node-desc">Creates incident issues, generates fix suggestions, hands off to PR Agent</div>
+    <span class="node-badge badge-issue">AGENT</span>
+  </div>
+
+  <div class="node-card pr-card" style="left:945px; top:462px;" id="el-pr">
+    <span class="node-icon">
+      <span class="icon-primary"><svg viewBox="0 0 24 24" fill="#374151"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg></span>
+      <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="#374151" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M6 8.5v7"/><path d="M8.5 6h4a5 5 0 0 1 5 5v.5"/><polyline points="15,3 18,6 15,9"/></svg></span>
+    </span>
+    <div class="node-name">GitHub PR Agent</div>
+    <div class="node-desc">Generates fix PRs automatically — awaits human approval before merge</div>
+    <span class="node-badge badge-pr">AGENT</span>
+  </div>
+
+  <!-- ── ARROW LABELS ── -->
+  <div class="arrow-label" id="el-lbl-sre"    style="left:308px; top:200px;">asks &nbsp;·&nbsp; queries</div>
+  <div class="arrow-label" id="el-lbl-dev"    style="left:330px; top:352px;">interacts</div>
+  <div class="arrow-label" id="el-lbl-alarm"  style="left:306px; top:497px;">auto-triggers</div>
+  <div class="arrow-label" id="el-lbl-chat"   style="left:764px; top:242px;">answers &nbsp;·&nbsp; synthesizes</div>
+  <div class="arrow-label" id="el-lbl-issue"  style="left:764px; top:352px;">triages &nbsp;·&nbsp; delegates</div>
+  <div class="arrow-label" id="el-lbl-i2pr"   style="left:1148px; top:444px; font-size:8.5px; padding:2px 6px;">PR &#x2193;</div>
+  <div class="arrow-label" id="el-lbl-status" style="left:780px; top:462px; border-style:dashed;">gets status</div>
+
+  <!-- ── TICKER ── -->
+  <div class="ticker-wrap" id="el-ticker">
+    <div class="ticker-track">
+      <span class="ticker-item">Chat-based Log Analysis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Cross-Service Correlation</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Auto-Triage on Alarm</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Root Cause Diagnosis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">GitHub Issue &amp; Fix Agent</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Knowledge Base (RAG)</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Session Memory</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Human-in-the-Loop Approval</span><span class="ticker-dot">◆</span>
+      <!-- duplicate for seamless loop -->
+      <span class="ticker-item">Chat-based Log Analysis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Cross-Service Correlation</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Auto-Triage on Alarm</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Root Cause Diagnosis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">GitHub Issue &amp; Fix Agent</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Knowledge Base (RAG)</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Session Memory</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Human-in-the-Loop Approval</span><span class="ticker-dot">◆</span>
+    </div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <div class="slide-footer">TARS &nbsp;·&nbsp; Telemetry Analysis &amp; Resolution System &nbsp;·&nbsp; Agentic Incident Intelligence</div>
+
+</div>
+
+<script>
+  // ── Scale slide to fit viewport ──────────────────────────────
+  const slide = document.getElementById('slide');
+  function scaleSlide() {
+    const sx = window.innerWidth  / 1200;
+    const sy = window.innerHeight / 675;
+    const s  = Math.min(sx, sy) * 0.97;
+    slide.style.transform = `scale(${s})`;
+  }
+  scaleSlide();
+  window.addEventListener('resize', scaleSlide);
+
+  // ── Staggered entrance sequence ─────────────────────────────
+  const seq = [
+    ['el-header',     100,  'anim-fade'],
+    ['el-lbl-l',      250,  'anim-fade'],
+    ['el-lbl-m',      350,  'anim-fade'],
+    ['el-lbl-r',      450,  'anim-fade'],
+    ['el-sre',        350,  'anim-left'],
+    ['el-dev',        500,  'anim-left'],
+    ['el-alarm',      650,  'anim-left'],
+    ['el-tars',       850,  'anim-pop'],
+    ['el-chat',      1100,  'anim-right'],
+    ['el-issue',     1250,  'anim-right'],
+    ['el-pr',        1400,  'anim-right'],
+    ['el-lbl-sre',   1550,  'anim-fade'],
+    ['el-lbl-dev',   1650,  'anim-fade'],
+    ['el-lbl-alarm', 1750,  'anim-fade'],
+    ['el-lbl-chat',  1850,  'anim-fade'],
+    ['el-lbl-issue', 1950,  'anim-fade'],
+    ['el-lbl-i2pr',  2050,  'anim-fade'],
+    ['el-lbl-status',2150,  'anim-fade'],
+    ['el-ticker',    2300,  'anim-fade'],
+  ];
+
+  seq.forEach(([id, delay, cls]) => {
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add(cls);
+    }, delay);
+  });
+
+  // ── Arrow draw-in animation ──────────────────────────────────
+  const arrows = [
+    { id: 'p-sre',    delay: 1000 },
+    { id: 'p-dev',    delay: 1100 },
+    { id: 'p-alarm',  delay: 1200 },
+    { id: 'p-chat',   delay: 1300 },
+    { id: 'p-issue',  delay: 1400 },
+    { id: 'p-i2pr',   delay: 1550 },
+    { id: 'p-status', delay: 1700 },
+  ];
+
+  arrows.forEach(({ id, delay }) => {
+    const path = document.getElementById(id);
+    if (!path) return;
+    const len = path.getTotalLength();
+    path.style.strokeDasharray  = len;
+    path.style.strokeDashoffset = len;
+    setTimeout(() => {
+      path.style.transition = 'stroke-dashoffset 0.75s cubic-bezier(0.4,0,0.2,1)';
+      path.style.strokeDashoffset = 0;
+    }, delay);
+  });
+</script>
+</body>
+</html>

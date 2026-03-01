@@ -62,6 +62,15 @@ cp delete_incident_handler.py package/ && echo "  ✓ delete_incident_handler.py
 cp reanalyze_incident_handler.py package/ && echo "  ✓ reanalyze_incident_handler.py"
 cp agent_invoker.py package/ && echo "  ✓ agent_invoker.py"
 
+# Copy KB modules
+echo "Copying KB modules..."
+cp kb_handler.py package/ && echo "  ✓ kb_handler.py"
+cp kb_storage.py package/ && echo "  ✓ kb_storage.py"
+cp kb_parser.py package/ && echo "  ✓ kb_parser.py"
+cp kb_chunker.py package/ && echo "  ✓ kb_chunker.py"
+cp kb_embedder.py package/ && echo "  ✓ kb_embedder.py"
+cp kb_retriever.py package/ && echo "  ✓ kb_retriever.py"
+
 # Verify chat_session_handler.py was copied
 echo ""
 echo "Verifying handler files were copied..."

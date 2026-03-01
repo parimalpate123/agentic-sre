@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TARS — User Flow</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── SLIDE WRAPPER ── */
+    .slide {
+      width: 1200px;
+      height: 675px;
+      position: relative;
+      background: #08051a;
+      overflow: hidden;
+      transform-origin: center center;
+    }
+
+    /* ── BACKGROUND ── */
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(124,58,237,0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124,58,237,0.07) 1px, transparent 1px);
+      background-size: 50px 50px;
+    }
+    .bg-glow-center {
+      position: absolute;
+      width: 480px; height: 480px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(124,58,237,0.18) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      animation: breathe 5s ease-in-out infinite;
+    }
+    .bg-glow-left {
+      position: absolute;
+      width: 260px; height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(96,165,250,0.08) 0%, transparent 70%);
+      top: 50%; left: 155px;
+      transform: translate(-50%, -50%);
+    }
+    .bg-glow-right {
+      position: absolute;
+      width: 260px; height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(52,211,153,0.06) 0%, transparent 70%);
+      top: 50%; left: 1045px;
+      transform: translate(-50%, -50%);
+    }
+
+    /* ── SVG OVERLAY ── */
+    .svg-layer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 1200px; height: 675px;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* ── HEADER ── */
+    .slide-header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 28px 0 0;
+      text-align: center;
+      z-index: 30;
+      opacity: 0;
+    }
+    .slide-title {
+      font-size: 26px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.5px;
+      line-height: 1;
+    }
+    .slide-subtitle {
+      font-size: 13px;
+      color: rgba(167,139,250,0.7);
+      margin-top: 5px;
+      letter-spacing: 0.2px;
+    }
+
+    /* ── COLUMN LABELS ── */
+    .col-label {
+      position: absolute;
+      top: 98px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: rgba(167,139,250,0.4);
+      z-index: 30;
+      opacity: 0;
+    }
+    .col-label-left  { left: 60px; }
+    .col-label-mid   { left: 520px; width: 160px; text-align: center; }
+    .col-label-right { left: 950px; }
+
+    /* ── NODE CARDS (left + right) ── */
+    .node-card {
+      position: absolute;
+      width: 195px;
+      border-radius: 14px;
+      padding: 15px 17px 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      z-index: 20;
+      opacity: 0;
+      transition: box-shadow 0.3s;
+    }
+    .node-card:hover {
+      background: rgba(255,255,255,0.07);
+    }
+    .node-icon {
+      font-size: 22px;
+      display: block;
+      margin-bottom: 7px;
+      line-height: 1;
+    }
+    .node-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 4px;
+      line-height: 1.2;
+    }
+    .node-desc {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      line-height: 1.45;
+      margin-bottom: 8px;
+    }
+    .node-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      padding: 3px 8px;
+      border-radius: 8px;
+    }
+
+    /* Left actor accents */
+    .sre-card   { border-color: rgba(96,165,250,0.4);  box-shadow: 0 0 25px rgba(96,165,250,0.08); }
+    .dev-card   { border-color: rgba(52,211,153,0.4);  box-shadow: 0 0 25px rgba(52,211,153,0.08); }
+    .alarm-card { border-color: rgba(251,146,60,0.45); box-shadow: 0 0 25px rgba(251,146,60,0.1);  }
+
+    .badge-sre   { background: rgba(96,165,250,0.18);  color: #93C5FD; }
+    .badge-dev   { background: rgba(52,211,153,0.18);  color: #6EE7B7; }
+    .badge-alarm { background: rgba(251,146,60,0.18);  color: #FCD34D; }
+
+    /* Right agent accents */
+    .chat-card  { border-color: rgba(96,165,250,0.4);  box-shadow: 0 0 25px rgba(96,165,250,0.08); }
+    .issue-card { border-color: rgba(251,146,60,0.45); box-shadow: 0 0 25px rgba(251,146,60,0.1);  }
+    .pr-card    { border-color: rgba(52,211,153,0.4);  box-shadow: 0 0 25px rgba(52,211,153,0.08); }
+
+    .badge-chat  { background: rgba(96,165,250,0.18);  color: #93C5FD; }
+    .badge-issue { background: rgba(251,146,60,0.18);  color: #FCD34D; }
+    .badge-pr    { background: rgba(52,211,153,0.18);  color: #6EE7B7; }
+
+    /* ── TARS HUB ── */
+    .tars-hub {
+      position: absolute;
+      width: 160px; height: 160px;
+      left: 520px; top: 280px;
+      z-index: 20;
+      opacity: 0;
+    }
+    .tars-ring {
+      position: absolute;
+      border-radius: 50%;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(167,139,250,0.35);
+      animation: ringPulse 3.5s ease-in-out infinite;
+    }
+    .ring-1 { width: 178px; height: 178px; animation-delay: 0s; }
+    .ring-2 { width: 212px; height: 212px; animation-delay: 0.6s; border-color: rgba(167,139,250,0.2); }
+    .ring-3 { width: 250px; height: 250px; animation-delay: 1.2s; border-color: rgba(167,139,250,0.1); }
+    @keyframes ringPulse {
+      0%, 100% { opacity: 0.5; transform: translate(-50%,-50%) scale(1); }
+      50%       { opacity: 1;   transform: translate(-50%,-50%) scale(1.04); }
+    }
+    @keyframes breathe {
+      0%, 100% { opacity: 0.8; transform: translate(-50%,-50%) scale(1); }
+      50%       { opacity: 1;   transform: translate(-50%,-50%) scale(1.08); }
+    }
+    .tars-circle {
+      position: absolute;
+      width: 160px; height: 160px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #4c1d95 0%, #7c3aed 55%, #5b21b6 100%);
+      border: 1.5px solid rgba(196,181,253,0.45);
+      box-shadow:
+        0 0 50px rgba(124,58,237,0.7),
+        0 0 100px rgba(124,58,237,0.3),
+        inset 0 1px 0 rgba(255,255,255,0.15);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .tars-wordmark {
+      font-size: 34px;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: -1.5px;
+      line-height: 1;
+    }
+    .tars-tagline {
+      font-size: 8.5px;
+      color: rgba(196,181,253,0.85);
+      text-align: center;
+      letter-spacing: 0.4px;
+      margin-top: 5px;
+      line-height: 1.5;
+      padding: 0 12px;
+    }
+
+    /* ── ARROW LABELS ── */
+    .arrow-label {
+      position: absolute;
+      font-size: 9.5px;
+      font-weight: 600;
+      color: rgba(196,181,253,0.65);
+      background: rgba(30,15,60,0.7);
+      border: 1px solid rgba(124,58,237,0.25);
+      padding: 2px 9px;
+      border-radius: 8px;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+      z-index: 25;
+      opacity: 0;
+      backdrop-filter: blur(4px);
+    }
+
+    /* ── FOOTER ── */
+    .slide-footer {
+      position: absolute;
+      bottom: 16px;
+      left: 0; right: 0;
+      text-align: center;
+      font-size: 10px;
+      color: rgba(255,255,255,0.18);
+      letter-spacing: 1.2px;
+      z-index: 30;
+    }
+
+    /* ── ENTRANCE ANIMATIONS ── */
+    @keyframes slideFromLeft {
+      from { opacity: 0; transform: translateX(-28px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slideFromRight {
+      from { opacity: 0; transform: translateX(28px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.75); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    .anim-left  { animation: slideFromLeft  0.55s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+    .anim-right { animation: slideFromRight 0.55s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+    .anim-pop   { animation: popIn          0.65s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+    .anim-fade  { animation: fadeIn         0.45s ease forwards; }
+
+    /* ── SCROLLING TICKER (bottom legend) ── */
+    .ticker-wrap {
+      position: absolute;
+      bottom: 34px;
+      left: 0; right: 0;
+      height: 22px;
+      overflow: hidden;
+      mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
+      z-index: 25;
+      opacity: 0;
+    }
+    .ticker-track {
+      display: flex;
+      gap: 40px;
+      white-space: nowrap;
+      animation: ticker 20s linear infinite;
+      width: max-content;
+    }
+    @keyframes ticker {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
+    .ticker-item {
+      font-size: 10px;
+      color: rgba(167,139,250,0.35);
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+    .ticker-dot { color: rgba(124,58,237,0.5); margin: 0 4px; }
+  </style>
+</head>
+<body>
+<div class="slide" id="slide">
+
+  <!-- Background layers -->
+  <div class="bg-grid"></div>
+  <div class="bg-glow-center"></div>
+  <div class="bg-glow-left"></div>
+  <div class="bg-glow-right"></div>
+
+  <!-- SVG: connections + particles -->
+  <svg class="svg-layer" viewBox="0 0 1200 675" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <!-- Arrow markers per color -->
+      <marker id="arr-blue"   markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(96,165,250,0.85)"/>
+      </marker>
+      <marker id="arr-green"  markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(52,211,153,0.85)"/>
+      </marker>
+      <marker id="arr-orange" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(251,146,60,0.85)"/>
+      </marker>
+      <marker id="arr-purple" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0.5 L0,6.5 L6.5,3.5 z" fill="rgba(196,181,253,0.75)"/>
+      </marker>
+      <!-- Glow filter for particles + paths -->
+      <filter id="glow-sm" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="2.5" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glow-xs" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="1.5" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+
+    <!-- ── INCOMING PATHS (left → TARS) ── -->
+    <!-- SRE → TARS  (blue) -->
+    <path id="p-sre"
+      d="M 255,195 C 400,195 520,310 520,360"
+      fill="none" stroke="rgba(96,165,250,0.6)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-blue)" filter="url(#glow-xs)"/>
+
+    <!-- Dev → TARS  (green) — fixed: y=367 matches dev card center -->
+    <path id="p-dev"
+      d="M 255,367 C 390,367 520,364 520,360"
+      fill="none" stroke="rgba(52,211,153,0.6)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-green)" filter="url(#glow-xs)"/>
+
+    <!-- Alarm → TARS  (orange) — fixed: y=539 matches alarm card center -->
+    <path id="p-alarm"
+      d="M 255,539 C 400,539 520,440 520,360"
+      fill="none" stroke="rgba(251,146,60,0.6)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-orange)" filter="url(#glow-xs)"/>
+
+    <!-- ── OUTGOING PATHS (TARS → agents) ── -->
+    <!-- TARS → Chat  (blue) -->
+    <path id="p-chat"
+      d="M 680,360 C 820,360 890,250 945,195"
+      fill="none" stroke="rgba(96,165,250,0.6)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-blue)" filter="url(#glow-xs)"/>
+
+    <!-- TARS → Issue & Fix Agent  (orange) — fixed: y=367 matches issue card center -->
+    <path id="p-issue"
+      d="M 680,360 C 800,360 900,364 945,367"
+      fill="none" stroke="rgba(251,146,60,0.6)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-orange)" filter="url(#glow-xs)"/>
+
+    <!-- Issue & Fix Agent → PR Agent  (green, wide right-side arc outside both cards) -->
+    <path id="p-i2pr"
+      d="M 1140,367 C 1182,395 1182,510 1140,539"
+      fill="none" stroke="rgba(52,211,153,0.7)" stroke-width="1.8"
+      stroke-dasharray="1" stroke-dashoffset="1"
+      marker-end="url(#arr-green)" filter="url(#glow-xs)"/>
+
+    <!-- PR Agent → TARS  (purple dashed — TARS monitors status only) -->
+    <path id="p-status"
+      d="M 945,510 C 870,510 790,430 680,385"
+      fill="none" stroke="rgba(196,181,253,0.5)" stroke-width="1.4"
+      stroke-dasharray="6,4"
+      marker-end="url(#arr-purple)" filter="url(#glow-xs)"/>
+
+    <!-- ── PARTICLES ── -->
+
+    <!-- SRE path particles (blue) -->
+    <circle r="3.5" fill="rgba(96,165,250,0.95)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="1.8s"
+        path="M 255,195 C 400,195 520,310 520,360"/>
+    </circle>
+    <circle r="2.5" fill="rgba(147,197,253,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="3.0s"
+        path="M 255,195 C 400,195 520,310 520,360"/>
+    </circle>
+
+    <!-- Dev path particles (green) — fixed y -->
+    <circle r="3.5" fill="rgba(52,211,153,0.95)" filter="url(#glow-sm)">
+      <animateMotion dur="2.0s" repeatCount="indefinite" begin="2.0s"
+        path="M 255,367 C 390,367 520,364 520,360"/>
+    </circle>
+    <circle r="2.5" fill="rgba(110,231,183,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.0s" repeatCount="indefinite" begin="3.2s"
+        path="M 255,367 C 390,367 520,364 520,360"/>
+    </circle>
+
+    <!-- Alarm path particles (orange) — fixed y -->
+    <circle r="3.5" fill="rgba(251,146,60,0.95)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="2.2s"
+        path="M 255,539 C 400,539 520,440 520,360"/>
+    </circle>
+    <circle r="2.5" fill="rgba(253,186,116,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="3.6s"
+        path="M 255,539 C 400,539 520,440 520,360"/>
+    </circle>
+
+    <!-- Chat path particles (blue) -->
+    <circle r="3.5" fill="rgba(96,165,250,0.95)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="1.9s"
+        path="M 680,360 C 820,360 890,250 945,195"/>
+    </circle>
+    <circle r="2.5" fill="rgba(147,197,253,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.4s" repeatCount="indefinite" begin="3.1s"
+        path="M 680,360 C 820,360 890,250 945,195"/>
+    </circle>
+
+    <!-- Issue path particles (orange) -->
+    <circle r="3.5" fill="rgba(251,146,60,0.95)" filter="url(#glow-sm)">
+      <animateMotion dur="2.1s" repeatCount="indefinite" begin="2.1s"
+        path="M 680,360 C 800,360 900,364 945,367"/>
+    </circle>
+    <circle r="2.5" fill="rgba(253,186,116,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="2.1s" repeatCount="indefinite" begin="3.3s"
+        path="M 680,360 C 800,360 900,364 945,367"/>
+    </circle>
+
+    <!-- Issue→PR particles (green, outside arc) -->
+    <circle r="3.5" fill="rgba(52,211,153,0.9)" filter="url(#glow-sm)">
+      <animateMotion dur="1.8s" repeatCount="indefinite" begin="2.4s"
+        path="M 1140,367 C 1182,395 1182,510 1140,539"/>
+    </circle>
+    <circle r="2.5" fill="rgba(110,231,183,0.7)" filter="url(#glow-sm)">
+      <animateMotion dur="1.8s" repeatCount="indefinite" begin="3.4s"
+        path="M 1140,367 C 1182,395 1182,510 1140,539"/>
+    </circle>
+
+    <!-- PR→TARS status particles (purple, very slow — feedback loop) -->
+    <circle r="2.5" fill="rgba(196,181,253,0.75)" filter="url(#glow-sm)">
+      <animateMotion dur="3.5s" repeatCount="indefinite" begin="2.8s"
+        path="M 945,510 C 870,510 790,430 680,385"/>
+    </circle>
+  </svg>
+
+  <!-- ── HEADER ── -->
+  <div class="slide-header" id="el-header">
+    <div class="slide-title">How TARS Works</div>
+    <div class="slide-subtitle">One AI platform — every incident, every user, every trigger</div>
+  </div>
+
+  <!-- ── COLUMN LABELS ── -->
+  <div class="col-label col-label-left"  id="el-lbl-l">&#x25B6;&nbsp; INITIATORS</div>
+  <div class="col-label col-label-mid"   id="el-lbl-m">&#x25B6;&nbsp; AI CORE</div>
+  <div class="col-label col-label-right" id="el-lbl-r">&#x25B6;&nbsp; AGENTS</div>
+
+  <!-- ── LEFT NODES ── -->
+
+  <!-- SRE -->
+  <div class="node-card sre-card" style="left:60px; top:130px;" id="el-sre">
+    <span class="node-icon">&#x1F6E1;&#xFE0F;</span>
+    <div class="node-name">SRE Engineer</div>
+    <div class="node-desc">Asks questions, investigates alerts, traces incidents in natural language</div>
+    <span class="node-badge badge-sre">PRIMARY USER</span>
+  </div>
+
+  <!-- Developer -->
+  <div class="node-card dev-card" style="left:60px; top:302px;" id="el-dev">
+    <span class="node-icon">&#x1F4BB;</span>
+    <div class="node-name">Developer</div>
+    <div class="node-desc">Debugs failures, queries service logs, understands what broke and why</div>
+    <span class="node-badge badge-dev">USER</span>
+  </div>
+
+  <!-- CloudWatch Alarm -->
+  <div class="node-card alarm-card" style="left:60px; top:474px;" id="el-alarm">
+    <span class="node-icon">&#x1F6A8;</span>
+    <div class="node-name">CloudWatch Alarm</div>
+    <div class="node-desc">Auto-triggers TARS the moment an alert fires — no human needed to start</div>
+    <span class="node-badge badge-alarm">AUTO-TRIGGER</span>
+  </div>
+
+  <!-- ── TARS CENTER HUB ── -->
+  <div class="tars-hub" id="el-tars">
+    <div class="tars-ring ring-1"></div>
+    <div class="tars-ring ring-2"></div>
+    <div class="tars-ring ring-3"></div>
+    <div class="tars-circle">
+      <div class="tars-wordmark">TARS</div>
+      <div class="tars-tagline">AI-Native<br>SRE Co-Pilot</div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT NODES (Agents) ── -->
+
+  <!-- Chat & Analysis -->
+  <div class="node-card chat-card" style="left:945px; top:130px;" id="el-chat">
+    <span class="node-icon">&#x1F4AC;</span>
+    <div class="node-name">Chat &amp; Analysis</div>
+    <div class="node-desc">Log synthesis, root cause diagnosis, correlation traces — instant answers</div>
+    <span class="node-badge badge-chat">RESPONSE</span>
+  </div>
+
+  <!-- GitHub Issue & Fix Agent -->
+  <div class="node-card issue-card" style="left:945px; top:302px;" id="el-issue">
+    <span class="node-icon">&#x1F41B;</span>
+    <div class="node-name">GitHub Issue &amp; Fix Agent</div>
+    <div class="node-desc">Creates incident issues, generates fix suggestions, hands off to PR Agent</div>
+    <span class="node-badge badge-issue">AGENT</span>
+  </div>
+
+  <!-- GitHub PR Agent -->
+  <div class="node-card pr-card" style="left:945px; top:474px;" id="el-pr">
+    <span class="node-icon">&#x1F527;</span>
+    <div class="node-name">GitHub PR Agent</div>
+    <div class="node-desc">Generates fix PRs automatically — awaits human approval before merge</div>
+    <span class="node-badge badge-pr">AGENT</span>
+  </div>
+
+  <!-- ── ARROW LABELS ── -->
+  <div class="arrow-label" id="el-lbl-sre"    style="left:308px; top:200px;">asks &nbsp;·&nbsp; queries</div>
+  <div class="arrow-label" id="el-lbl-dev"    style="left:330px; top:352px;">interacts</div>
+  <div class="arrow-label" id="el-lbl-alarm"  style="left:306px; top:508px;">auto-triggers</div>
+  <div class="arrow-label" id="el-lbl-chat"   style="left:764px; top:242px;">answers &nbsp;·&nbsp; synthesizes</div>
+  <div class="arrow-label" id="el-lbl-issue"  style="left:764px; top:352px;">triages &nbsp;·&nbsp; delegates</div>
+  <div class="arrow-label" id="el-lbl-i2pr"   style="left:1148px; top:445px; font-size:8.5px; padding:2px 6px;">PR &#x2193;</div>
+  <div class="arrow-label" id="el-lbl-status" style="left:780px; top:464px; border-style:dashed;">gets status</div>
+
+  <!-- ── TICKER ── -->
+  <div class="ticker-wrap" id="el-ticker">
+    <div class="ticker-track">
+      <!-- Repeated twice for seamless loop -->
+      <span class="ticker-item">Chat-based Log Analysis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Cross-Service Correlation</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Auto-Triage on Alarm</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Root Cause Diagnosis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">GitHub Issue &amp; PR Agents</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Knowledge Base (RAG)</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Session Memory</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Human-in-the-Loop Approval</span><span class="ticker-dot">◆</span>
+      <!-- duplicate -->
+      <span class="ticker-item">Chat-based Log Analysis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Cross-Service Correlation</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Auto-Triage on Alarm</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Root Cause Diagnosis</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">GitHub Issue &amp; PR Agents</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Knowledge Base (RAG)</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Session Memory</span><span class="ticker-dot">◆</span>
+      <span class="ticker-item">Human-in-the-Loop Approval</span><span class="ticker-dot">◆</span>
+    </div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <div class="slide-footer">TARS &nbsp;·&nbsp; Telemetry Analysis &amp; Resolution System &nbsp;·&nbsp; AI-Native SRE Platform</div>
+
+</div>
+
+<script>
+  // ── Scale slide to fit viewport ──────────────────────────────
+  const slide = document.getElementById('slide');
+  function scaleSlide() {
+    const sx = window.innerWidth  / 1200;
+    const sy = window.innerHeight / 675;
+    const s  = Math.min(sx, sy) * 0.97;
+    slide.style.transform = `scale(${s})`;
+  }
+  scaleSlide();
+  window.addEventListener('resize', scaleSlide);
+
+  // ── Staggered entrance sequence ─────────────────────────────
+  const seq = [
+    // [id, delay_ms, animation_class]
+    ['el-header',    100,  'anim-fade'],
+    ['el-lbl-l',     250,  'anim-fade'],
+    ['el-lbl-m',     350,  'anim-fade'],
+    ['el-lbl-r',     450,  'anim-fade'],
+    ['el-sre',       350,  'anim-left'],
+    ['el-dev',       500,  'anim-left'],
+    ['el-alarm',     650,  'anim-left'],
+    ['el-tars',      850,  'anim-pop'],
+    ['el-chat',     1100,  'anim-right'],
+    ['el-issue',    1250,  'anim-right'],
+    ['el-pr',       1400,  'anim-right'],
+    ['el-lbl-sre',  1550,  'anim-fade'],
+    ['el-lbl-dev',  1650,  'anim-fade'],
+    ['el-lbl-alarm',1750,  'anim-fade'],
+    ['el-lbl-chat',   1850,  'anim-fade'],
+    ['el-lbl-issue',  1950,  'anim-fade'],
+    ['el-lbl-i2pr',   2050,  'anim-fade'],
+    ['el-lbl-status', 2150,  'anim-fade'],
+    ['el-ticker',     2300,  'anim-fade'],
+  ];
+
+  seq.forEach(([id, delay, cls]) => {
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add(cls);
+    }, delay);
+  });
+
+  // ── Arrow draw-in animation ──────────────────────────────────
+  const arrows = [
+    { id: 'p-sre',    delay: 1000 },
+    { id: 'p-dev',    delay: 1100 },
+    { id: 'p-alarm',  delay: 1200 },
+    { id: 'p-chat',   delay: 1300 },
+    { id: 'p-issue',  delay: 1400 },
+    { id: 'p-i2pr',   delay: 1550 },
+    { id: 'p-status', delay: 1700 },
+  ];
+
+  arrows.forEach(({ id, delay }) => {
+    const path = document.getElementById(id);
+    if (!path) return;
+    const len = path.getTotalLength();
+    path.style.strokeDasharray  = len;
+    path.style.strokeDashoffset = len;
+    setTimeout(() => {
+      path.style.transition = 'stroke-dashoffset 0.75s cubic-bezier(0.4,0,0.2,1)';
+      path.style.strokeDashoffset = 0;
+    }, delay);
+  });
+</script>
+</body>
+</html>

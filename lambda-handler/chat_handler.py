@@ -253,8 +253,16 @@ async def analyze_logs_async(
         logger.info("Using direct CloudWatch API (MCP disabled or unavailable)")
         log_data = await execute_queries_direct(query_plan, search_mode=search_mode)
 
-    # Step 3: Synthesize answer using Claude
-    answer = await synthesize_answer(question, log_data, query_plan)
+    # Step 3: KB retrieval (non-blocking — chat never fails due to KB errors)
+    kb_context = []
+    try:
+        from kb_retriever import retrieve_kb_context
+        kb_context = retrieve_kb_context(question, top_k=3, threshold=0.7)
+    except Exception as kb_err:
+        logger.warning(f"KB retrieval skipped: {kb_err}")
+
+    # Step 4: Synthesize answer using Claude
+    answer = await synthesize_answer(question, log_data, query_plan, kb_context=kb_context)
 
     # Generate CloudWatch Logs URL (use first log group for primary URL)
     log_group = query_plan.get('log_group', '')
@@ -275,7 +283,9 @@ async def analyze_logs_async(
         'search_mode': search_mode,  # Include search mode for UI display
         'cloudwatch_url': cloudwatch_url,  # CloudWatch Logs Console URL
         'log_group': primary_log_group,  # Primary log group name for incident creation
-        'log_groups_searched': log_groups if len(log_groups) > 1 else None  # Include if multi-service search
+        'log_groups_searched': log_groups if len(log_groups) > 1 else None,  # Include if multi-service search
+        'kb_sources': kb_context,  # KB chunks used for this response
+        'kb_chunks_used': len(kb_context),
     }
 
 
@@ -1077,7 +1087,8 @@ async def execute_queries_direct(
 async def synthesize_answer(
     question: str,
     log_data: Dict[str, Any],
-    query_plan: Dict[str, Any]
+    query_plan: Dict[str, Any],
+    kb_context: list = None,
 ) -> Dict[str, Any]:
     """
     Use Claude to synthesize a conversational answer
@@ -1086,6 +1097,7 @@ async def synthesize_answer(
         question: Original user question
         log_data: Query results from MCP
         query_plan: Original query plan
+        kb_context: Optional list of relevant KB chunks from retrieve_kb_context
 
     Returns:
         Conversational answer with insights
@@ -1155,6 +1167,15 @@ async def synthesize_answer(
     if services_searched and len(services_searched) > 1:
         multi_service_note = f"\n\nSEARCH SCOPE: This query searched across multiple services: {services_str}. Results may include entries from any of these services."
 
+    # Build KB context section if available
+    kb_section = ""
+    if kb_context:
+        kb_chunks_text = "\n\n".join([
+            f"[Source: {c.get('source_doc', 'KB')} | {c.get('section_title', '')} | similarity: {c.get('similarity', 0):.2f}]\n{c.get('content', '')}"
+            for c in kb_context
+        ])
+        kb_section = f"\n\n## Organization Knowledge Base\n{kb_chunks_text}\nUse the above KB context as primary reference for runbooks, SOPs, and guidelines. Cite sources when applicable.\n---"
+
     prompt = f"""You are a helpful SRE assistant analyzing CloudWatch logs. Answer the user's question based on the log data.
 
 User Question: {question}
@@ -1166,7 +1187,7 @@ Log Data Summary:
 - Time range: Last {query_plan.get('hours', 1)} hour(s)
 
 Sample Log Entries:
-{log_summary}{context_instruction}{multi_service_note}
+{log_summary}{context_instruction}{multi_service_note}{kb_section}
 
 Your task:
 1. Answer the user's question conversationally

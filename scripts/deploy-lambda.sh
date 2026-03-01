@@ -63,48 +63,5 @@ aws lambda wait function-updated \
 
 echo -e "${GREEN}✅ Lambda function deployed!${NC}"
 
-# Test Lambda function
-echo ""
-echo "5. Testing Lambda function..."
-
-cat > "$PROJECT_ROOT/test-event.json" << 'EOF'
-{
-  "version": "0",
-  "id": "test-lambda-deploy",
-  "detail-type": "CloudWatch Alarm State Change",
-  "source": "aws.cloudwatch",
-  "time": "2026-01-11T10:00:00Z",
-  "region": "us-east-1",
-  "account": "551481644633",
-  "detail": {
-    "alarmName": "test-service-error-rate",
-    "state": {
-      "value": "ALARM",
-      "reason": "Threshold Crossed: 1 datapoint [10.5] was greater than the threshold (5.0)"
-    }
-  }
-}
-EOF
-
-aws lambda invoke \
-  --function-name sre-poc-incident-handler \
-  --cli-binary-format raw-in-base64-out \
-  --payload file://"$PROJECT_ROOT/test-event.json" \
-  --region $AWS_REGION \
-  "$PROJECT_ROOT/response.json" \
-  --no-cli-pager
-
-if command -v jq &> /dev/null; then
-    echo ""
-    echo "Response:"
-    cat "$PROJECT_ROOT/response.json" | jq .
-else
-    echo ""
-    cat "$PROJECT_ROOT/response.json"
-fi
-
-echo ""
-echo -e "${GREEN}✅ Lambda test completed!${NC}"
-
 echo ""
 echo "Check status: ./scripts/check-status.sh"

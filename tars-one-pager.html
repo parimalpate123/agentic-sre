@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TARS — Telemetry Analysis & Resolution System</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --purple-900: #3B0764;
+      --purple-800: #4C1D95;
+      --purple-700: #5B21B6;
+      --purple-600: #7C3AED;
+      --purple-500: #8B5CF6;
+      --purple-400: #A78BFA;
+      --purple-300: #C4B5FD;
+      --purple-100: #EDE9FE;
+      --purple-50:  #F5F3FF;
+      --gray-900: #111827;
+      --gray-700: #374151;
+      --gray-500: #6B7280;
+      --gray-200: #E5E7EB;
+      --gray-100: #F3F4F6;
+      --white: #FFFFFF;
+      --green-500: #10B981;
+      --amber-500: #F59E0B;
+      --blue-500: #3B82F6;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--gray-100);
+      color: var(--gray-900);
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: var(--white);
+      box-shadow: 0 4px 40px rgba(0,0,0,0.12);
+    }
+
+    /* ── HERO ── */
+    .hero {
+      background: linear-gradient(135deg, var(--purple-900) 0%, var(--purple-700) 55%, var(--purple-500) 100%);
+      color: white;
+      padding: 48px 56px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 320px; height: 320px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.04);
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      bottom: -80px; left: 30%;
+      width: 200px; height: 200px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.03);
+    }
+    .hero-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .hero-logo {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .logo-icon {
+      width: 56px; height: 56px;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: -1px;
+      backdrop-filter: blur(4px);
+    }
+    .logo-text h1 {
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1;
+    }
+    .logo-text .full-name {
+      font-size: 12px;
+      opacity: 0.75;
+      letter-spacing: 0.5px;
+      margin-top: 3px;
+    }
+    .hero-badges {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .badge-live {
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid rgba(16, 185, 129, 0.5);
+      color: #6EE7B7;
+    }
+    .badge-live::before { content: '●'; color: #10B981; }
+    .badge-aws {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: rgba(255,255,255,0.85);
+    }
+    .hero-tagline {
+      margin-top: 20px;
+      font-size: 22px;
+      font-weight: 300;
+      opacity: 0.95;
+      max-width: 680px;
+    }
+    .hero-tagline strong { font-weight: 700; color: var(--purple-300); }
+    .hero-url {
+      margin-top: 10px;
+      font-size: 12px;
+      opacity: 0.6;
+      font-family: "Courier New", monospace;
+    }
+
+    /* ── SECTIONS ── */
+    section { padding: 40px 56px; }
+    section:nth-child(even) { background: var(--purple-50); }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--purple-600);
+      margin-bottom: 6px;
+    }
+    .section-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--gray-900);
+      margin-bottom: 24px;
+      letter-spacing: -0.3px;
+    }
+
+    /* ── PROBLEM ── */
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .stat-card {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-top: 3px solid var(--purple-600);
+      border-radius: 10px;
+      padding: 24px 20px;
+    }
+    .stat-number {
+      font-size: 36px;
+      font-weight: 900;
+      color: var(--purple-700);
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .stat-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gray-900);
+      margin-bottom: 6px;
+    }
+    .stat-desc {
+      font-size: 12px;
+      color: var(--gray-500);
+      line-height: 1.5;
+    }
+
+    /* ── USERS ── */
+    .users-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .user-card {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 20px 16px;
+      text-align: center;
+    }
+    .user-icon {
+      font-size: 28px;
+      margin-bottom: 10px;
+      display: block;
+    }
+    .user-role {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 4px;
+    }
+    .user-desc {
+      font-size: 11px;
+      color: var(--gray-500);
+      line-height: 1.4;
+    }
+
+    /* ── ARCHITECTURE ── */
+    .arch-container {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      padding: 28px;
+      overflow: hidden;
+    }
+    .arch-svg { width: 100%; height: auto; display: block; }
+
+    /* ── MODULES ── */
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    .module-card {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-left: 4px solid var(--purple-500);
+      border-radius: 8px;
+      padding: 18px 20px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .module-icon {
+      font-size: 22px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .module-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 4px;
+    }
+    .module-desc {
+      font-size: 12px;
+      color: var(--gray-500);
+      line-height: 1.5;
+    }
+
+    /* ── INTEGRATIONS ── */
+    .mcp-explainer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      font-size: 12.5px;
+      color: var(--gray-700);
+      line-height: 1.6;
+    }
+    .mcp-explainer-icon { font-size: 26px; flex-shrink: 0; }
+    .mcp-flow {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 16px 24px;
+      margin-bottom: 24px;
+      overflow-x: auto;
+    }
+    .mcp-flow-node {
+      text-align: center;
+      flex-shrink: 0;
+      min-width: 100px;
+    }
+    .mcp-flow-node .node-box {
+      display: inline-block;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .node-platform { background: #EFF6FF; border: 1px solid #93C5FD; color: #1E40AF; }
+    .node-mcp     { background: var(--purple-100); border: 1px solid var(--purple-400); color: var(--purple-800); }
+    .node-tars    { background: var(--purple-700); color: white; }
+    .mcp-flow-node .node-sub { font-size: 9.5px; color: var(--gray-500); }
+    .mcp-flow-arrow {
+      font-size: 18px;
+      color: var(--purple-400);
+      padding: 0 10px;
+      flex-shrink: 0;
+      line-height: 1;
+      margin-bottom: 14px;
+    }
+    .mcp-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .mcp-card {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 18px 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .mcp-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .mcp-card.live::before  { background: var(--green-500); }
+    .mcp-card.road::before  { background: var(--amber-500); }
+    .mcp-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .mcp-platform-name {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--gray-900);
+    }
+    .mcp-status-chip {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+    .chip-live { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+    .chip-road { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+    .mcp-server-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--purple-50);
+      border: 1px solid var(--purple-300);
+      color: var(--purple-700);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 10.5px;
+      font-family: "Courier New", monospace;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .mcp-card-desc {
+      font-size: 11.5px;
+      color: var(--gray-500);
+      line-height: 1.5;
+    }
+    .dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--green-500); display: inline-block; }
+    .dot-road { width: 8px; height: 8px; border-radius: 50%; background: var(--amber-500); display: inline-block; }
+
+    /* ── ROADMAP ── */
+    .roadmap-wrapper {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .roadmap-col h3 {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--gray-200);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .roadmap-col h3 .label-chip {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .chip-current { background: var(--purple-100); color: var(--purple-700); }
+    .chip-next { background: #FFFBEB; color: #92400E; }
+    .roadmap-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 12.5px;
+    }
+    .check { color: var(--green-500); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+    .arrow { color: var(--amber-500); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+
+    /* ── USE CASES ── */
+    .usecases-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+    .usecase-card {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 22px 20px;
+      position: relative;
+    }
+    .uc-number {
+      position: absolute;
+      top: 16px; right: 18px;
+      font-size: 36px;
+      font-weight: 900;
+      color: var(--purple-100);
+      line-height: 1;
+    }
+    .uc-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 8px;
+    }
+    .uc-query {
+      background: var(--gray-100);
+      border-left: 3px solid var(--purple-500);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 11.5px;
+      font-family: "Courier New", monospace;
+      color: var(--purple-700);
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+    .uc-result {
+      font-size: 12px;
+      color: var(--gray-500);
+      line-height: 1.5;
+    }
+    .uc-result strong { color: var(--green-500); }
+
+    /* ── METRICS ── */
+    .metrics-strip {
+      background: linear-gradient(135deg, var(--purple-900), var(--purple-700));
+      color: white;
+      padding: 30px 56px;
+      display: flex;
+      gap: 0;
+      justify-content: space-around;
+      flex-wrap: wrap;
+    }
+    .metric-item {
+      text-align: center;
+      padding: 10px 20px;
+    }
+    .metric-value {
+      font-size: 30px;
+      font-weight: 900;
+      color: var(--purple-300);
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+    .metric-label {
+      font-size: 11px;
+      opacity: 0.75;
+      letter-spacing: 0.3px;
+      line-height: 1.4;
+    }
+    .metric-divider {
+      width: 1px;
+      background: rgba(255,255,255,0.15);
+      align-self: stretch;
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      background: var(--gray-900);
+      color: rgba(255,255,255,0.6);
+      padding: 24px 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .footer-left { font-size: 12px; line-height: 1.6; }
+    .footer-left strong { color: white; }
+    .footer-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      font-size: 11px;
+    }
+    .footer-aws-stack {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .stack-tag {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    /* ── PRINT ── */
+    @media print {
+      body { background: white; font-size: 12px; }
+      .page { box-shadow: none; max-width: 100%; }
+      section { padding: 28px 40px; }
+      .hero { padding: 36px 40px 28px; }
+      .metrics-strip { padding: 20px 40px; }
+      .footer { padding: 18px 40px; }
+      .stat-number { font-size: 28px; }
+      .section-title { font-size: 18px; margin-bottom: 18px; }
+      .hero-tagline { font-size: 18px; }
+      .logo-text h1 { font-size: 30px; }
+    }
+
+    @media (max-width: 720px) {
+      section { padding: 28px 24px; }
+      .hero { padding: 32px 24px 28px; }
+      .problem-grid, .users-grid { grid-template-columns: repeat(2, 1fr); }
+      .modules-grid, .usecases-grid, .roadmap-wrapper, .mcp-grid { grid-template-columns: 1fr; }
+      .metrics-strip { padding: 24px; }
+      .footer { padding: 20px 24px; flex-direction: column; align-items: flex-start; }
+      .footer-right { align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── HERO ── -->
+  <header class="hero">
+    <div class="hero-top">
+      <div class="hero-logo">
+        <div class="logo-icon">T</div>
+        <div class="logo-text">
+          <h1>TARS</h1>
+          <div class="full-name">Telemetry Analysis &amp; Resolution System</div>
+        </div>
+      </div>
+      <div class="hero-badges">
+        <span class="badge badge-live">LIVE — Production</span>
+        <span class="badge badge-aws">Built on AWS Bedrock</span>
+      </div>
+    </div>
+    <p class="hero-tagline">
+      <strong>AI-Native SRE Co-Pilot</strong> — From Alert to Resolution in Minutes.
+      Stop manually hunting through logs. Let your AI teammate diagnose, correlate, and fix.
+    </p>
+    <div class="hero-url">&#x1F310;&nbsp; d1t9vz5zflvdr0.cloudfront.net</div>
+  </header>
+
+  <!-- ── PROBLEM ── -->
+  <section>
+    <div class="section-label">The Problem</div>
+    <div class="section-title">Modern Incidents Are Overwhelming SRE Teams</div>
+    <div class="problem-grid">
+      <div class="stat-card">
+        <div class="stat-number">60%+</div>
+        <div class="stat-label">Incident Time Wasted</div>
+        <div class="stat-desc">Of on-call hours spent manually reading logs across dozens of microservices instead of resolving the issue.</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">8+</div>
+        <div class="stat-label">Services to Correlate</div>
+        <div class="stat-desc">Root cause often spans multiple services. Humans miss cross-service patterns under pressure. Correlation IDs get lost.</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">0</div>
+        <div class="stat-label">Institutional Memory</div>
+        <div class="stat-desc">Tribal knowledge vanishes between incidents. Teams repeat the same debugging steps. Runbooks go stale and unused.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── WHO IT'S FOR ── -->
+  <section>
+    <div class="section-label">Target Users</div>
+    <div class="section-title">Built for the People Who Keep Production Running</div>
+    <div class="users-grid">
+      <div class="user-card">
+        <span class="user-icon">&#x1F6E1;&#xFE0F;</span>
+        <div class="user-role">SRE / Platform Engineers</div>
+        <div class="user-desc">Primary users. On-call heroes who need instant answers at 3 AM.</div>
+      </div>
+      <div class="user-card">
+        <span class="user-icon">&#x2601;&#xFE0F;</span>
+        <div class="user-role">DevOps / Cloud Ops</div>
+        <div class="user-desc">Teams managing AWS infrastructure and microservice deployments.</div>
+      </div>
+      <div class="user-card">
+        <span class="user-icon">&#x1F4CA;</span>
+        <div class="user-role">Engineering Managers</div>
+        <div class="user-desc">Leadership tracking MTTR, incident trends, and operational health.</div>
+      </div>
+      <div class="user-card">
+        <span class="user-icon">&#x1F3E2;</span>
+        <div class="user-role">Enterprises on AWS</div>
+        <div class="user-desc">Organizations running complex microservice architectures at scale on AWS.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── ARCHITECTURE ── -->
+  <section>
+    <div class="section-label">Architecture</div>
+    <div class="section-title">Agentic AI Flow — End-to-End</div>
+    <div class="arch-container">
+      <svg class="arch-svg" viewBox="0 0 980 340" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#7C3AED"/>
+          </marker>
+          <marker id="arrow-gray" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#6B7280"/>
+          </marker>
+        </defs>
+
+        <!-- Layer 0: Triggers -->
+        <rect x="30" y="20" width="140" height="52" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+        <text x="100" y="43" text-anchor="middle" font-size="11" font-weight="700" fill="#5B21B6">User / Chat</text>
+        <text x="100" y="59" text-anchor="middle" font-size="10" fill="#7C3AED">Natural Language Query</text>
+
+        <rect x="210" y="20" width="140" height="52" rx="10" fill="#FFF7ED" stroke="#F59E0B" stroke-width="1.5"/>
+        <text x="280" y="43" text-anchor="middle" font-size="11" font-weight="700" fill="#92400E">CloudWatch Alarm</text>
+        <text x="280" y="59" text-anchor="middle" font-size="10" fill="#B45309">Auto-Triggered Triage</text>
+
+        <!-- Arrows down to frontend -->
+        <line x1="100" y1="72" x2="100" y2="110" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <line x1="280" y1="72" x2="190" y2="110" stroke="#F59E0B" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+        <!-- Layer 1: Frontend -->
+        <rect x="30" y="112" width="320" height="52" rx="10" fill="#5B21B6" stroke="#3B0764" stroke-width="1.5"/>
+        <text x="190" y="135" text-anchor="middle" font-size="12" font-weight="700" fill="white">TARS Frontend</text>
+        <text x="190" y="153" text-anchor="middle" font-size="10" fill="#C4B5FD">React + Vite · Hosted on CloudFront (CDN)</text>
+
+        <!-- Arrow to router -->
+        <line x1="190" y1="164" x2="190" y2="196" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+        <!-- Layer 2: Lambda Router -->
+        <rect x="30" y="198" width="320" height="52" rx="10" fill="#7C3AED" stroke="#5B21B6" stroke-width="1.5"/>
+        <text x="190" y="221" text-anchor="middle" font-size="12" font-weight="700" fill="white">Lambda Router</text>
+        <text x="190" y="239" text-anchor="middle" font-size="10" fill="#EDE9FE">Action-based dispatch · API Gateway · Python</text>
+
+        <!-- Branching lines to handlers -->
+        <line x1="190" y1="250" x2="190" y2="280" stroke="#7C3AED" stroke-width="1.5"/>
+        <line x1="190" y1="280" x2="72" y2="280" stroke="#7C3AED" stroke-width="1.5"/>
+        <line x1="190" y1="280" x2="312" y2="280" stroke="#7C3AED" stroke-width="1.5"/>
+        <line x1="190" y1="280" x2="190" y2="295" stroke="#7C3AED" stroke-width="1.5"/>
+
+        <!-- Handler boxes row -->
+        <!-- Chat Handler -->
+        <line x1="72" y1="280" x2="72" y2="294" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <rect x="20" y="295" width="104" height="38" rx="8" fill="#EDE9FE" stroke="#A78BFA" stroke-width="1.5"/>
+        <text x="72" y="312" text-anchor="middle" font-size="10" font-weight="700" fill="#5B21B6">Chat Handler</text>
+        <text x="72" y="326" text-anchor="middle" font-size="9" fill="#7C3AED">Quick + Deep Mode</text>
+
+        <!-- Incident Handler -->
+        <line x1="190" y1="295" x2="190" y2="294" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <rect x="138" y="295" width="104" height="38" rx="8" fill="#FFF7ED" stroke="#FCD34D" stroke-width="1.5"/>
+        <text x="190" y="312" text-anchor="middle" font-size="10" font-weight="700" fill="#92400E">Incident Handler</text>
+        <text x="190" y="326" text-anchor="middle" font-size="9" fill="#B45309">Auto-triage + Root Cause</text>
+
+        <!-- Remediation Handler -->
+        <line x1="312" y1="280" x2="312" y2="294" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <rect x="258" y="295" width="108" height="38" rx="8" fill="#ECFDF5" stroke="#6EE7B7" stroke-width="1.5"/>
+        <text x="312" y="312" text-anchor="middle" font-size="10" font-weight="700" fill="#065F46">Remediation</text>
+        <text x="312" y="326" text-anchor="middle" font-size="9" fill="#059669">GitHub PR + Approval</text>
+
+        <!-- Right column: Claude + KB -->
+        <!-- Claude box -->
+        <rect x="420" y="112" width="220" height="90" rx="10" fill="#1E1B4B" stroke="#3730A3" stroke-width="1.5"/>
+        <text x="530" y="137" text-anchor="middle" font-size="13" font-weight="800" fill="white">Claude 3.5 Sonnet</text>
+        <text x="530" y="155" text-anchor="middle" font-size="10" fill="#A5B4FC">AWS Bedrock · anthropic.claude-3-5</text>
+        <text x="530" y="171" text-anchor="middle" font-size="10" fill="#818CF8">Log Synthesis · Root Cause Reasoning</text>
+        <text x="530" y="187" text-anchor="middle" font-size="10" fill="#818CF8">Diagnosis Agent · PR Generation</text>
+
+        <!-- KB box -->
+        <rect x="420" y="222" width="220" height="90" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+        <text x="530" y="245" text-anchor="middle" font-size="12" font-weight="700" fill="#5B21B6">Knowledge Base (RAG)</text>
+        <text x="530" y="263" text-anchor="middle" font-size="10" fill="#6B7280">Titan V2 Embeddings (256-dim)</text>
+        <text x="530" y="279" text-anchor="middle" font-size="10" fill="#6B7280">DynamoDB · Cosine Similarity</text>
+        <text x="530" y="295" text-anchor="middle" font-size="10" fill="#6B7280">Runbooks · SOPs · Incident Docs</text>
+
+        <!-- Arrows: Lambda Router to Claude + KB -->
+        <line x1="350" y1="224" x2="418" y2="157" stroke="#7C3AED" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+        <line x1="350" y1="224" x2="418" y2="267" stroke="#7C3AED" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+
+        <!-- Data stores row on right -->
+        <rect x="660" y="112" width="140" height="52" rx="10" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+        <text x="730" y="135" text-anchor="middle" font-size="10" font-weight="700" fill="#166534">CloudWatch Logs</text>
+        <text x="730" y="151" text-anchor="middle" font-size="9" fill="#16A34A">filter_log_events</text>
+        <text x="730" y="163" text-anchor="middle" font-size="9" fill="#16A34A">Logs Insights</text>
+
+        <rect x="660" y="182" width="140" height="52" rx="10" fill="#EFF6FF" stroke="#93C5FD" stroke-width="1.5"/>
+        <text x="730" y="205" text-anchor="middle" font-size="10" font-weight="700" fill="#1E40AF">DynamoDB + S3</text>
+        <text x="730" y="221" text-anchor="middle" font-size="9" fill="#2563EB">Sessions · KB Docs</text>
+        <text x="730" y="233" text-anchor="middle" font-size="9" fill="#2563EB">KB Chunks</text>
+
+        <rect x="660" y="252" width="140" height="52" rx="10" fill="#FDF4FF" stroke="#E879F9" stroke-width="1.5"/>
+        <text x="730" y="275" text-anchor="middle" font-size="10" font-weight="700" fill="#701A75">GitHub</text>
+        <text x="730" y="291" text-anchor="middle" font-size="9" fill="#A21CAF">Auto PRs · Issues</text>
+        <text x="730" y="303" text-anchor="middle" font-size="9" fill="#A21CAF">Human-in-the-loop</text>
+
+        <!-- Arrows to data stores -->
+        <line x1="642" y1="150" x2="658" y2="140" stroke="#6B7280" stroke-width="1.2" marker-end="url(#arrow-gray)"/>
+        <line x1="642" y1="200" x2="658" y2="208" stroke="#6B7280" stroke-width="1.2" marker-end="url(#arrow-gray)"/>
+        <line x1="642" y1="267" x2="658" y2="278" stroke="#6B7280" stroke-width="1.2" marker-end="url(#arrow-gray)"/>
+
+        <!-- Legend -->
+        <rect x="820" y="112" width="140" height="90" rx="8" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="1"/>
+        <text x="890" y="128" text-anchor="middle" font-size="9" font-weight="700" fill="#374151">LEGEND</text>
+        <line x1="834" y1="140" x2="854" y2="140" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <text x="860" y="144" font-size="9" fill="#374151">Request flow</text>
+        <line x1="834" y1="156" x2="854" y2="156" stroke="#7C3AED" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow)"/>
+        <text x="860" y="160" font-size="9" fill="#374151">AI invocation</text>
+        <rect x="834" y="167" width="12" height="10" rx="2" fill="#5B21B6"/>
+        <text x="852" y="176" font-size="9" fill="#374151">Core TARS</text>
+        <rect x="834" y="181" width="12" height="10" rx="2" fill="#EDE9FE" stroke="#A78BFA"/>
+        <text x="852" y="190" font-size="9" fill="#374151">Modules</text>
+        <rect x="834" y="195" width="12" height="10" rx="2" fill="#F0FDF4" stroke="#86EFAC"/>
+        <text x="852" y="204" font-size="9" fill="#374151">AWS Services</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ── CORE MODULES ── -->
+  <section>
+    <div class="section-label">Core Modules</div>
+    <div class="section-title">Seven Specialized Agents, One Unified Platform</div>
+    <div class="modules-grid">
+      <div class="module-card">
+        <div class="module-icon">&#x1F4AC;</div>
+        <div>
+          <div class="module-name">Chat Handler</div>
+          <div class="module-desc">Natural language queries against CloudWatch logs. Two modes: Quick (real-time filter_log_events) and Deep (Logs Insights analytics). Powered by Claude 3.5 Sonnet synthesis.</div>
+        </div>
+      </div>
+      <div class="module-card">
+        <div class="module-icon">&#x1F6A8;</div>
+        <div>
+          <div class="module-name">Incident Handler</div>
+          <div class="module-desc">CloudWatch alarm auto-triage. When an alarm fires, TARS auto-investigates the relevant service logs, identifies the incident window, and returns a structured diagnosis.</div>
+        </div>
+      </div>
+      <div class="module-card">
+        <div class="module-icon">&#x1F9E0;</div>
+        <div>
+          <div class="module-name">Diagnosis Agent</div>
+          <div class="module-desc">AI-powered root cause analysis. The LLM reasons over correlated log evidence, identifies the failure chain, and generates a human-readable RCA with confidence indicators.</div>
+        </div>
+      </div>
+      <div class="module-card">
+        <div class="module-icon">&#x1F527;</div>
+        <div>
+          <div class="module-name">Remediation Handler</div>
+          <div class="module-desc">Auto-generates GitHub Pull Requests with fixes, creates issues, and tracks merge status. Human-in-the-loop approval gate before execution of any changes.</div>
+        </div>
+      </div>
+      <div class="module-card">
+        <div class="module-icon">&#x1F4DA;</div>
+        <div>
+          <div class="module-name">Knowledge Base (RAG)</div>
+          <div class="module-desc">Upload runbooks, SOPs, and incident post-mortems. Titan V2 embeddings + cosine similarity retrieval. KB context is injected into every chat response — with source attribution.</div>
+        </div>
+      </div>
+      <div class="module-card">
+        <div class="module-icon">&#x1F517;</div>
+        <div>
+          <div class="module-name">Correlation Engine</div>
+          <div class="module-desc">Traces CORR-IDs across 8+ microservices. One query maps the full request journey: API Gateway → Auth → Orders → Payments → Inventory — identifying where the chain broke.</div>
+        </div>
+      </div>
+      <div class="module-card">
+        <div class="module-icon">&#x1F4BE;</div>
+        <div>
+          <div class="module-name">Session Manager</div>
+          <div class="module-desc">Persistent conversation history stored in DynamoDB. Teams revisit past investigations, build on prior context, and maintain institutional memory across incidents.</div>
+        </div>
+      </div>
+      <div class="module-card" style="border-left-color: var(--amber-500);">
+        <div class="module-icon">&#x1F4C8;</div>
+        <div>
+          <div class="module-name">Multi-Mode Search</div>
+          <div class="module-desc">Adaptive query routing: Quick mode for real-time triage, Deep mode for time-range analytics. Automatically selects the right CloudWatch API based on query intent.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── INTEGRATIONS ── -->
+  <section>
+    <div class="section-label">MCP Integrations</div>
+    <div class="section-title">Plug Any Observability Platform via MCP</div>
+
+    <!-- How it works -->
+    <div class="mcp-explainer">
+      <span class="mcp-explainer-icon">&#x1F9E9;</span>
+      <div>
+        <strong>Model Context Protocol (MCP)</strong> is an open standard that lets observability platforms expose their data as tool-callable servers. TARS acts as an <strong>MCP host</strong> — each platform ships its own MCP server, and TARS plugs in automatically. No custom connectors. No per-platform code. Just register the MCP endpoint and TARS gains full query access to that platform's logs, metrics, and traces.
+      </div>
+    </div>
+
+    <!-- Flow diagram -->
+    <div class="mcp-flow">
+      <div class="mcp-flow-node">
+        <div class="node-box node-platform">Observability<br>Platform</div>
+        <div class="node-sub">Datadog · Dynatrace<br>CloudWatch · Splunk…</div>
+      </div>
+      <div class="mcp-flow-arrow">&#x2192;</div>
+      <div class="mcp-flow-node">
+        <div class="node-box node-mcp">MCP Server<br>(platform-provided)</div>
+        <div class="node-sub">Exposes logs, metrics,<br>traces as tools</div>
+      </div>
+      <div class="mcp-flow-arrow">&#x2192;</div>
+      <div class="mcp-flow-node">
+        <div class="node-box node-mcp">MCP Hook<br>(TARS plugin layer)</div>
+        <div class="node-sub">Registers server · routes<br>queries · normalizes results</div>
+      </div>
+      <div class="mcp-flow-arrow">&#x2192;</div>
+      <div class="mcp-flow-node">
+        <div class="node-box node-tars">TARS<br>MCP Host</div>
+        <div class="node-sub">Unified AI reasoning<br>across all platforms</div>
+      </div>
+      <div class="mcp-flow-arrow">&#x2192;</div>
+      <div class="mcp-flow-node">
+        <div class="node-box node-platform">Claude 3.5<br>Sonnet</div>
+        <div class="node-sub">Synthesizes answer from<br>multi-platform context</div>
+      </div>
+    </div>
+
+    <!-- MCP cards grid -->
+    <div class="mcp-grid">
+
+      <div class="mcp-card live">
+        <div class="mcp-card-header">
+          <span class="mcp-platform-name">AWS CloudWatch</span>
+          <span class="mcp-status-chip chip-live">&#x2713; LIVE</span>
+        </div>
+        <div class="mcp-server-tag">&#x1F4E6; aws-cloudwatch-mcp-server</div>
+        <div class="mcp-card-desc">Native MCP integration for CloudWatch Logs and Logs Insights. TARS uses tool calls to filter_log_events and run analytics queries in real-time.</div>
+      </div>
+
+      <div class="mcp-card road">
+        <div class="mcp-card-header">
+          <span class="mcp-platform-name">Datadog</span>
+          <span class="mcp-status-chip chip-road">Roadmap</span>
+        </div>
+        <div class="mcp-server-tag">&#x1F4E6; datadog-mcp-server</div>
+        <div class="mcp-card-desc">Datadog's official MCP server exposes metrics, logs, APM traces, and monitors. TARS hooks in to query dashboards and alert history via natural language.</div>
+      </div>
+
+      <div class="mcp-card road">
+        <div class="mcp-card-header">
+          <span class="mcp-platform-name">Dynatrace</span>
+          <span class="mcp-status-chip chip-road">Roadmap</span>
+        </div>
+        <div class="mcp-server-tag">&#x1F4E6; dynatrace-mcp-server</div>
+        <div class="mcp-card-desc">Dynatrace MCP server surfaces Davis AI problems, USQL query results, and distributed traces. TARS injects findings into its diagnosis agent automatically.</div>
+      </div>
+
+      <div class="mcp-card road">
+        <div class="mcp-card-header">
+          <span class="mcp-platform-name">Elasticsearch / OpenSearch</span>
+          <span class="mcp-status-chip chip-road">Roadmap</span>
+        </div>
+        <div class="mcp-server-tag">&#x1F4E6; elasticsearch-mcp-server</div>
+        <div class="mcp-card-desc">Community MCP server for Elasticsearch / OpenSearch indices. TARS sends DSL queries via tool calls and retrieves structured log results for AI analysis.</div>
+      </div>
+
+      <div class="mcp-card road">
+        <div class="mcp-card-header">
+          <span class="mcp-platform-name">Splunk</span>
+          <span class="mcp-status-chip chip-road">Roadmap</span>
+        </div>
+        <div class="mcp-server-tag">&#x1F4E6; splunk-mcp-server</div>
+        <div class="mcp-card-desc">Splunk MCP server exposes SPL search, saved searches, and alert history as callable tools. TARS correlates Splunk data with KB context for enriched answers.</div>
+      </div>
+
+      <div class="mcp-card road">
+        <div class="mcp-card-header">
+          <span class="mcp-platform-name">PagerDuty</span>
+          <span class="mcp-status-chip chip-road">Roadmap</span>
+        </div>
+        <div class="mcp-server-tag">&#x1F4E6; pagerduty-mcp-server</div>
+        <div class="mcp-card-desc">PagerDuty MCP server provides incident history, on-call schedules, and alert routing rules. TARS links live log evidence directly to open incidents and escalation paths.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── CURRENT STATE + ROADMAP ── -->
+  <section>
+    <div class="section-label">Progress</div>
+    <div class="section-title">MVP Complete — Actively Expanding</div>
+    <div class="roadmap-wrapper">
+      <div class="roadmap-col">
+        <h3>&#x1F7E2;&nbsp; Current (MVP) <span class="label-chip chip-current">Shipped</span></h3>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> Chat-based log analysis with Quick + Deep modes</div>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> Cross-service CORR-ID correlation tracing</div>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> CloudWatch alarm auto-triage &amp; investigation</div>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> Knowledge Base with RAG (Titan V2 + DynamoDB)</div>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> GitHub PR auto-remediation with human approval</div>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> Persistent session history &amp; recall</div>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> AI diagnosis agent with root cause reasoning</div>
+        <div class="roadmap-item"><span class="check">&#x2713;</span> KB source attribution in chat responses</div>
+      </div>
+      <div class="roadmap-col">
+        <h3>&#x1F7E1;&nbsp; Next Up <span class="label-chip chip-next">Planned</span></h3>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> Incident → KB auto-promotion (post-mortem capture)</div>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> Datadog, Dynatrace, Elasticsearch backends</div>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> Auto-execution of low-risk remediations (no gate)</div>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> pgvector migration for KB scaling (&gt;10K chunks)</div>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> KB quality feedback loop &amp; auto-reranking</div>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> Slack / PagerDuty incident notification bridge</div>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> SRE dashboard: MTTR trends &amp; incident analytics</div>
+        <div class="roadmap-item"><span class="arrow">&#x2192;</span> Multi-cloud support (GCP Logging, Azure Monitor)</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── USE CASES ── -->
+  <section>
+    <div class="section-label">In Action</div>
+    <div class="section-title">Real-World Use Cases</div>
+    <div class="usecases-grid">
+      <div class="usecase-card">
+        <div class="uc-number">01</div>
+        <div class="uc-title">Payment Service Outage</div>
+        <div class="uc-query">"What errors occurred in payment-service in the last hour?"</div>
+        <div class="uc-result">TARS queries CloudWatch, finds NullPointerException spike at 14:32 UTC, correlates with a deployment at 14:28, surfaces affected CORR-IDs. <strong>GitHub PR generated in 15 min.</strong></div>
+      </div>
+      <div class="usecase-card">
+        <div class="uc-number">02</div>
+        <div class="uc-title">Cross-Service Correlation</div>
+        <div class="uc-query">"Trace CORR-ABBFE258 across all services"</div>
+        <div class="uc-result">TARS maps the full request journey across 5 microservices: API-GW → Auth → Orders → Payments → Inventory. <strong>Pinpoints timeout in Orders at step 3.</strong></div>
+      </div>
+      <div class="usecase-card">
+        <div class="uc-number">03</div>
+        <div class="uc-title">CloudWatch Alarm Auto-Triage</div>
+        <div class="uc-query">Lambda Error Rate alarm fires at 03:17 AM</div>
+        <div class="uc-result">TARS auto-investigates without human intervention: identifies cold-start memory pressure, generates RCA report, creates GitHub issue. <strong>On-call engineer wakes up to a solved problem.</strong></div>
+      </div>
+      <div class="usecase-card">
+        <div class="uc-number">04</div>
+        <div class="uc-title">Runbook-Augmented Diagnosis</div>
+        <div class="uc-query">"Why is the auth service returning 401s intermittently?"</div>
+        <div class="uc-result">TARS retrieves matching runbook from KB ("JWT token expiry handling"), injects context into Claude's reasoning, cites the source. <strong>Answer includes step-by-step SOP from institutional memory.</strong></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── METRICS STRIP ── -->
+  <div class="metrics-strip">
+    <div class="metric-item">
+      <div class="metric-value">Hours→Min</div>
+      <div class="metric-label">MTTR Reduction<br>(estimated)</div>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-item">
+      <div class="metric-value">8+</div>
+      <div class="metric-label">Microservices<br>Monitored</div>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-item">
+      <div class="metric-value">2</div>
+      <div class="metric-label">Search Modes<br>Quick + Deep</div>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-item">
+      <div class="metric-value">$15–25</div>
+      <div class="metric-label">Monthly KB Infra<br>Cost (DynamoDB+S3)</div>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-item">
+      <div class="metric-value">256-dim</div>
+      <div class="metric-label">Titan V2 Embeddings<br>for KB RAG</div>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric-item">
+      <div class="metric-value">0</div>
+      <div class="metric-label">External Dependencies<br>(fully serverless)</div>
+    </div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <footer class="footer">
+    <div class="footer-left">
+      <strong>TARS — Telemetry Analysis &amp; Resolution System</strong><br>
+      AI-Native SRE Platform &nbsp;·&nbsp; Built on AWS Bedrock &nbsp;·&nbsp; 2026<br>
+      <span style="font-size:11px; font-family: 'Courier New', monospace; opacity: 0.5;">d1t9vz5zflvdr0.cloudfront.net</span>
+    </div>
+    <div class="footer-right">
+      <div style="opacity:0.5; font-size:10px; margin-bottom:6px; letter-spacing:0.5px;">POWERED BY</div>
+      <div class="footer-aws-stack">
+        <span class="stack-tag">AWS Lambda</span>
+        <span class="stack-tag">AWS Bedrock</span>
+        <span class="stack-tag">Claude 3.5 Sonnet</span>
+        <span class="stack-tag">Titan V2</span>
+        <span class="stack-tag">CloudWatch</span>
+        <span class="stack-tag">DynamoDB</span>
+        <span class="stack-tag">S3</span>
+        <span class="stack-tag">CloudFront</span>
+        <span class="stack-tag">React + Vite</span>
+        <span class="stack-tag">Terraform</span>
+      </div>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

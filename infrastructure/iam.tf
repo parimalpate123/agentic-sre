@@ -254,6 +254,74 @@ resource "aws_iam_role_policy" "lambda_cloudwatch_alarms" {
   })
 }
 
+# Lambda KB S3 Access (for uploading and reading KB documents)
+resource "aws_iam_role_policy" "lambda_kb_s3" {
+  name = "${var.project_name}-lambda-kb-s3-policy"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.kb_documents.arn}/*"
+      }
+    ]
+  })
+}
+
+# Lambda KB DynamoDB Access (for kb_documents and kb_chunks tables)
+resource "aws_iam_role_policy" "lambda_kb_dynamodb" {
+  name = "${var.project_name}-lambda-kb-dynamodb-policy"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Scan",
+          "dynamodb:BatchWriteItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.kb_documents.arn,
+          "${aws_dynamodb_table.kb_documents.arn}/index/*",
+          aws_dynamodb_table.kb_chunks.arn,
+          "${aws_dynamodb_table.kb_chunks.arn}/index/*"
+        ]
+      }
+    ]
+  })
+}
+
+# Lambda Titan Embed Access (for generating KB embeddings)
+resource "aws_iam_role_policy" "lambda_titan_embed" {
+  name = "${var.project_name}-lambda-titan-embed-policy"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["bedrock:InvokeModel"]
+        Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0"
+      }
+    ]
+  })
+}
+
 # Lambda SSM Parameter Store Access (for GitHub token and webhook secret)
 resource "aws_iam_role_policy" "lambda_ssm" {
   name = "${var.project_name}-lambda-ssm-policy"
