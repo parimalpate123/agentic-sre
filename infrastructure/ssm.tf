@@ -15,7 +15,7 @@ resource "aws_ssm_parameter" "github_token" {
   lifecycle {
     ignore_changes = [value]
     # This allows the parameter to be updated outside of Terraform
-    # Use: aws ssm put-parameter --name "/sre-poc/github/token" --value "ghp_xxx" --type "SecureString" --overwrite
+    # Use: aws ssm put-parameter --name "/sre-poc/github/token" --value "<YOUR_GITHUB_PAT>" --type "SecureString" --overwrite
   }
 }
 

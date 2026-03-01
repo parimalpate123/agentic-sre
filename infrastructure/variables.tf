@@ -84,4 +84,4 @@ variable "enable_incident_mcp" {
 
 # Note: github_token is stored in SSM Parameter Store, not as a Terraform variable
 # Use AWS CLI or Console to set it: 
-# aws ssm put-parameter --name "/sre-poc/github/token" --value "ghp_xxx" --type "SecureString"
+# aws ssm put-parameter --name "/sre-poc/github/token" --value "<YOUR_GITHUB_PAT>" --type "SecureString"
