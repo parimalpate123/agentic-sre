@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TARS — The Ask</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: #EBEBF5;
+  font-family: 'DM Sans', sans-serif;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.slide {
+  width: 1400px;
+  background: white;
+  box-shadow: 0 8px 60px rgba(124,58,237,0.13);
+  position: relative;
+  overflow: hidden;
+}
+
+.top-bar {
+  height: 5px;
+  background: linear-gradient(90deg, #7C3AED, #A78BFA);
+}
+
+.bg-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, #C4B5FD 1px, transparent 1px);
+  background-size: 30px 30px;
+  opacity: 0.1; pointer-events: none;
+}
+
+.bg-glow {
+  position: absolute;
+  bottom: -100px; left: 50%;
+  transform: translateX(-50%);
+  width: 900px; height: 500px;
+  background: radial-gradient(ellipse, rgba(124,58,237,0.07) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ── HEADER ── */
+.header {
+  text-align: center;
+  padding: 36px 0 32px;
+  position: relative; z-index: 2;
+}
+
+.eyebrow {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: #7C3AED; margin-bottom: 8px;
+}
+
+.header h2 {
+  font-family: 'Syne', sans-serif;
+  font-size: 36px; font-weight: 800; color: #1A1523;
+  line-height: 1.15; letter-spacing: -0.02em;
+}
+
+.header h2 em { font-style: normal; color: #7C3AED; }
+
+.header .sub {
+  font-size: 15px; color: #6B7280; margin-top: 10px;
+  line-height: 1.6;
+}
+
+/* ── THREE ASK CARDS ── */
+.ask-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+  padding: 0 48px;
+  position: relative; z-index: 2;
+}
+
+.ask-card {
+  border-radius: 18px;
+  border: 1.5px solid #E8E3FB;
+  background: white;
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  animation: cardUp 0.5s ease forwards;
+  box-shadow: 0 4px 20px rgba(124,58,237,0.06);
+}
+
+.ask-card:nth-child(1) { animation-delay: 0.1s; }
+.ask-card:nth-child(2) { animation-delay: 0.22s; }
+.ask-card:nth-child(3) { animation-delay: 0.34s; }
+
+@keyframes cardUp {
+  from { opacity:0; transform: translateY(20px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+/* step number */
+.step-num {
+  font-family: 'Syne', sans-serif;
+  font-size: 64px; font-weight: 800;
+  line-height: 1;
+  color: #F3F0FF;
+  position: absolute;
+  top: 20px; right: 24px;
+  letter-spacing: -0.04em;
+  user-select: none;
+}
+
+.ask-icon {
+  font-size: 36px; margin-bottom: 16px;
+  position: relative; z-index: 1;
+}
+
+.ask-tag {
+  font-family: 'Syne', sans-serif;
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: #A78BFA; margin-bottom: 8px;
+}
+
+.ask-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px; font-weight: 800;
+  color: #1A1523; line-height: 1.2;
+  margin-bottom: 12px;
+}
+
+.ask-title em { font-style: normal; color: #7C3AED; }
+
+.ask-desc {
+  font-size: 13px; color: #6B7280; line-height: 1.7;
+  flex: 1;
+}
+
+.ask-desc strong { color: #1A1523; font-weight: 500; }
+
+/* what we need list */
+.ask-list {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: 12px; color: #4B5563; line-height: 1.5;
+}
+
+.ask-bullet {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #7C3AED;
+  color: white;
+  font-family: 'Syne', sans-serif;
+  font-size: 9px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+
+/* card accent top bar */
+.ask-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #7C3AED, #A78BFA);
+  border-radius: 18px 18px 0 0;
+}
+
+/* Highlight the middle card */
+.ask-card.featured {
+  background: #7C3AED;
+  border-color: #7C3AED;
+}
+
+.ask-card.featured::before {
+  background: rgba(255,255,255,0.3);
+}
+
+.ask-card.featured .step-num { color: rgba(255,255,255,0.1); }
+.ask-card.featured .ask-tag  { color: #C4B5FD; }
+.ask-card.featured .ask-title { color: white; }
+.ask-card.featured .ask-title em { color: #C4B5FD; }
+.ask-card.featured .ask-desc  { color: rgba(255,255,255,0.75); }
+.ask-card.featured .ask-desc strong { color: white; }
+.ask-card.featured .ask-item  { color: rgba(255,255,255,0.85); }
+.ask-card.featured .ask-bullet {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+/* ── BOTTOM: WHAT WE'VE BUILT STRIP ── */
+.built-strip {
+  margin: 28px 48px 0;
+  background: #F8F7FF;
+  border: 1.5px solid #E8E3FB;
+  border-radius: 16px;
+  padding: 20px 32px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  opacity: 0;
+  animation: cardUp 0.5s ease 0.5s forwards;
+}
+
+.built-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 9px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: #9CA3AF;
+  min-width: 100px;
+  padding-right: 24px;
+  border-right: 1px solid #E8E3FB;
+}
+
+.built-chips {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  padding-left: 24px; flex: 1;
+}
+
+.built-chip {
+  background: white;
+  border: 1.5px solid #E8E3FB;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px; color: #1A1523; font-weight: 500;
+  display: flex; align-items: center; gap: 7px;
+}
+
+.built-chip .chip-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #10B981; flex-shrink: 0;
+}
+
+/* ── CLOSING LINE ── */
+.closing {
+  text-align: center;
+  padding: 28px 0 36px;
+  position: relative; z-index: 2;
+}
+
+.closing-text {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px; font-weight: 800;
+  color: #1A1523; line-height: 1.4;
+}
+
+.closing-text em { font-style: normal; color: #7C3AED; }
+
+.closing-sub {
+  font-size: 13px; color: #9CA3AF;
+  margin-top: 8px; letter-spacing: 0.03em;
+}
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="top-bar"></div>
+  <div class="bg-dots"></div>
+  <div class="bg-glow"></div>
+
+  <div class="header">
+    <div class="eyebrow">The Ask</div>
+    <h2>Three things to <em>get started.</em></h2>
+    <div class="sub">TARS is ready. The prototype works. Here's what we need to take it further.</div>
+  </div>
+
+  <div class="ask-row">
+
+    <!-- ASK 1 -->
+    <div class="ask-card">
+      <div class="step-num">01</div>
+      <div class="ask-icon">🧪</div>
+      <div class="ask-tag">First Step</div>
+      <div class="ask-title">Run a <em>Pilot</em><br>with One Team</div>
+      <div class="ask-desc">
+        Give us one engineering team and their existing observability stack.
+        <strong>Let TARS run alongside them</strong> for a sprint — handling triage, surfacing root causes, auto-creating issues.
+      </div>
+      <div class="ask-list">
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Identify a team with active on-call rotation</span>
+        </div>
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Connect their existing platforms via MCP</span>
+        </div>
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Measure impact over 2–4 weeks</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ASK 2: Featured -->
+    <div class="ask-card featured">
+      <div class="step-num">02</div>
+      <div class="ask-icon">🤝</div>
+      <div class="ask-tag">Key Enabler</div>
+      <div class="ask-title">Your <em>Support</em><br>& Sponsorship</div>
+      <div class="ask-desc">
+        This prototype was built lean and fast. To scale it into a
+        <strong>production-grade platform</strong> we need executive sponsorship —
+        access to environments, teams, and the mandate to expand.
+      </div>
+      <div class="ask-list">
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Access to prod-like environments for testing</span>
+        </div>
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Engineering time to connect client platforms</span>
+        </div>
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Mandate to expand across teams & clients</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ASK 3 -->
+    <div class="ask-card">
+      <div class="step-num">03</div>
+      <div class="ask-icon">🗺️</div>
+      <div class="ask-tag">The Bigger Picture</div>
+      <div class="ask-title">Shape the <em>Roadmap</em><br>Together</div>
+      <div class="ask-desc">
+        We've built the foundation. Now we need your strategic input to
+        <strong>prioritise what gets built next</strong> — more MCPs, client deployments,
+        product hardening, or new agent capabilities.
+      </div>
+      <div class="ask-list">
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Define which client use cases to target first</span>
+        </div>
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Identify integration priorities (JIRA, SN, etc.)</span>
+        </div>
+        <div class="ask-item">
+          <div class="ask-bullet">→</div>
+          <span>Align on path from prototype → product</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- WHAT WE'VE ALREADY BUILT -->
+  <div class="built-strip">
+    <div class="built-label">Already Built</div>
+    <div class="built-chips">
+      <div class="built-chip"><div class="chip-dot"></div>Working Prototype</div>
+      <div class="built-chip"><div class="chip-dot"></div>NLP Chat Interface</div>
+      <div class="built-chip"><div class="chip-dot"></div>MCP Plug & Play</div>
+      <div class="built-chip"><div class="chip-dot"></div>Multi-Agent Orchestration</div>
+      <div class="built-chip"><div class="chip-dot"></div>Auto Triage</div>
+      <div class="built-chip"><div class="chip-dot"></div>GitHub Issue + PR Agents</div>
+      <div class="built-chip"><div class="chip-dot"></div>Knowledge Base (RAG)</div>
+      <div class="built-chip"><div class="chip-dot"></div>CloudWatch Auto-Trigger</div>
+      <div class="built-chip"><div class="chip-dot"></div>AWS Serverless</div>
+    </div>
+  </div>
+
+  <!-- CLOSING -->
+  <div class="closing">
+    <div class="closing-text">
+      The prototype is live. The vision is clear.<br>
+      <em>The only question is — how fast do we scale?</em>
+    </div>
+    <div class="closing-sub">TARS · Telemetry Analysis & Resolution System</div>
+  </div>
+
+</div>
+</body>
+</html>

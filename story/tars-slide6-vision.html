@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TARS — The Vision</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: #EBEBF5;
+  font-family: 'DM Sans', sans-serif;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.slide {
+  width: 1400px;
+  background: white;
+  box-shadow: 0 8px 60px rgba(124,58,237,0.13);
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 44px;
+}
+
+.top-bar {
+  height: 5px;
+  background: linear-gradient(90deg, #7C3AED, #A78BFA);
+}
+
+.bg-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, #C4B5FD 1px, transparent 1px);
+  background-size: 30px 30px;
+  opacity: 0.1; pointer-events: none;
+}
+
+/* subtle radial glow behind header */
+.bg-glow {
+  position: absolute;
+  top: -100px; left: 50%;
+  transform: translateX(-50%);
+  width: 800px; height: 400px;
+  background: radial-gradient(ellipse, rgba(124,58,237,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ── HEADER ── */
+.header {
+  text-align: center;
+  padding: 32px 0 28px;
+  position: relative; z-index: 2;
+}
+
+.eyebrow {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: #7C3AED; margin-bottom: 8px;
+}
+
+.header h2 {
+  font-family: 'Syne', sans-serif;
+  font-size: 30px; font-weight: 800; color: #1A1523;
+  line-height: 1.2;
+}
+
+.header h2 em { font-style: normal; color: #7C3AED; }
+.header .sub {
+  font-size: 14px; color: #6B7280; margin-top: 8px;
+  max-width: 600px; margin-left: auto; margin-right: auto;
+  line-height: 1.6;
+}
+
+/* ── MAIN GRID ── */
+.vision-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 16px;
+  padding: 0 44px;
+  position: relative; z-index: 2;
+}
+
+/* Vision cards */
+.vcard {
+  border-radius: 16px;
+  padding: 24px 26px;
+  border: 1.5px solid;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  animation: cardUp 0.5s ease forwards;
+}
+
+.vcard:nth-child(1) { animation-delay: 0.05s; }
+.vcard:nth-child(2) { animation-delay: 0.15s; }
+.vcard:nth-child(3) { animation-delay: 0.25s; }
+.vcard:nth-child(4) { animation-delay: 0.35s; }
+.vcard:nth-child(5) { animation-delay: 0.45s; }
+
+@keyframes cardUp {
+  from { opacity:0; transform: translateY(16px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+/* corner accent */
+.vcard::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 4px; height: 100%;
+  border-radius: 4px 0 0 4px;
+}
+
+/* color themes */
+.v-purple {
+  background: #F5F3FF;
+  border-color: #DDD6FE;
+}
+.v-purple::before { background: #7C3AED; }
+
+.v-blue {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+}
+.v-blue::before { background: #3B82F6; }
+
+.v-green {
+  background: #ECFDF5;
+  border-color: #A7F3D0;
+}
+.v-green::before { background: #059669; }
+
+.v-amber {
+  background: #FFFBEB;
+  border-color: #FDE68A;
+}
+.v-amber::before { background: #D97706; }
+
+.v-indigo {
+  background: #EEF2FF;
+  border-color: #C7D2FE;
+}
+.v-indigo::before { background: #4F46E5; }
+
+/* Wide card spans 2 cols */
+.span2 { grid-column: span 2; }
+
+.v-icon {
+  font-size: 28px; margin-bottom: 12px;
+}
+
+.v-tag {
+  font-family: 'Syne', sans-serif;
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: #9CA3AF; margin-bottom: 8px;
+}
+
+.v-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 16px; font-weight: 800;
+  color: #1A1523; line-height: 1.25;
+  margin-bottom: 10px;
+}
+
+.v-title em { font-style: normal; color: #7C3AED; }
+
+.v-desc {
+  font-size: 13px; color: #6B7280; line-height: 1.65;
+}
+
+.v-desc strong { color: #1A1523; font-weight: 500; }
+
+/* pill list inside wide card */
+.v-pills {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px;
+}
+
+.v-pill {
+  background: white;
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 11px; font-weight: 500;
+  color: #4B5563;
+  border: 1px solid #E5E7EB;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* ── BOTTOM STATEMENT ── */
+.vision-statement {
+  margin: 24px 44px 0;
+  background: #7C3AED;
+  border-radius: 16px;
+  padding: 20px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  opacity: 0;
+  animation: cardUp 0.5s ease 0.55s forwards;
+}
+
+.vs-left {
+  display: flex; align-items: center; gap: 16px;
+}
+
+.vs-icon {
+  font-size: 28px; flex-shrink: 0;
+}
+
+.vs-text {
+  font-size: 15px; color: white; line-height: 1.6;
+}
+
+.vs-text strong {
+  font-weight: 600;
+  color: #C4B5FD;
+}
+
+.vs-badge {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 10px;
+  padding: 10px 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.vs-badge .b-top {
+  font-family: 'Syne', sans-serif;
+  font-size: 11px; font-weight: 800;
+  color: white; letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vs-badge .b-sub {
+  font-size: 10px; color: rgba(255,255,255,0.6);
+  margin-top: 3px; letter-spacing: 0.05em;
+}
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="top-bar"></div>
+  <div class="bg-dots"></div>
+  <div class="bg-glow"></div>
+
+  <div class="header">
+    <div class="eyebrow">The Vision</div>
+    <h2>From prototype to <em>org-wide intelligence.</em></h2>
+    <div class="sub">TARS is built to scale — across teams, platforms and clients. Here's the potential when we go further.</div>
+  </div>
+
+  <div class="vision-grid">
+
+    <!-- 1: Default First Responder -->
+    <div class="vcard v-purple">
+      <div class="v-icon">🚨</div>
+      <div class="v-tag">Operational</div>
+      <div class="v-title">TARS as Default<br><em>First Responder</em></div>
+      <div class="v-desc">
+        Every alert, every incident — TARS investigates first. Engineers are brought in <strong>only when human judgement is needed.</strong> On-call fatigue drops. Resolution speed rises.
+      </div>
+    </div>
+
+    <!-- 2: Org-wide Adoption -->
+    <div class="vcard v-blue">
+      <div class="v-icon">🏢</div>
+      <div class="v-tag">Scale</div>
+      <div class="v-title">Org-wide<br>Adoption</div>
+      <div class="v-desc">
+        Start with one team. Expand to every engineering squad. <strong>One unified triage platform</strong> across all services, all environments, all teams — no siloed tools.
+      </div>
+    </div>
+
+    <!-- 3: More MCP platforms -->
+    <div class="vcard v-green">
+      <div class="v-icon">🔌</div>
+      <div class="v-tag">Extensibility</div>
+      <div class="v-title">Unlimited<br>Platform Coverage</div>
+      <div class="v-desc">
+        Every new observability tool your org adopts <strong>plugs into TARS via MCP</strong>. The platform grows with your stack — automatically, without re-architecture.
+      </div>
+    </div>
+
+    <!-- 4: Scale to product — wide card -->
+    <div class="vcard v-indigo span2">
+      <div class="v-icon">🚀</div>
+      <div class="v-tag">Product Potential</div>
+      <div class="v-title">Scale Prototype → <em>Production Product</em></div>
+      <div class="v-desc">
+        TARS is a working prototype today. The path to a production-grade product is clear —
+        <strong>hardened infrastructure, enterprise security, multi-tenancy, and SLA-backed reliability.</strong>
+        The foundation is already built.
+      </div>
+      <div class="v-pills">
+        <div class="v-pill">⚡ Serverless & scalable</div>
+        <div class="v-pill">🔐 Enterprise security</div>
+        <div class="v-pill">📊 Usage analytics</div>
+        <div class="v-pill">👥 Multi-team support</div>
+        <div class="v-pill">🌐 Multi-environment</div>
+      </div>
+    </div>
+
+    <!-- 5: Client side + productivity -->
+    <div class="vcard v-amber">
+      <div class="v-icon">📈</div>
+      <div class="v-tag">Client Impact</div>
+      <div class="v-title">Deploy at<br>Client Scale</div>
+      <div class="v-desc">
+        Implement TARS <strong>inside client environments</strong> — connecting to their observability stack. Teams become dramatically more productive with <strong>faster resolution, less context switching, zero knowledge gaps.</strong>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom statement -->
+  <div class="vision-statement">
+    <div class="vs-left">
+      <div class="vs-icon">💡</div>
+      <div class="vs-text">
+        TARS isn't a tool — it's a <strong>new operating model</strong> for engineering teams.
+        The prototype proves the concept. The vision is a platform that thinks, triages and acts
+        <strong>before your engineers even open a laptop.</strong>
+      </div>
+    </div>
+    <div class="vs-badge">
+      <div class="b-top">Fully Working<br>Prototype</div>
+      <div class="b-sub">Ready to scale today</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

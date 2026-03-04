@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TARS — Story Deck</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --purple: #7C3AED;
+    --purple-light: #A78BFA;
+    --purple-pale: #EDE9FE;
+    --purple-mid: #DDD6FE;
+    --bg: #FFFFFF;
+    --surface: #F8F7FF;
+    --border: #E8E3FB;
+    --text: #1A1523;
+    --muted: #6B7280;
+    --soft: #9CA3AF;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #f0eef8;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  .deck-wrap {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .deck {
+    width: min(100vw, calc(100vh * 16/9));
+    height: min(100vh, calc(100vw * 9/16));
+    position: relative;
+    background: white;
+    box-shadow: 0 8px 60px rgba(124,58,237,0.12);
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+  }
+
+  .slide.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  .nav {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 100;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 8px 20px;
+    box-shadow: 0 4px 20px rgba(124,58,237,0.1);
+  }
+
+  .nav button {
+    background: none; border: none;
+    color: var(--muted); cursor: pointer;
+    font-size: 16px; padding: 2px 6px;
+    transition: color 0.2s;
+  }
+  .nav button:hover { color: var(--purple); }
+
+  .dots { display: flex; gap: 6px; align-items: center; }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--border); cursor: pointer; transition: all 0.3s;
+  }
+  .dot.active { background: var(--purple); width: 18px; border-radius: 3px; }
+
+  .slide-counter {
+    position: fixed; bottom: 28px; right: 40px;
+    font-size: 11px; color: var(--soft);
+    font-family: 'Syne', sans-serif; letter-spacing: 0.1em;
+  }
+
+  /* ===== SLIDE 1 ===== */
+  #s1 {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: white;
+  }
+
+  #s1 .top-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: linear-gradient(90deg, var(--purple), var(--purple-light));
+  }
+
+  #s1 .bg-dots {
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, #C4B5FD 1px, transparent 1px);
+    background-size: 36px 36px;
+    opacity: 0.2;
+  }
+
+  #s1 .center {
+    position: relative; text-align: center; max-width: 75%;
+    animation: fadeUp 0.7s ease forwards;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  #s1 .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--purple-pale); border: 1px solid var(--purple-mid);
+    border-radius: 20px; padding: 6px 16px;
+    font-size: 11px; font-family: 'Syne', sans-serif;
+    letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--purple); margin-bottom: 28px;
+  }
+
+  #s1 .pill .blink {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--purple); animation: blink 2s infinite;
+  }
+
+  @keyframes blink {
+    0%,100% { opacity:1; } 50% { opacity:0.2; }
+  }
+
+  #s1 h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(72px, 10vw, 110px);
+    font-weight: 800; letter-spacing: -0.04em;
+    color: var(--text); line-height: 1; margin-bottom: 10px;
+  }
+
+  #s1 h1 span { color: var(--purple); }
+
+  #s1 .tagline {
+    font-size: clamp(11px, 1.4vw, 14px); color: var(--muted);
+    letter-spacing: 0.1em; text-transform: uppercase;
+    font-family: 'Syne', sans-serif; margin-bottom: 36px;
+  }
+
+  #s1 .rule {
+    width: 40px; height: 2px; background: var(--purple-light);
+    margin: 0 auto 28px; border-radius: 2px;
+  }
+
+  #s1 .pitch {
+    font-size: clamp(15px, 1.8vw, 21px);
+    color: var(--text); line-height: 1.65;
+    max-width: 560px; margin: 0 auto;
+  }
+
+  #s1 .pitch em { font-style: normal; color: var(--purple); font-weight: 500; }
+
+  #s1 .badges {
+    margin-top: 36px; display: flex; gap: 10px;
+    justify-content: center; flex-wrap: wrap;
+  }
+
+  #s1 .badge {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 12px;
+    font-size: 10px; color: var(--muted);
+    font-family: 'Syne', sans-serif; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+
+  /* ===== SLIDE 2 ===== */
+  #s2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: white;
+  }
+
+  #s2 .top-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: linear-gradient(90deg, var(--purple), var(--purple-light));
+    z-index: 2;
+  }
+
+  #s2 .left {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 7% 7% 5%;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+
+  #s2 .eyebrow {
+    font-family: 'Syne', sans-serif; font-size: 10px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--purple); margin-bottom: 18px;
+  }
+
+  #s2 h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(26px, 3.2vw, 40px);
+    font-weight: 800; line-height: 1.15;
+    color: var(--text); margin-bottom: 20px;
+  }
+
+  #s2 h2 em { font-style: normal; color: var(--purple); }
+
+  #s2 .desc {
+    font-size: clamp(12px, 1.3vw, 14px);
+    color: var(--muted); line-height: 1.8; margin-bottom: 24px;
+  }
+
+  #s2 .desc strong { color: var(--text); font-weight: 500; }
+
+  #s2 .platforms {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+
+  #s2 .plat {
+    background: white; border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    opacity: 0; animation: slideIn 0.4s ease forwards;
+  }
+
+  .slide.active #s2 .plat:nth-child(1) { animation-delay: 0.2s; }
+  .slide.active #s2 .plat:nth-child(2) { animation-delay: 0.35s; }
+  .slide.active #s2 .plat:nth-child(3) { animation-delay: 0.5s; }
+  .slide.active #s2 .plat:nth-child(4) { animation-delay: 0.65s; }
+
+  @keyframes slideIn {
+    from { opacity:0; transform: translateX(-6px); }
+    to { opacity:1; transform: translateX(0); }
+  }
+
+  #s2 .plat-icon { font-size: 16px; width: 28px; text-align: center; flex-shrink: 0; }
+  #s2 .plat-name { font-size: 12px; font-weight: 500; color: var(--text); font-family: 'Syne', sans-serif; }
+  #s2 .plat-sub { font-size: 10px; color: var(--soft); margin-top: 1px; }
+
+  /* Right */
+  #s2 .right {
+    padding: 7% 7% 5%;
+    display: flex; flex-direction: column; justify-content: center; gap: 14px;
+  }
+
+  #s2 .card {
+    border-radius: 12px; padding: 18px 20px; border: 1px solid;
+  }
+
+  #s2 .card.orange { background: #FFF7ED; border-color: #FED7AA; }
+  #s2 .card.red    { background: #FFF1F2; border-color: #FECDD3; }
+
+  #s2 .card-icon { font-size: 18px; margin-bottom: 6px; }
+  #s2 .card-title {
+    font-family: 'Syne', sans-serif; font-size: 11px;
+    font-weight: 700; letter-spacing: 0.06em; margin-bottom: 5px; color: var(--text);
+  }
+
+  #s2 .card-desc {
+    font-size: clamp(11px, 1.2vw, 13px); line-height: 1.65; color: var(--muted);
+  }
+
+  #s2 .card-desc strong { color: var(--text); font-weight: 500; }
+
+  #s2 .q-box {
+    background: var(--purple); border-radius: 12px; padding: 20px 22px; color: white;
+  }
+
+  #s2 .q-label {
+    font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    font-family: 'Syne', sans-serif; opacity: 0.65; margin-bottom: 8px;
+  }
+
+  #s2 .q-text {
+    font-size: clamp(12px, 1.3vw, 14px); line-height: 1.7;
+  }
+
+  #s2 .q-text em { font-style: normal; color: #C4B5FD; font-weight: 500; }
+
+</style>
+</head>
+<body>
+<div class="deck-wrap"><div class="deck">
+
+  <!-- SLIDE 1 -->
+  <div class="slide active" id="s1">
+    <div class="top-bar"></div>
+    <div class="bg-dots"></div>
+    <div class="center">
+      <div class="pill"><span class="blink"></span>Fully Working Prototype</div>
+      <h1>T<span>A</span>RS</h1>
+      <div class="tagline">Telemetry Analysis & Resolution System</div>
+      <div class="rule"></div>
+      <div class="pitch">
+        One <em>intelligent interface</em> across all your observability platforms —
+        from alert to resolution, at the speed of a conversation.
+      </div>
+      <div class="badges">
+        <span class="badge">Agentic AI</span>
+        <span class="badge">AWS Native</span>
+        <span class="badge">MCP Plug & Play</span>
+        <span class="badge">Auto Remediation</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 2 -->
+  <div class="slide" id="s2">
+    <div class="top-bar"></div>
+    <div class="left">
+      <div class="eyebrow">The Reality Today</div>
+      <h2>It's 2am.<br>An alert just fired.<br><em>Now what?</em></h2>
+      <p class="desc">
+        An incident is logged. Your on-call engineer wakes up and must open
+        <strong>multiple platforms</strong> — each with its own interface, query language,
+        and context — before any diagnosis can even begin.
+      </p>
+      <div class="platforms">
+        <div class="plat"><div class="plat-icon">☁️</div><div><div class="plat-name">CloudWatch</div><div class="plat-sub">Logs & alarms</div></div></div>
+        <div class="plat"><div class="plat-icon">📊</div><div><div class="plat-name">Datadog</div><div class="plat-sub">APM & metrics</div></div></div>
+        <div class="plat"><div class="plat-icon">🔍</div><div><div class="plat-name">Elasticsearch</div><div class="plat-sub">Error patterns</div></div></div>
+        <div class="plat"><div class="plat-icon">🔭</div><div><div class="plat-name">Dynatrace</div><div class="plat-sub">Infra health</div></div></div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="card orange">
+        <div class="card-icon">🔀</div>
+        <div class="card-title">Context Switching</div>
+        <div class="card-desc">Every platform is a different tab, a different query, a different mental model. Engineers lose time <strong>just navigating</strong> before diagnosis begins.</div>
+      </div>
+      <div class="card red">
+        <div class="card-icon">🧠</div>
+        <div class="card-title">Tribal Knowledge Gap</div>
+        <div class="card-desc">Root cause often lives in someone's head or a doc no one can find at 2am. <strong>Institutional knowledge shouldn't be a bottleneck</strong> during an incident.</div>
+      </div>
+      <div class="q-box">
+        <div class="q-label">The Question Worth Asking</div>
+        <div class="q-text">What if your engineer could ask <em>one question</em> and get answers from all platforms — correlated, synthesised, pointed at the root cause?</div>
+      </div>
+    </div>
+  </div>
+
+</div></div>
+
+<div class="nav">
+  <button onclick="prev()">←</button>
+  <div class="dots">
+    <div class="dot active" onclick="goTo(0)"></div>
+    <div class="dot" onclick="goTo(1)"></div>
+  </div>
+  <button onclick="next()">→</button>
+</div>
+<div class="slide-counter" id="counter">01 / 02</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const dots = document.querySelectorAll('.dot');
+  const counter = document.getElementById('counter');
+  let cur = 0;
+
+  function goTo(n) {
+    slides[cur].classList.remove('active');
+    dots[cur].classList.remove('active');
+    cur = n;
+    slides[cur].classList.add('active');
+    dots[cur].classList.add('active');
+    counter.textContent = String(cur+1).padStart(2,'0') + ' / ' + String(slides.length).padStart(2,'0');
+  }
+
+  function next() { if (cur < slides.length-1) goTo(cur+1); }
+  function prev() { if (cur > 0) goTo(cur-1); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next();
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') prev();
+  });
+</script>
+</body>
+</html>

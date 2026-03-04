@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TARS — MCP Plug & Play</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: #EBEBF5;
+  font-family: 'DM Sans', sans-serif;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.slide {
+  width: 1400px;
+  background: white;
+  box-shadow: 0 8px 60px rgba(124,58,237,0.13);
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 36px;
+}
+
+.top-bar {
+  height: 5px;
+  background: linear-gradient(90deg, #7C3AED, #A78BFA);
+}
+
+.bg-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, #C4B5FD 1px, transparent 1px);
+  background-size: 30px 30px;
+  opacity: 0.1; pointer-events: none;
+}
+
+.header {
+  text-align: center;
+  padding: 28px 0 20px;
+  position: relative; z-index: 2;
+}
+.eyebrow {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: #7C3AED; margin-bottom: 6px;
+}
+.header h2 {
+  font-family: 'Syne', sans-serif;
+  font-size: 28px; font-weight: 800; color: #1A1523;
+}
+.header h2 em { font-style: normal; color: #7C3AED; }
+.header .sub { font-size: 13px; color: #6B7280; margin-top: 5px; }
+
+/* =============================================
+   TRUE LEGO SCENE — CSS 3D perspective
+============================================= */
+.lego-scene {
+  padding: 0 48px;
+  position: relative; z-index: 2;
+}
+
+/* ── PLATFORM BRICK ROW ── */
+.brick-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: flex-end;
+  perspective: 800px;
+}
+
+/* Each platform is a 3D Lego brick */
+.lego-unit {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  animation: brickFall 0.6s cubic-bezier(0.34,1.4,0.64,1) forwards;
+}
+.lego-unit:nth-child(1){animation-delay:0.00s}
+.lego-unit:nth-child(2){animation-delay:0.10s}
+.lego-unit:nth-child(3){animation-delay:0.20s}
+.lego-unit:nth-child(4){animation-delay:0.30s}
+.lego-unit:nth-child(5){animation-delay:0.40s}
+.lego-unit:nth-child(6){animation-delay:0.50s}
+
+@keyframes brickFall {
+  from { opacity:0; transform: translateY(-40px) rotateX(-20deg); }
+  to   { opacity:1; transform: translateY(0) rotateX(0deg); }
+}
+
+/* ── THE LEGO BRICK (3D CSS) ── */
+.lego-brick {
+  width: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateX(10deg);
+  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.15));
+}
+
+/* TOP FACE of brick */
+.brick-top {
+  position: relative;
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  padding: 14px 10px 12px;
+  text-align: center;
+  /* simulate 3D top edge */
+  border-top: 3px solid rgba(255,255,255,0.6);
+  border-left: 3px solid rgba(255,255,255,0.4);
+  border-right: 3px solid rgba(0,0,0,0.08);
+}
+
+/* STUDS on top — actual Lego bumps */
+.stud-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.stud {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  position: relative;
+  /* Lego stud is a cylinder — simulate with layered shadows */
+  box-shadow:
+    inset 0 -4px 0 rgba(0,0,0,0.18),   /* bottom shadow = 3D depth */
+    inset 0 3px 0 rgba(255,255,255,0.5), /* top highlight */
+    0 2px 6px rgba(0,0,0,0.2);           /* drop shadow */
+}
+
+/* Stud inner ring (the hollow cylinder top detail) */
+.stud::after {
+  content: '';
+  position: absolute;
+  top: 4px; left: 4px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.12);
+  background: transparent;
+}
+
+/* BOTTOM FACE of brick (3D side) */
+.brick-side {
+  height: 12px;
+  border-radius: 0 0 4px 4px;
+  /* Darker shade of brick color for depth */
+  filter: brightness(0.75);
+  border-bottom: 2px solid rgba(0,0,0,0.15);
+}
+
+/* PLUG that connects brick → MCP rail */
+.brick-plug {
+  width: 14px;
+  height: 20px;
+  border-radius: 0 0 4px 4px;
+  background: #5B21B6;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.25);
+  margin-top: -1px;
+}
+
+/* Label inside brick */
+.brick-icon { font-size: 20px; margin-bottom: 4px; }
+.brick-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px; font-weight: 800;
+  color: #1A1523; line-height: 1.2;
+}
+.brick-sub { font-size: 9px; color: #6B7280; margin-top: 2px; }
+.mcp-tag {
+  display: inline-block;
+  margin-top: 8px;
+  background: #7C3AED;
+  color: white;
+  font-family: 'Syne', sans-serif;
+  font-size: 8px; font-weight: 800;
+  letter-spacing: 0.14em;
+  padding: 3px 10px;
+  border-radius: 3px;
+}
+
+/* Color palette per brick */
+.c-cw .brick-top { background: #FEF3C7; }
+.c-cw .stud      { background: #F59E0B; }
+.c-cw .brick-side { background: #FEF3C7; }
+
+.c-dd .brick-top { background: #DBEAFE; }
+.c-dd .stud      { background: #3B82F6; }
+.c-dd .brick-side { background: #DBEAFE; }
+
+.c-es .brick-top { background: #D1FAE5; }
+.c-es .stud      { background: #10B981; }
+.c-es .brick-side { background: #D1FAE5; }
+
+.c-dy .brick-top { background: #FCE7F3; }
+.c-dy .stud      { background: #EC4899; }
+.c-dy .brick-side { background: #FCE7F3; }
+
+.c-sp .brick-top { background: #EDE9FE; }
+.c-sp .stud      { background: #7C3AED; }
+.c-sp .brick-side { background: #EDE9FE; }
+
+.c-any .brick-top { background: #F9FAFB; border: 2px dashed #D1D5DB; }
+.c-any .stud      { background: #9CA3AF; }
+.c-any .brick-side { background: #F3F4F6; }
+
+/* ── MCP RAIL ── */
+.mcp-rail {
+  background: #7C3AED;
+  padding: 12px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  position: relative;
+  box-shadow:
+    inset 0 4px 0 rgba(255,255,255,0.15),
+    inset 0 -6px 0 rgba(0,0,0,0.2),
+    0 4px 0 #5B21B6;
+  opacity: 0;
+  animation: snapIn 0.4s ease 0.58s forwards;
+}
+
+@keyframes snapIn {
+  from { opacity:0; transform: scaleY(0.5); }
+  to   { opacity:1; transform: scaleY(1); }
+}
+
+.rail-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 15px; font-weight: 800;
+  color: white; letter-spacing: 0.18em; text-transform: uppercase;
+}
+.rail-pipe { color: rgba(255,255,255,0.3); font-size: 16px; }
+.rail-tag {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px; color: rgba(255,255,255,0.65);
+  letter-spacing: 0.06em;
+}
+
+/* Socket holes in rail top (where pins go in) */
+.rail-sockets {
+  position: absolute;
+  top: 4px; left: 0; right: 0;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 40px;
+  pointer-events: none;
+}
+.socket {
+  width: 14px; height: 8px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* Rail bottom — connector nubs going down into TARS */
+.rail-nubs {
+  position: absolute;
+  bottom: -10px; left: 0; right: 0;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 40px;
+  z-index: 3;
+}
+.nub {
+  width: 18px; height: 10px;
+  background: #5B21B6;
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+}
+
+/* ── TARS BASE BRICK ── */
+.tars-brick {
+  background: white;
+  border: 2.5px solid #7C3AED;
+  border-top: none;
+  border-radius: 0 0 14px 14px;
+  box-shadow:
+    inset -4px 0 0 rgba(124,58,237,0.05),
+    inset 0 -4px 0 rgba(124,58,237,0.05),
+    4px 0 0 #E8E3FB,
+    0 6px 0 #E8E3FB,
+    0 12px 30px rgba(124,58,237,0.12);
+  opacity: 0;
+  animation: slideUp 0.5s cubic-bezier(0.34,1.2,0.64,1) 0.68s forwards;
+}
+
+@keyframes slideUp {
+  from { opacity:0; transform: translateY(20px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+.tars-body {
+  display: flex;
+  align-items: stretch;
+  padding: 24px 28px;
+  gap: 0;
+  min-height: 150px;
+}
+
+.t-id {
+  min-width: 170px;
+  display: flex; flex-direction: column; justify-content: center;
+  padding-right: 28px;
+  border-right: 1px solid #E8E3FB;
+}
+.t-word {
+  font-family: 'Syne', sans-serif;
+  font-size: 42px; font-weight: 800;
+  color: #7C3AED; letter-spacing: 0.06em; line-height: 1;
+}
+.t-sub {
+  font-size: 10px; color: #9CA3AF; margin-top: 5px;
+  font-family: 'Syne', sans-serif; letter-spacing: 0.05em;
+}
+
+.t-feats {
+  flex: 1; padding: 0 28px;
+  display: flex; flex-direction: column; justify-content: center;
+  border-right: 1px solid #E8E3FB;
+}
+.t-feat-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 8px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: #9CA3AF; margin-bottom: 12px;
+}
+.t-feat-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 16px;
+}
+.t-feat {
+  font-size: 12px; color: #1A1523; font-weight: 500;
+  display: flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.t-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #A78BFA; flex-shrink: 0;
+}
+
+.t-out {
+  min-width: 190px; padding-left: 28px;
+  display: flex; flex-direction: column; justify-content: center; gap: 7px;
+}
+.t-out-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 8px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: #9CA3AF; margin-bottom: 4px;
+}
+.t-chip {
+  background: #ECFDF5; border: 1.5px solid #A7F3D0;
+  border-radius: 7px; padding: 5px 12px;
+  font-size: 11px; font-weight: 600; color: #059669;
+  font-family: 'Syne', sans-serif; letter-spacing: 0.03em;
+}
+
+/* Bottom studs of TARS brick */
+.tars-bottom {
+  display: flex; gap: 0;
+  padding: 6px 60px 8px;
+  border-top: 1px solid #E8E3FB;
+  justify-content: space-around;
+}
+.b-stud {
+  width: 24px; height: 10px;
+  background: #EDE9FE;
+  border: 1.5px solid #DDD6FE;
+  border-top: none;
+  border-radius: 0 0 50% 50% / 0 0 100% 100%;
+}
+
+/* ── BOTTOM ── */
+.bottom-row {
+  margin: 20px 48px 0;
+  display: flex; align-items: center;
+  justify-content: space-between; gap: 20px;
+}
+.insight {
+  font-size: 13px; color: #6B7280;
+  display: flex; align-items: center; gap: 10px;
+}
+.insight strong { color: #1A1523; }
+.badges { display: flex; gap: 8px; }
+.badges span {
+  background: #EDE9FE; border: 1px solid #DDD6FE;
+  border-radius: 6px; padding: 5px 14px;
+  font-size: 10px; color: #7C3AED;
+  font-family: 'Syne', sans-serif;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="top-bar"></div>
+  <div class="bg-dots"></div>
+
+  <div class="header">
+    <div class="eyebrow">How It Connects</div>
+    <h2>Plug in your stack. <em>No rip & replace.</em></h2>
+    <div class="sub">Every observability platform snaps into TARS like a Lego brick — via its own MCP connector. Add more anytime.</div>
+  </div>
+
+  <div class="lego-scene">
+
+    <!-- PLATFORM BRICKS -->
+    <div class="brick-row">
+
+      <div class="lego-unit c-cw">
+        <div class="lego-brick">
+          <div class="brick-top">
+            <div class="stud-row">
+              <div class="stud"></div><div class="stud"></div><div class="stud"></div>
+            </div>
+            <div class="brick-icon">☁️</div>
+            <div class="brick-name">CloudWatch</div>
+            <div class="brick-sub">Logs & Alarms</div>
+            <div class="mcp-tag">MCP</div>
+          </div>
+          <div class="brick-side"></div>
+        </div>
+        <div class="brick-plug"></div>
+      </div>
+
+      <div class="lego-unit c-dd">
+        <div class="lego-brick">
+          <div class="brick-top">
+            <div class="stud-row">
+              <div class="stud"></div><div class="stud"></div><div class="stud"></div>
+            </div>
+            <div class="brick-icon">📊</div>
+            <div class="brick-name">Datadog</div>
+            <div class="brick-sub">APM & Metrics</div>
+            <div class="mcp-tag">MCP</div>
+          </div>
+          <div class="brick-side"></div>
+        </div>
+        <div class="brick-plug"></div>
+      </div>
+
+      <div class="lego-unit c-es">
+        <div class="lego-brick">
+          <div class="brick-top">
+            <div class="stud-row">
+              <div class="stud"></div><div class="stud"></div><div class="stud"></div>
+            </div>
+            <div class="brick-icon">🔍</div>
+            <div class="brick-name">Elasticsearch</div>
+            <div class="brick-sub">Log Analytics</div>
+            <div class="mcp-tag">MCP</div>
+          </div>
+          <div class="brick-side"></div>
+        </div>
+        <div class="brick-plug"></div>
+      </div>
+
+      <div class="lego-unit c-dy">
+        <div class="lego-brick">
+          <div class="brick-top">
+            <div class="stud-row">
+              <div class="stud"></div><div class="stud"></div><div class="stud"></div>
+            </div>
+            <div class="brick-icon">🔭</div>
+            <div class="brick-name">Dynatrace</div>
+            <div class="brick-sub">Infra Intelligence</div>
+            <div class="mcp-tag">MCP</div>
+          </div>
+          <div class="brick-side"></div>
+        </div>
+        <div class="brick-plug"></div>
+      </div>
+
+      <div class="lego-unit c-sp">
+        <div class="lego-brick">
+          <div class="brick-top">
+            <div class="stud-row">
+              <div class="stud"></div><div class="stud"></div><div class="stud"></div>
+            </div>
+            <div class="brick-icon">📟</div>
+            <div class="brick-name">Splunk</div>
+            <div class="brick-sub">SIEM & Search</div>
+            <div class="mcp-tag">MCP</div>
+          </div>
+          <div class="brick-side"></div>
+        </div>
+        <div class="brick-plug"></div>
+      </div>
+
+      <div class="lego-unit c-any">
+        <div class="lego-brick">
+          <div class="brick-top">
+            <div class="stud-row">
+              <div class="stud"></div><div class="stud"></div><div class="stud"></div>
+            </div>
+            <div class="brick-icon">➕</div>
+            <div class="brick-name">Your Platform</div>
+            <div class="brick-sub">Any tool, anytime</div>
+            <div class="mcp-tag">MCP</div>
+          </div>
+          <div class="brick-side"></div>
+        </div>
+        <div class="brick-plug"></div>
+      </div>
+
+    </div>
+
+    <!-- MCP RAIL -->
+    <div class="mcp-rail">
+      <div class="rail-sockets">
+        <div class="socket"></div><div class="socket"></div><div class="socket"></div>
+        <div class="socket"></div><div class="socket"></div><div class="socket"></div>
+        <div class="socket"></div><div class="socket"></div><div class="socket"></div>
+        <div class="socket"></div><div class="socket"></div><div class="socket"></div>
+      </div>
+      <span class="rail-label">MCP Layer</span>
+      <span class="rail-pipe">|</span>
+      <span class="rail-tag">Model Context Protocol</span>
+      <span class="rail-pipe">|</span>
+      <span class="rail-tag">Open Standard</span>
+      <span class="rail-pipe">|</span>
+      <span class="rail-tag">Plug & Play</span>
+      <div class="rail-nubs">
+        <div class="nub"></div><div class="nub"></div><div class="nub"></div>
+        <div class="nub"></div><div class="nub"></div><div class="nub"></div>
+        <div class="nub"></div><div class="nub"></div><div class="nub"></div>
+      </div>
+    </div>
+
+    <!-- TARS BASE BRICK -->
+    <div class="tars-brick">
+      <div class="tars-body">
+        <div class="t-id">
+          <div class="t-word">TARS</div>
+          <div class="t-sub">AI Powered<br>Triage Engine</div>
+        </div>
+        <div class="t-feats">
+          <div class="t-feat-label">Core Capabilities</div>
+          <div class="t-feat-grid">
+            <div class="t-feat"><div class="t-dot"></div>💬 NLP Chat</div>
+            <div class="t-feat"><div class="t-dot"></div>🚨 Auto Triage</div>
+            <div class="t-feat"><div class="t-dot"></div>🤖 Multi-Agent</div>
+            <div class="t-feat"><div class="t-dot"></div>📚 Knowledge Base</div>
+            <div class="t-feat"><div class="t-dot"></div>🔗 Cross-Service Correlation</div>
+            <div class="t-feat"><div class="t-dot"></div>🔧 Auto Remediation</div>
+          </div>
+        </div>
+        <div class="t-out">
+          <div class="t-out-label">Outputs</div>
+          <div class="t-chip">📝 GitHub Issue</div>
+          <div class="t-chip">🔀 Fix PR</div>
+          <div class="t-chip">🎫 JIRA / ServiceNow</div>
+          <div class="t-chip">📢 Notifications</div>
+        </div>
+      </div>
+      <div class="tars-bottom">
+        <div class="b-stud"></div><div class="b-stud"></div><div class="b-stud"></div>
+        <div class="b-stud"></div><div class="b-stud"></div><div class="b-stud"></div>
+        <div class="b-stud"></div><div class="b-stud"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="bottom-row">
+    <div class="insight">
+      💡 <span><strong>No rip & replace.</strong> TARS works alongside what your teams already use. Each new MCP connector = instant new capability.</span>
+    </div>
+    <div class="badges">
+      <span>Open Standard</span>
+      <span>Extensible</span>
+      <span>Future-proof</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

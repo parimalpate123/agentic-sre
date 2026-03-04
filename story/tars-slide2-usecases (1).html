@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TARS — Use Cases</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --purple: #7C3AED;
+    --purple-light: #A78BFA;
+    --purple-pale: #EDE9FE;
+    --purple-mid: #DDD6FE;
+    --border: #E8E3FB;
+    --text: #1A1523;
+    --muted: #6B7280;
+    --soft: #9CA3AF;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #f0eef8;
+    font-family: 'DM Sans', sans-serif;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  .slide {
+    width: 1400px;
+    background: white;
+    box-shadow: 0 8px 60px rgba(124,58,237,0.12);
+    position: relative;
+    padding-bottom: 48px;
+  }
+
+  .top-bar {
+    height: 5px;
+    background: linear-gradient(90deg, var(--purple), var(--purple-light));
+  }
+
+  .bg-dots {
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, #C4B5FD 1px, transparent 1px);
+    background-size: 32px 32px;
+    opacity: 0.12;
+    pointer-events: none;
+  }
+
+  /* HEADER */
+  .header {
+    text-align: center;
+    padding: 32px 0 24px;
+    position: relative; z-index: 2;
+  }
+
+  .eyebrow {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--purple); margin-bottom: 6px;
+  }
+
+  .header h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px; font-weight: 800; color: var(--text);
+  }
+
+  .header h2 em { font-style: normal; color: var(--purple); }
+
+  /* CANVAS — relative container for SVG + cards */
+  .canvas {
+    position: relative;
+    width: 100%;
+    height: 760px;
+  }
+
+  /* SVG lines layer */
+  .lines-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* TARS CENTER NODE */
+  .tars-node {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 130px; height: 130px;
+    background: var(--purple);
+    border-radius: 50%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    box-shadow:
+      0 0 0 12px rgba(124,58,237,0.12),
+      0 0 0 26px rgba(124,58,237,0.06);
+    animation: pulse 3s ease-in-out infinite;
+    z-index: 10;
+  }
+
+  @keyframes pulse {
+    0%,100% {
+      box-shadow: 0 0 0 12px rgba(124,58,237,0.12), 0 0 0 26px rgba(124,58,237,0.06);
+    }
+    50% {
+      box-shadow: 0 0 0 18px rgba(124,58,237,0.15), 0 0 0 36px rgba(124,58,237,0.07);
+    }
+  }
+
+  .tars-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px; font-weight: 800;
+    color: white; letter-spacing: 0.06em;
+  }
+
+  .tars-sub {
+    font-size: 8px; color: rgba(255,255,255,0.65);
+    letter-spacing: 0.1em; text-transform: uppercase;
+    font-family: 'Syne', sans-serif;
+    margin-top: 4px; text-align: center; line-height: 1.4;
+  }
+
+  /* USE CASE CARDS — absolutely positioned */
+  .uc {
+    position: absolute;
+    width: 280px;
+    background: white;
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    opacity: 0;
+    animation: popIn 0.45s ease forwards;
+    z-index: 5;
+  }
+
+  @keyframes popIn {
+    from { opacity:0; transform: scale(0.93); }
+    to   { opacity:1; transform: scale(1); }
+  }
+
+  #uc1 { top: 16px;  left: 40px;  animation-delay: 0.1s; }
+  #uc2 { top: 256px; left: 40px;  animation-delay: 0.2s; }
+  #uc3 { top: 496px; left: 40px;  animation-delay: 0.3s; }
+  #uc4 { top: 16px;  right: 40px; animation-delay: 0.15s; }
+  #uc5 { top: 256px; right: 40px; animation-delay: 0.25s; }
+  #uc6 { top: 496px; right: 40px; animation-delay: 0.35s; }
+  #uc7 { bottom: 24px; left: 50%; transform: translateX(-50%); width: 320px; animation-delay: 0.4s; }
+
+  .uc.dev   { border-left: 4px solid #6366F1; }
+  .uc.sre   { border-left: 4px solid #EF4444; }
+  .uc.prod  { border-left: 4px solid #F59E0B; }
+  .uc.alert { border-left: 4px solid #10B981; }
+  .uc.lead  { border-left: 4px solid #6366F1; }
+  .uc.frag  { border-left: 4px solid #DC2626; border-bottom: 4px solid #DC2626; }
+
+  .uc-top {
+    display: flex; align-items: center;
+    gap: 10px; margin-bottom: 8px;
+  }
+
+  .uc-icon {
+    width: 34px; height: 34px; border-radius: 8px;
+    display: flex; align-items: center;
+    justify-content: center; font-size: 17px; flex-shrink: 0;
+  }
+
+  .uc.dev .uc-icon, .uc.lead .uc-icon { background: #EEF2FF; }
+  .uc.sre .uc-icon  { background: #FFF1F2; }
+  .uc.prod .uc-icon { background: #FFFBEB; }
+  .uc.alert .uc-icon, .uc.auto .uc-icon { background: #ECFDF5; }
+
+  .uc-persona {
+    font-family: 'Syne', sans-serif;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+  }
+
+  .uc-title {
+    font-size: 13px; font-weight: 500;
+    color: var(--text); line-height: 1.4;
+    margin-bottom: 6px; font-style: italic;
+  }
+
+  .uc-detail {
+    font-size: 11px; color: var(--muted);
+    line-height: 1.55; margin-bottom: 8px;
+  }
+
+  .uc-tars {
+    border-top: 1px solid var(--border);
+    padding-top: 7px; font-size: 11px;
+    color: var(--purple); font-weight: 500; line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+<div class="slide" id="slide">
+  <div class="top-bar"></div>
+  <div class="bg-dots"></div>
+
+  <div class="header">
+    <div class="eyebrow">Why TARS Exists</div>
+    <h2>Every team. Every incident. <em>One intelligent layer.</em></h2>
+  </div>
+
+  <div class="canvas" id="canvas">
+
+    <!-- SVG LINES -->
+    <svg class="lines-svg" id="linesSvg"></svg>
+
+    <!-- TARS CENTER -->
+    <div class="tars-node" id="tarsNode">
+      <div class="tars-label">TARS</div>
+      <div class="tars-sub">AI Powered<br>Triage Engine</div>
+    </div>
+
+    <!-- LEFT CARDS -->
+    <div class="uc dev" id="uc1">
+      <div class="uc-top">
+        <div class="uc-icon">👩‍💻</div>
+        <div class="uc-persona">Developer</div>
+      </div>
+      <div class="uc-title">"Why is my deployment failing in prod?"</div>
+      <div class="uc-detail">Pushed a release. Errors flooding in. No time to manually dig through logs across services.</div>
+      <div class="uc-tars">→ Correlates logs & traces, pinpoints the failing service</div>
+    </div>
+
+    <div class="uc prod" id="uc2">
+      <div class="uc-top">
+        <div class="uc-icon">🎧</div>
+        <div class="uc-persona">Production Support</div>
+      </div>
+      <div class="uc-title">"Customer raised a ticket — where do I even start?"</div>
+      <div class="uc-detail">A transaction failed for a key customer. The trail spans 3 services and 2 teams.</div>
+      <div class="uc-tars">→ Traces the transaction ID across all services instantly</div>
+    </div>
+
+    <div class="uc lead" id="uc3">
+      <div class="uc-top">
+        <div class="uc-icon">📋</div>
+        <div class="uc-persona">Team Lead</div>
+      </div>
+      <div class="uc-title">"What's been failing across our services today?"</div>
+      <div class="uc-detail">Morning standup. Need a service health picture before the meeting starts.</div>
+      <div class="uc-tars">→ Summarises error patterns across all services on demand</div>
+    </div>
+
+    <!-- RIGHT CARDS -->
+    <div class="uc sre" id="uc4">
+      <div class="uc-top">
+        <div class="uc-icon">🚨</div>
+        <div class="uc-persona">SRE / On-Call</div>
+      </div>
+      <div class="uc-title">"Alert fired at 2am — 4 platforms to check"</div>
+      <div class="uc-detail">Payment service down. CloudWatch, Datadog, Elasticsearch, Dynatrace — all need checking.</div>
+      <div class="uc-tars">→ Checks all platforms in one query, surfaces root cause</div>
+    </div>
+
+    <div class="uc alert" id="uc5">
+      <div class="uc-top">
+        <div class="uc-icon">⚡</div>
+        <div class="uc-persona">CloudWatch Alarm</div>
+      </div>
+      <div class="uc-title">"CPU spike detected — no engineer paged yet"</div>
+      <div class="uc-detail">Alarm fires automatically. TARS triggers an investigation before anyone is even woken up.</div>
+      <div class="uc-tars">→ Auto-opens incident & creates GitHub issue</div>
+    </div>
+
+    <div class="uc auto" id="uc6">
+      <div class="uc-top">
+        <div class="uc-icon">🔧</div>
+        <div class="uc-persona">Auto Remediation</div>
+      </div>
+      <div class="uc-title">"Known fix available — raise a PR automatically"</div>
+      <div class="uc-detail">TARS identifies a known error pattern and raises a fix PR ready for engineer review.</div>
+      <div class="uc-tars">→ Closes the loop: alert → diagnosis → code fix</div>
+    </div>
+
+    <!-- BOTTOM CENTER: The real problem card -->
+    <div class="uc frag" id="uc7">
+      <div class="uc-top">
+        <div class="uc-icon" style="background:#FFF1F2;">🗂️</div>
+        <div class="uc-persona" style="color:#DC2626;">The Real Problem</div>
+      </div>
+      <div class="uc-title">"5 platforms. No single source of truth."</div>
+      <div class="uc-detail">CloudWatch, Datadog, Dynatrace, Elasticsearch, JIRA — each team uses different tools. No unified place to ask, correlate or act.</div>
+      <div class="uc-tars" style="color:#DC2626; border-color:#FECDD3;">→ TARS is the missing unified layer</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function addCurve(svg, canvasRect, x1, y1, x2, y2) {
+  const mx = (x1 + x2) / 2;
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#A78BFA');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-dasharray', '6 4');
+  path.setAttribute('opacity', '0.65');
+  path.setAttribute('marker-end', 'url(#arrowhead)');
+  svg.appendChild(path);
+}
+
+function drawLines() {
+  const svg      = document.getElementById('linesSvg');
+  const canvas   = document.getElementById('canvas');
+  const tarsNode = document.getElementById('tarsNode');
+  if (!svg || !canvas || !tarsNode) return;
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const tarsRect   = tarsNode.getBoundingClientRect();
+
+  const tx = tarsRect.left - canvasRect.left + tarsRect.width  / 2;
+  const ty = tarsRect.top  - canvasRect.top  + tarsRect.height / 2;
+
+  svg.setAttribute('viewBox', `0 0 ${canvasRect.width} ${canvasRect.height}`);
+  svg.innerHTML = '';
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  defs.innerHTML = `
+    <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <polygon points="0 0, 8 4, 0 8" fill="#A78BFA" opacity="0.8"/>
+    </marker>`;
+  svg.appendChild(defs);
+
+  // Left cards: right edge → TARS center
+  ['uc1','uc2','uc3'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    addCurve(svg, canvasRect, r.right - canvasRect.left, r.top - canvasRect.top + r.height / 2, tx, ty);
+  });
+
+  // Right cards: left edge → TARS center
+  ['uc4','uc5','uc6'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    addCurve(svg, canvasRect, r.left - canvasRect.left, r.top - canvasRect.top + r.height / 2, tx, ty);
+  });
+
+  // Bottom center card: top center → TARS center
+  const uc7 = document.getElementById('uc7');
+  if (uc7) {
+    const r = uc7.getBoundingClientRect();
+    addCurve(svg, canvasRect, r.left - canvasRect.left + r.width / 2, r.top - canvasRect.top, tx, ty);
+  }
+}
+
+setTimeout(drawLines, 600);
+window.addEventListener('resize', () => setTimeout(drawLines, 200));
+</script>
+</body>
+</html>

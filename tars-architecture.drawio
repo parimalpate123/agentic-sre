@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-03-03T00:00:00.000Z" agent="TARS" version="21.7.5">
+  <diagram id="tars-arch" name="TARS Agentic Architecture">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1100" math="0" shadow="1">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  TITLE                                         -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <mxCell id="2" value="TARS — Agentic Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#1a0a3d;" vertex="1" parent="1">
+          <mxGeometry x="580" y="18" width="720" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="Telemetry Analysis &amp; Resolution System · Agentic Observability · Built on AWS Serverless" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#7C3AED;" vertex="1" parent="1">
+          <mxGeometry x="580" y="50" width="720" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  SECTION LABELS                                -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <mxCell id="10" value="▶  INITIATORS" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=9;fontColor=#6B7280;letterSpacing=2;" vertex="1" parent="1">
+          <mxGeometry x="15" y="92" width="185" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="▶  AWS BACKING SERVICES" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=9;fontColor=#6B7280;letterSpacing=2;" vertex="1" parent="1">
+          <mxGeometry x="828" y="68" width="235" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="▶  EXTERNAL AGENTS (GitHub Actions)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=9;fontColor=#6B7280;letterSpacing=2;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="115" width="330" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  INITIATORS                                     -->
+        <!-- ═══════════════════════════════════════════════ -->
+
+        <!-- SRE Engineer -->
+        <mxCell id="20" value="&lt;b&gt;👤 SRE Engineer&lt;/b&gt;&lt;br&gt;Natural language queries&lt;br&gt;Incident investigation&lt;br&gt;&lt;font color=&quot;#1D4ED8&quot;&gt;PRIMARY USER&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#3B82F6;fontColor=#1D4ED8;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="15" y="115" width="185" height="85" as="geometry" />
+        </mxCell>
+
+        <!-- Developer -->
+        <mxCell id="21" value="&lt;b&gt;👤 Developer&lt;/b&gt;&lt;br&gt;Debug failures&lt;br&gt;Query service logs&lt;br&gt;&lt;font color=&quot;#065F46&quot;&gt;USER&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#10B981;fontColor=#065F46;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="15" y="235" width="185" height="85" as="geometry" />
+        </mxCell>
+
+        <!-- CloudWatch Alarm -->
+        <mxCell id="22" value="&lt;b&gt;🔔 CloudWatch Alarm&lt;/b&gt;&lt;br&gt;Fires on ALARM state&lt;br&gt;No human needed&lt;br&gt;&lt;font color=&quot;#92400E&quot;&gt;AUTO-TRIGGER&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFBEB;strokeColor=#F59E0B;fontColor=#92400E;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="15" y="360" width="185" height="85" as="geometry" />
+        </mxCell>
+
+        <!-- EventBridge -->
+        <mxCell id="23" value="&lt;b&gt;Amazon EventBridge&lt;/b&gt;&lt;br&gt;Alarm state → Lambda rule&lt;br&gt;Source: aws.cloudwatch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="15" y="490" width="185" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- React Frontend -->
+        <mxCell id="24" value="&lt;b&gt;⚛ React Frontend&lt;/b&gt;&lt;br&gt;Vite · Tailwind · React Router&lt;br&gt;ChatWindow · KBPage&lt;br&gt;Sessions · Remediation UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#6366F1;fontColor=#312E81;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="15" y="620" width="185" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  TARS CORE CONTAINER (swimlane)                -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <mxCell id="30" value="TARS CORE" style="swimlane;fontStyle=1;fontSize=15;align=center;startSize=38;fillColor=#F5F3FF;strokeColor=#7C3AED;strokeWidth=2;fontColor=#4C1D95;rounded=1;arcSize=2;swimlaneLine=1;" vertex="1" parent="1">
+          <mxGeometry x="225" y="75" width="575" height="730" as="geometry" />
+        </mxCell>
+
+        <!-- Lambda Function URL (API entry) -->
+        <mxCell id="31" value="&lt;b&gt;Lambda Function URL&lt;/b&gt; · HTTPS · CORS enabled · Public endpoint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#7C3AED;fontColor=#4C1D95;fontSize=10;arcSize=8;" vertex="1" parent="30">
+          <mxGeometry x="18" y="48" width="539" height="42" as="geometry" />
+        </mxCell>
+
+        <!-- Action Router -->
+        <mxCell id="32" value="&lt;b&gt;Action Router — handler.py&lt;/b&gt; · Dispatches by action key, HTTP method, body content" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDD6FE;strokeColor=#6D28D9;fontColor=#3B0764;fontSize=10;arcSize=8;fontStyle=1;" vertex="1" parent="30">
+          <mxGeometry x="18" y="102" width="539" height="42" as="geometry" />
+        </mxCell>
+
+        <!-- Handler label -->
+        <mxCell id="h1" value="REQUEST HANDLERS" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=8;fontColor=#6D28D9;letterSpacing=1;" vertex="1" parent="30">
+          <mxGeometry x="18" y="152" width="200" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- Chat & Analysis Handler -->
+        <mxCell id="33" value="&lt;b&gt;Chat &amp; Analysis Handler&lt;/b&gt;&lt;br&gt;Log queries (quick / deep)&lt;br&gt;MCP or direct boto3&lt;br&gt;KB retrieval · Synthesis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F0FF;strokeColor=#7C3AED;fontColor=#4C1D95;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="18" y="170" width="256" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Incident Handler -->
+        <mxCell id="34" value="&lt;b&gt;Incident Handler&lt;/b&gt;&lt;br&gt;CloudWatch alarm events&lt;br&gt;Auto-triage on ALARM&lt;br&gt;Create incident records" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F0FF;strokeColor=#7C3AED;fontColor=#4C1D95;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="283" y="170" width="274" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Knowledge Base Handler -->
+        <mxCell id="35" value="&lt;b&gt;Knowledge Base Handler&lt;/b&gt;&lt;br&gt;Upload · Process · List&lt;br&gt;Delete · Update&lt;br&gt;Re-embed on demand" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F0FF;strokeColor=#7C3AED;fontColor=#4C1D95;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="18" y="262" width="256" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub Handler -->
+        <mxCell id="36" value="&lt;b&gt;GitHub Action Handler&lt;/b&gt;&lt;br&gt;Create issue after approval&lt;br&gt;Receive remediation webhook&lt;br&gt;Update remediation state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F0FF;strokeColor=#7C3AED;fontColor=#4C1D95;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="283" y="262" width="274" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Session Handler -->
+        <mxCell id="37" value="&lt;b&gt;Session Handler&lt;/b&gt;&lt;br&gt;Save · Load · List&lt;br&gt;Conversation persistence&lt;br&gt;DynamoDB chat_sessions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F0FF;strokeColor=#7C3AED;fontColor=#4C1D95;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="18" y="354" width="256" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Diagnosis Handler -->
+        <mxCell id="38" value="&lt;b&gt;Diagnosis Handler&lt;/b&gt;&lt;br&gt;Deep root cause analysis&lt;br&gt;Alternative Bedrock model&lt;br&gt;Structured diagnosis output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F0FF;strokeColor=#7C3AED;fontColor=#4C1D95;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="283" y="354" width="274" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Core engines label -->
+        <mxCell id="h2" value="CORE ENGINES" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=8;fontColor=#6D28D9;letterSpacing=1;" vertex="1" parent="30">
+          <mxGeometry x="18" y="442" width="200" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- Agent Orchestrator -->
+        <mxCell id="40" value="&lt;b&gt;Agent Orchestrator (LangGraph)&lt;/b&gt;&lt;br&gt;StateGraph with checkpointing&lt;br&gt;Triage → Analyze → Diagnose → Remediate&lt;br&gt;MemorySaver for step recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#5B21B6;fontColor=#3B0764;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="18" y="460" width="256" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Client -->
+        <mxCell id="41" value="&lt;b&gt;MCP Client&lt;/b&gt;&lt;br&gt;Calls MCP Log Analyzer (ECS)&lt;br&gt;Tools: search · filter · correlate&lt;br&gt;Fallback: direct boto3 CloudWatch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#5B21B6;fontColor=#3B0764;fontSize=10;arcSize=8;align=left;spacingLeft=8;" vertex="1" parent="30">
+          <mxGeometry x="283" y="460" width="274" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- KB Processing Pipeline -->
+        <mxCell id="42" value="&lt;b&gt;KB Processing Pipeline&lt;/b&gt; · Parser (PDF / MD / TXT) → Chunker (500–800 tokens, 100 overlap) → Titan V2 Embedder (256-dim) → Cosine Retriever (threshold 0.7)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#5B21B6;fontColor=#3B0764;fontSize=10;arcSize=8;" vertex="1" parent="30">
+          <mxGeometry x="18" y="552" width="539" height="46" as="geometry" />
+        </mxCell>
+
+        <!-- synthesize_answer -->
+        <mxCell id="43" value="&lt;b&gt;synthesize_answer( )&lt;/b&gt; · Claude 3.5 Sonnet via Bedrock · Prompt = question + log entries + KB context → Returns natural language answer + log_entries + kb_sources" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDD6FE;strokeColor=#6D28D9;fontColor=#3B0764;fontSize=10;arcSize=8;fontStyle=1;" vertex="1" parent="30">
+          <mxGeometry x="18" y="610" width="539" height="46" as="geometry" />
+        </mxCell>
+
+        <!-- Bedrock Claude ref label (inside TARS) -->
+        <mxCell id="44" value="↗ Amazon Bedrock" style="text;html=1;strokeColor=none;fillColor=none;align=right;fontSize=9;fontColor=#EA580C;fontStyle=2;" vertex="1" parent="30">
+          <mxGeometry x="390" y="658" width="164" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  AWS BACKING SERVICES                          -->
+        <!-- ═══════════════════════════════════════════════ -->
+
+        <!-- Bedrock Claude -->
+        <mxCell id="50" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;&lt;i&gt;Claude 3.5 Sonnet v1&lt;/i&gt;&lt;br&gt;Chat synthesis · Diagnosis&lt;br&gt;PR Code Review (V2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="828" y="92" width="225" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- Bedrock Titan -->
+        <mxCell id="51" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;br&gt;&lt;i&gt;Titan Embed Text V2&lt;/i&gt;&lt;br&gt;256-dim embeddings&lt;br&gt;KB document indexing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="828" y="188" width="225" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Log Analyzer -->
+        <mxCell id="52" value="&lt;b&gt;MCP Log Analyzer&lt;/b&gt;&lt;br&gt;&lt;i&gt;ECS Fargate · VPC private&lt;/i&gt;&lt;br&gt;CloudMap: mcp-server.mcp.mcp:8000&lt;br&gt;Tools: search · filter · correlate · patterns" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="828" y="308" width="225" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- CloudWatch Logs -->
+        <mxCell id="53" value="&lt;b&gt;Amazon CloudWatch Logs&lt;/b&gt;&lt;br&gt;Log Groups · Logs Insights&lt;br&gt;filter_log_events (quick)&lt;br&gt;start_query (deep)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="828" y="404" width="225" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- DynamoDB -->
+        <mxCell id="54" value="&lt;b&gt;Amazon DynamoDB&lt;/b&gt;&lt;br&gt;incidents · sessions · playbooks&lt;br&gt;kb_documents · kb_chunks&lt;br&gt;remediation_state · memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="828" y="500" width="225" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- S3 -->
+        <mxCell id="55" value="&lt;b&gt;Amazon S3&lt;/b&gt;&lt;br&gt;KB raw documents&lt;br&gt;PDF · MD · TXT&lt;br&gt;Presigned PUT/GET URLs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="828" y="596" width="225" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- SSM -->
+        <mxCell id="56" value="&lt;b&gt;AWS SSM Parameter Store&lt;/b&gt;&lt;br&gt;GitHub PAT (SecureString)&lt;br&gt;Webhook signing secret&lt;br&gt;Retrieved at Lambda runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontColor=#7C2D12;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="828" y="692" width="225" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  EXTERNAL AGENTS CONTAINER                     -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <mxCell id="60" value="EXTERNAL AGENTS" style="swimlane;fontStyle=1;fontSize=13;align=center;startSize=35;fillColor=#ECFDF5;strokeColor=#059669;strokeWidth=2;fontColor=#064E3B;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="1108" y="138" width="375" height="550" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub Issue & Fix Agent -->
+        <mxCell id="61" value="&lt;b&gt;GitHub Issue &amp; Fix Agent&lt;/b&gt;&lt;br&gt;&lt;i&gt;workflows/auto-fix.yml&lt;/i&gt;&lt;br&gt;&lt;br&gt;Triggered: issue labeled &apos;auto-fix&apos;&lt;br&gt;① Analyzes codebase + issue context&lt;br&gt;② Identifies root cause in code&lt;br&gt;③ Generates fix suggestion&lt;br&gt;④ Creates Pull Request with changes&lt;br&gt;⑤ Notifies TARS via webhook" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontColor=#064E3B;fontSize=10;arcSize=8;align=left;spacingLeft=10;" vertex="1" parent="60">
+          <mxGeometry x="18" y="45" width="339" height="175" as="geometry" />
+        </mxCell>
+
+        <!-- Delegate arrow label -->
+        <mxCell id="62" value="delegates PR creation ↓" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#059669;fontStyle=3;" vertex="1" parent="60">
+          <mxGeometry x="120" y="228" width="175" height="18" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub PR Agent -->
+        <mxCell id="63" value="&lt;b&gt;GitHub PR Agent&lt;/b&gt;&lt;br&gt;&lt;i&gt;workflows/pr-review.yml&lt;/i&gt;&lt;br&gt;&lt;br&gt;Triggered: PR opened or @pragent&lt;br&gt;① AI code review (Claude 3.5 Sonnet V2)&lt;br&gt;② Posts inline review comments&lt;br&gt;③ Approve or request changes&lt;br&gt;④ Human approval required for merge&lt;br&gt;⑤ Sends status back to TARS webhook" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontColor=#064E3B;fontSize=10;arcSize=8;align=left;spacingLeft=10;" vertex="1" parent="60">
+          <mxGeometry x="18" y="250" width="339" height="175" as="geometry" />
+        </mxCell>
+
+        <!-- Webhook note -->
+        <mxCell id="64" value="↙ status webhook back to TARS (dashed)" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#059669;fontStyle=3;" vertex="1" parent="60">
+          <mxGeometry x="60" y="435" width="280" height="18" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  GITHUB REPOSITORY                             -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <mxCell id="70" value="&lt;b&gt;GitHub Repository&lt;/b&gt;&lt;br&gt;Issues · Pull Requests&lt;br&gt;Code changes · Reviews&lt;br&gt;Human approval gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#374151;fontColor=#111827;fontSize=10;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1555" y="340" width="200" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  LEGEND                                        -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <mxCell id="90" value="LEGEND" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=9;fontColor=#6B7280;letterSpacing=2;" vertex="1" parent="1">
+          <mxGeometry x="1555" y="500" width="200" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="91" value="→  Request / Data flow" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#374151;" vertex="1" parent="1">
+          <mxGeometry x="1555" y="520" width="200" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="92" value="- - →  Async / Webhook / Dashed" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#7C3AED;" vertex="1" parent="1">
+          <mxGeometry x="1555" y="538" width="200" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="93" value="🟪  TARS Core (AWS Lambda)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#4C1D95;" vertex="1" parent="1">
+          <mxGeometry x="1555" y="558" width="200" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="94" value="🟧  AWS Managed Services" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#7C2D12;" vertex="1" parent="1">
+          <mxGeometry x="1555" y="576" width="200" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="95" value="🟩  External GitHub Agents" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#064E3B;" vertex="1" parent="1">
+          <mxGeometry x="1555" y="594" width="200" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  EDGES / CONNECTIONS                           -->
+        <!-- ═══════════════════════════════════════════════ -->
+
+        <!-- SRE → Lambda Function URL -->
+        <mxCell id="100" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#3B82F6;strokeWidth=2;fontColor=#3B82F6;fontSize=9;" edge="1" source="20" target="31" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Developer → Lambda Function URL -->
+        <mxCell id="101" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#10B981;strokeWidth=2;fontColor=#10B981;fontSize=9;" edge="1" source="21" target="31" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend → Lambda Function URL -->
+        <mxCell id="102" value="REST API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#6366F1;strokeWidth=1.5;dashed=1;fontColor=#6366F1;fontSize=9;" edge="1" source="24" target="31" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- CW Alarm → EventBridge -->
+        <mxCell id="103" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#F59E0B;strokeWidth=2;" edge="1" source="22" target="23" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- EventBridge → Action Router -->
+        <mxCell id="104" value="invokes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=2;fontColor=#EA580C;fontSize=9;" edge="1" source="23" target="32" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- synthesize_answer → Bedrock Claude -->
+        <mxCell id="105" value="InvokeModel" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=2;fontColor=#EA580C;fontSize=9;" edge="1" source="43" target="50" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- KB Processing → Bedrock Titan (embed) -->
+        <mxCell id="106" value="embed" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=2;fontColor=#EA580C;fontSize=9;" edge="1" source="42" target="51" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Client → MCP Log Analyzer -->
+        <mxCell id="107" value="HTTP/RPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=2;fontColor=#EA580C;fontSize=9;" edge="1" source="41" target="52" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Log Analyzer → CloudWatch Logs -->
+        <mxCell id="108" value="API calls" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=1.5;fontColor=#EA580C;fontSize=9;" edge="1" source="52" target="53" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Chat Handler → CloudWatch Logs (direct fallback) -->
+        <mxCell id="109" value="direct fallback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=open;endFill=0;strokeColor=#9CA3AF;strokeWidth=1;dashed=1;fontColor=#6B7280;fontSize=9;" edge="1" source="33" target="53" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="800" y="430" />
+              <mxPoint x="800" y="443" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Action Router → DynamoDB (sessions, incidents) -->
+        <mxCell id="110" value="read/write" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=2;fontColor=#EA580C;fontSize=9;" edge="1" source="32" target="54" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="806" y="490" />
+              <mxPoint x="806" y="539" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- KB Handler → S3 (presigned URLs) -->
+        <mxCell id="111" value="presigned URL" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=1.5;fontColor=#EA580C;fontSize=9;" edge="1" source="35" target="55" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub Handler → SSM (fetch PAT) -->
+        <mxCell id="112" value="GetParameter" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#EA580C;strokeWidth=1.5;fontColor=#EA580C;fontSize=9;" edge="1" source="36" target="56" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- TARS GitHub Handler → Issue & Fix Agent (creates issue → triggers GH Actions) -->
+        <mxCell id="113" value="creates GitHub issue&lt;br&gt;(triggers auto-fix label)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#059669;strokeWidth=2;fontColor=#059669;fontSize=9;" edge="1" source="36" target="61" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Issue Agent → PR Agent (internal, both in container 60) -->
+        <mxCell id="114" value="creates PR · triggers review" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#059669;strokeWidth=2;fontColor=#059669;fontSize=9;" edge="1" source="61" target="63" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Issue Agent → GitHub Repo -->
+        <mxCell id="115" value="opens issue" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#374151;strokeWidth=1.5;fontColor=#374151;fontSize=9;" edge="1" source="61" target="70" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- PR Agent → GitHub Repo -->
+        <mxCell id="116" value="opens PR" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#374151;strokeWidth=1.5;fontColor=#374151;fontSize=9;" edge="1" source="63" target="70" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- PR Agent → TARS GitHub Handler (webhook status, dashed curved return) -->
+        <mxCell id="117" value="status webhook&lt;br&gt;(pr_created · pr_reviewed)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;html=1;endArrow=block;endFill=1;strokeColor=#7C3AED;strokeWidth=1.5;dashed=1;fontColor=#7C3AED;fontSize=9;" edge="1" source="63" target="36" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1108" y="810" />
+              <mxPoint x="620" y="810" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

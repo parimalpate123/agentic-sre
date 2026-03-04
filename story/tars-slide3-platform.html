@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TARS — Platform Blueprint</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --purple: #7C3AED;
+    --purple-light: #A78BFA;
+    --purple-pale: #EDE9FE;
+    --purple-mid: #DDD6FE;
+    --border: #E8E3FB;
+    --text: #1A1523;
+    --muted: #6B7280;
+    --soft: #9CA3AF;
+    --green: #059669;
+    --green-pale: #ECFDF5;
+    --green-border: #A7F3D0;
+    --amber: #D97706;
+    --amber-pale: #FFFBEB;
+    --amber-border: #FDE68A;
+    --blue: #2563EB;
+    --blue-pale: #EFF6FF;
+    --blue-border: #BFDBFE;
+    --red: #DC2626;
+    --red-pale: #FFF1F2;
+    --red-border: #FECDD3;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #EBEBF5;
+    font-family: 'DM Sans', sans-serif;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  .slide {
+    width: 1400px;
+    background: white;
+    box-shadow: 0 8px 60px rgba(124,58,237,0.13);
+    position: relative;
+    overflow: hidden;
+    padding-bottom: 48px;
+  }
+
+  .top-bar {
+    height: 5px;
+    background: linear-gradient(90deg, var(--purple), var(--purple-light));
+  }
+
+  .bg-dots {
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, #C4B5FD 1px, transparent 1px);
+    background-size: 30px 30px;
+    opacity: 0.1;
+    pointer-events: none;
+  }
+
+  /* HEADER */
+  .header {
+    text-align: center;
+    padding: 28px 0 20px;
+    position: relative; z-index: 2;
+  }
+
+  .eyebrow {
+    font-family: 'Syne', sans-serif;
+    font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--purple); margin-bottom: 6px;
+  }
+
+  .header h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 26px; font-weight: 800; color: var(--text);
+  }
+
+  .header h2 em { font-style: normal; color: var(--purple); }
+
+  .header .sub {
+    font-size: 13px; color: var(--muted); margin-top: 5px;
+  }
+
+  /* MAIN 3-COLUMN LAYOUT */
+  .layout {
+    display: grid;
+    grid-template-columns: 220px 1fr 220px;
+    gap: 0;
+    padding: 0 32px;
+    position: relative;
+    align-items: stretch;
+    min-height: 560px;
+  }
+
+  /* ── LEFT: OBSERVABILITY SOURCES ── */
+  .col-sources {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: center;
+    padding-right: 20px;
+    position: relative;
+    z-index: 3;
+  }
+
+  .col-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 9px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 4px; text-align: center;
+  }
+
+  .source-card {
+    background: white;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    opacity: 0;
+    animation: slideRight 0.4s ease forwards;
+  }
+
+  .source-card:nth-child(2) { animation-delay: 0.05s; }
+  .source-card:nth-child(3) { animation-delay: 0.12s; }
+  .source-card:nth-child(4) { animation-delay: 0.19s; }
+  .source-card:nth-child(5) { animation-delay: 0.26s; }
+  .source-card:nth-child(6) { animation-delay: 0.33s; }
+
+  @keyframes slideRight {
+    from { opacity:0; transform: translateX(-12px); }
+    to   { opacity:1; transform: translateX(0); }
+  }
+
+  .source-icon {
+    width: 30px; height: 30px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0;
+    background: var(--purple-pale);
+  }
+
+  .source-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px; font-weight: 700; color: var(--text);
+  }
+
+  .source-desc {
+    font-size: 10px; color: var(--soft); margin-top: 1px;
+  }
+
+  .mcp-badge {
+    margin-left: auto;
+    background: var(--purple-pale);
+    border: 1px solid var(--purple-mid);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 8px;
+    font-family: 'Syne', sans-serif;
+    letter-spacing: 0.08em;
+    color: var(--purple);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* ── CENTER: TARS PLATFORM ── */
+  .col-tars {
+    position: relative;
+    z-index: 2;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* The big TARS box */
+  .tars-box {
+    border: 2px solid var(--purple);
+    border-radius: 20px;
+    background: white;
+    position: relative;
+    padding: 20px 20px 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    animation: fadeIn 0.5s ease 0.1s forwards;
+    opacity: 0;
+  }
+
+  @keyframes fadeIn {
+    from { opacity:0; transform: scale(0.98); }
+    to   { opacity:1; transform: scale(1); }
+  }
+
+  /* TARS header inside box */
+  .tars-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tars-badge {
+    background: var(--purple);
+    color: white;
+    font-family: 'Syne', sans-serif;
+    font-size: 22px; font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 8px 20px;
+    border-radius: 10px;
+  }
+
+  .tars-tagline {
+    font-size: 12px; color: var(--muted); line-height: 1.5;
+  }
+
+  .tars-tagline strong {
+    display: block;
+    font-size: 13px; color: var(--text); font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  /* TARS feature rows */
+  .features-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .feat {
+    border-radius: 11px;
+    padding: 12px 14px;
+    border: 1.5px solid;
+    opacity: 0;
+    animation: popUp 0.35s ease forwards;
+  }
+
+  .feat:nth-child(1) { animation-delay: 0.3s; }
+  .feat:nth-child(2) { animation-delay: 0.38s; }
+  .feat:nth-child(3) { animation-delay: 0.46s; }
+  .feat:nth-child(4) { animation-delay: 0.54s; }
+  .feat:nth-child(5) { animation-delay: 0.62s; }
+  .feat:nth-child(6) { animation-delay: 0.70s; }
+
+  @keyframes popUp {
+    from { opacity:0; transform: translateY(8px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+
+  .feat.chat     { background: var(--blue-pale);   border-color: var(--blue-border); }
+  .feat.alert    { background: var(--red-pale);    border-color: var(--red-border); }
+  .feat.kb       { background: var(--amber-pale);  border-color: var(--amber-border); }
+  .feat.agent    { background: var(--purple-pale);  border-color: var(--purple-mid); }
+  .feat.proact   { background: var(--green-pale);  border-color: var(--green-border); }
+  .feat.nlp      { background: #F0F9FF;            border-color: #BAE6FD; }
+
+  .feat-top {
+    display: flex; align-items: center; gap: 7px; margin-bottom: 5px;
+  }
+
+  .feat-icon { font-size: 15px; }
+
+  .feat-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text);
+  }
+
+  .feat-desc {
+    font-size: 10px; color: var(--muted); line-height: 1.5;
+  }
+
+  /* AI engine strip inside TARS */
+  .ai-strip {
+    background: linear-gradient(135deg, #F5F3FF, #EDE9FE);
+    border: 1.5px solid var(--purple-mid);
+    border-radius: 11px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    opacity: 0;
+    animation: popUp 0.35s ease 0.78s forwards;
+  }
+
+  .ai-strip .ai-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 9px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--purple);
+    font-weight: 700;
+  }
+
+  .ai-chips {
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+  }
+
+  .ai-chip {
+    background: white;
+    border: 1px solid var(--purple-mid);
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 9px;
+    color: var(--purple);
+    font-family: 'Syne', sans-serif;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  /* ── RIGHT: ACTIONS / OUTPUTS ── */
+  .col-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: center;
+    padding-left: 20px;
+    position: relative;
+    z-index: 3;
+  }
+
+  .action-card {
+    background: white;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex; align-items: flex-start; gap: 10px;
+    opacity: 0;
+    animation: slideLeft 0.4s ease forwards;
+  }
+
+  .action-card:nth-child(2) { animation-delay: 0.05s; }
+  .action-card:nth-child(3) { animation-delay: 0.14s; }
+  .action-card:nth-child(4) { animation-delay: 0.23s; }
+  .action-card:nth-child(5) { animation-delay: 0.32s; }
+  .action-card:nth-child(6) { animation-delay: 0.41s; }
+
+  @keyframes slideLeft {
+    from { opacity:0; transform: translateX(12px); }
+    to   { opacity:1; transform: translateX(0); }
+  }
+
+  .action-card.github { border-left: 3px solid #1F2937; }
+  .action-card.ticket { border-left: 3px solid var(--blue); }
+  .action-card.pr     { border-left: 3px solid var(--green); }
+
+  .action-icon {
+    width: 30px; height: 30px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0; background: #F9FAFB;
+  }
+
+  .action-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px; font-weight: 700; color: var(--text);
+  }
+
+  .action-desc {
+    font-size: 10px; color: var(--soft); margin-top: 1px; line-height: 1.4;
+  }
+
+  /* ARROWS between columns */
+  .arrow-zone {
+    position: absolute;
+    top: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    z-index: 4;
+    pointer-events: none;
+  }
+
+  /* SVG connector arrows */
+  .connectors-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 4;
+    overflow: visible;
+  }
+</style>
+</head>
+<body>
+<div class="slide" id="slide">
+  <div class="top-bar"></div>
+  <div class="bg-dots"></div>
+
+  <div class="header">
+    <div class="eyebrow">The Platform</div>
+    <h2>Everything TARS does — <em>in one unified system.</em></h2>
+    <div class="sub">Plug in your observability stack. Let TARS handle the rest.</div>
+  </div>
+
+  <div class="layout" id="layout">
+
+    <!-- SVG CONNECTORS -->
+    <svg class="connectors-svg" id="connSvg"></svg>
+
+    <!-- LEFT: SOURCES -->
+    <div class="col-sources" id="colSources">
+      <div class="col-label">Observability Sources</div>
+
+      <div class="source-card">
+        <div class="source-icon">☁️</div>
+        <div>
+          <div class="source-name">CloudWatch</div>
+          <div class="source-desc">Logs, alarms & metrics</div>
+        </div>
+        <div class="mcp-badge">MCP</div>
+      </div>
+
+      <div class="source-card">
+        <div class="source-icon">📊</div>
+        <div>
+          <div class="source-name">Datadog</div>
+          <div class="source-desc">APM & dashboards</div>
+        </div>
+        <div class="mcp-badge">MCP</div>
+      </div>
+
+      <div class="source-card">
+        <div class="source-icon">🔍</div>
+        <div>
+          <div class="source-name">Elasticsearch</div>
+          <div class="source-desc">Log search & analytics</div>
+        </div>
+        <div class="mcp-badge">MCP</div>
+      </div>
+
+      <div class="source-card">
+        <div class="source-icon">🔭</div>
+        <div>
+          <div class="source-name">Dynatrace</div>
+          <div class="source-desc">Infra intelligence</div>
+        </div>
+        <div class="mcp-badge">MCP</div>
+      </div>
+
+      <div class="source-card">
+        <div class="source-icon">⚡</div>
+        <div>
+          <div class="source-name">Auto Alerts</div>
+          <div class="source-desc">Event-driven triggers</div>
+        </div>
+        <div class="mcp-badge">MCP</div>
+      </div>
+    </div>
+
+    <!-- CENTER: TARS PLATFORM BOX -->
+    <div class="col-tars" id="colTars">
+      <div class="tars-box">
+
+        <div class="tars-header">
+          <div class="tars-badge">TARS</div>
+          <div class="tars-tagline">
+            <strong>Telemetry Analysis & Resolution System</strong>
+            One platform. Every team. Zero context switching.
+          </div>
+        </div>
+
+        <div class="features-grid">
+
+          <div class="feat chat">
+            <div class="feat-top">
+              <div class="feat-icon">💬</div>
+              <div class="feat-title">NLP Chat Interface</div>
+            </div>
+            <div class="feat-desc">Ask questions in plain English. No query language. No dashboards to learn.</div>
+          </div>
+
+          <div class="feat alert">
+            <div class="feat-top">
+              <div class="feat-icon">🚨</div>
+              <div class="feat-title">Proactive & Reactive Triage</div>
+            </div>
+            <div class="feat-desc">Auto-triggered on alarms or on-demand. TARS works while you sleep.</div>
+          </div>
+
+          <div class="feat agent">
+            <div class="feat-top">
+              <div class="feat-icon">🤖</div>
+              <div class="feat-title">Multi-Agent Orchestration</div>
+            </div>
+            <div class="feat-desc">LangGraph agents collaborate — diagnosis, issue creation, code fix, PR review.</div>
+          </div>
+
+          <div class="feat kb">
+            <div class="feat-top">
+              <div class="feat-icon">📚</div>
+              <div class="feat-title">Knowledge Base (RAG)</div>
+            </div>
+            <div class="feat-desc">Upload runbooks, playbooks & docs. TARS surfaces the right context at the right time.</div>
+          </div>
+
+          <div class="feat proact">
+            <div class="feat-top">
+              <div class="feat-icon">🔗</div>
+              <div class="feat-title">Cross-Service Correlation</div>
+            </div>
+            <div class="feat-desc">Automatically follows transaction & correlation IDs across all microservices.</div>
+          </div>
+
+          <div class="feat nlp">
+            <div class="feat-top">
+              <div class="feat-icon">🔌</div>
+              <div class="feat-title">Plug & Play MCP Layer</div>
+            </div>
+            <div class="feat-desc">Add any observability platform via MCP. No re-architecture required.</div>
+          </div>
+
+        </div>
+
+        <!-- AI Engine strip -->
+        <div class="ai-strip">
+          <div class="ai-label">Powered by</div>
+          <div class="ai-chips">
+            <span class="ai-chip">Amazon Bedrock</span>
+            <span class="ai-chip">Claude 3.5 Sonnet</span>
+            <span class="ai-chip">Titan V2 Embeddings</span>
+            <span class="ai-chip">LangGraph</span>
+            <span class="ai-chip">AWS Serverless</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT: ACTIONS -->
+    <div class="col-actions" id="colActions">
+      <div class="col-label">Actions & Integrations</div>
+
+      <div class="action-card github">
+        <div class="action-icon">📝</div>
+        <div>
+          <div class="action-name">GitHub Issue Agent</div>
+          <div class="action-desc">Auto-creates incident issue with full diagnosis context</div>
+        </div>
+      </div>
+
+      <div class="action-card github">
+        <div class="action-icon">🔧</div>
+        <div>
+          <div class="action-name">GitHub Fix Agent</div>
+          <div class="action-desc">Generates a code fix and commits to a new branch</div>
+        </div>
+      </div>
+
+      <div class="action-card pr">
+        <div class="action-icon">🔀</div>
+        <div>
+          <div class="action-name">GitHub PR Agent</div>
+          <div class="action-desc">Raises & auto-reviews pull request for engineer approval</div>
+        </div>
+      </div>
+
+      <div class="action-card ticket">
+        <div class="action-icon">🎫</div>
+        <div>
+          <div class="action-name">ServiceNow / JIRA</div>
+          <div class="action-desc">Ticket import & incident sync across ITSM platforms</div>
+        </div>
+      </div>
+
+      <div class="action-card ticket">
+        <div class="action-icon">📢</div>
+        <div>
+          <div class="action-name">Notifications</div>
+          <div class="action-desc">Alert the right team at the right time, automatically</div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script>
+function drawConnectors() {
+  const svg = document.getElementById('connSvg');
+  const layout = document.getElementById('layout');
+  const tarsBox = document.querySelector('.tars-box');
+  const colSources = document.getElementById('colSources');
+  const colActions = document.getElementById('colActions');
+
+  const lr = layout.getBoundingClientRect();
+  const tr = tarsBox.getBoundingClientRect();
+
+  // TARS box edges relative to layout
+  const tarsLeft  = tr.left  - lr.left;
+  const tarsRight = tr.right - lr.left;
+  const tarsMidY  = tr.top   - lr.top + tr.height / 2;
+
+  svg.setAttribute('viewBox', `0 0 ${lr.width} ${lr.height}`);
+  svg.innerHTML = '';
+
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  defs.innerHTML = `
+    <marker id="arrowR" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#A78BFA" opacity="0.8"/>
+    </marker>
+    <marker id="arrowL" markerWidth="7" markerHeight="7" refX="1" refY="3.5" orient="auto-start-reverse">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#A78BFA" opacity="0.8"/>
+    </marker>`;
+  svg.appendChild(defs);
+
+  // Source cards → TARS left edge
+  const sourceCards = colSources.querySelectorAll('.source-card');
+  sourceCards.forEach(card => {
+    const r = card.getBoundingClientRect();
+    const x1 = r.right - lr.left;
+    const y1 = r.top   - lr.top + r.height / 2;
+    drawCurve(svg, x1, y1, tarsLeft, tarsMidY, 'arrowR');
+  });
+
+  // TARS right edge → action cards
+  const actionCards = colActions.querySelectorAll('.action-card');
+  actionCards.forEach(card => {
+    const r = card.getBoundingClientRect();
+    const x2 = r.left  - lr.left;
+    const y2 = r.top   - lr.top + r.height / 2;
+    drawCurve(svg, tarsRight, tarsMidY, x2, y2, 'arrowR');
+  });
+}
+
+function drawCurve(svg, x1, y1, x2, y2, marker) {
+  const cx1 = x1 + (x2 - x1) * 0.5;
+  const cx2 = x1 + (x2 - x1) * 0.5;
+  const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
+  path.setAttribute('d', d);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#A78BFA');
+  path.setAttribute('stroke-width', '1.6');
+  path.setAttribute('stroke-dasharray', '5 4');
+  path.setAttribute('opacity', '0.55');
+  path.setAttribute('marker-end', `url(#${marker})`);
+  svg.appendChild(path);
+}
+
+setTimeout(drawConnectors, 600);
+window.addEventListener('resize', () => setTimeout(drawConnectors, 150));
+</script>
+</body>
+</html>
