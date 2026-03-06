@@ -317,6 +317,7 @@ export default function MessageBubble({
          ((message.incident?.execution_results?.github_issue?.status === 'success') || remediationStatus) && (
           <RemediationStatus
             incidentId={message.incident.incident_id}
+            incidentSource={message.incident?.source}
             remediationStatus={remediationStatus}
             onRefresh={onRefreshRemediation}
             onPausePolling={onPausePolling}

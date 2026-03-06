@@ -443,11 +443,18 @@ export async function getRemediationStatus(incidentId) {
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
 
-    const data = await response.json();
+    let data = await response.json();
 
     // Parse the body if it's a string (Lambda response format)
     if (typeof data.body === 'string') {
-      return JSON.parse(data.body);
+      data = JSON.parse(data.body);
+    } else if (data.body && typeof data.body === 'object') {
+      data = data.body;
+    }
+
+    // No remediation state yet (API returns 200 with has_state: false to avoid browser 404 noise)
+    if (data && data.has_state === false) {
+      return null;
     }
 
     return data;

@@ -10,6 +10,11 @@ on:
         required: true
         type: string
 
+# Only one run per issue at a time; cancel the second when both opened+labeled fire for the same issue
+concurrency:
+  group: auto-fix-${{ github.repository }}-${{ github.event.issue.number || github.event.inputs.issue_number }}
+  cancel-in-progress: true
+
 jobs:
   analyze-and-fix:
     runs-on: ubuntu-latest

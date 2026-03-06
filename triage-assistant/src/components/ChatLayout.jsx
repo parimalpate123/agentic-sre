@@ -2,7 +2,7 @@
  * ChatLayout – Claude-like shell: session sidebar + main chat pane
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import SessionSidebar from './SessionSidebar';
 import ChatWindow from './ChatWindow';
 
@@ -15,6 +15,12 @@ export default function ChatLayout({
   const [sessionListRefreshTrigger, setSessionListRefreshTrigger] = useState(0);
   const [untriagedCount, setUntriagedCount] = useState(0);
 
+  // Reflect incident count in browser tab title so it's visible across tabs
+  useEffect(() => {
+    document.title = untriagedCount > 0 ? `(${untriagedCount}) TARS` : 'TARS';
+    return () => { document.title = 'TARS'; };
+  }, [untriagedCount]);
+
   const handleSessionCreated = useCallback(() => {
     setSessionListRefreshTrigger((t) => t + 1);
   }, []);
@@ -23,8 +29,8 @@ export default function ChatLayout({
     chatWindowRef.current?.sendMessage?.(question);
   }, []);
 
-  const handleOpenIncidents = useCallback(() => {
-    chatWindowRef.current?.openIncidents?.();
+  const handleOpenIncidents = useCallback((source) => {
+    chatWindowRef.current?.openIncidents?.(source);
   }, [chatWindowRef]);
 
   const handleOpenSessionDialog = useCallback(() => {

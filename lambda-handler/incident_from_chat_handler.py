@@ -556,6 +556,7 @@ def store_remediation_state(
             'pr_url': None,
             'pr_status': None,
             'pr_review_status': None,
+            'ai_pr_review_completed': False,
             'pr_merge_status': None,
             'created_at': datetime.utcnow().isoformat(),
             'updated_at': datetime.utcnow().isoformat(),

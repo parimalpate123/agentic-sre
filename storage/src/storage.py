@@ -137,7 +137,13 @@ class Storage:
                 else:
                     source = 'chat'  # Default
                     logger.warning(f"[SAVE] Source was None/empty, defaulting to 'chat' for incident_id: {incident_id}")
-            
+
+            # incident_id prefix is the ground truth — never let an embedded 'cloudwatch_alarm' default
+            # from the agent override a chat-initiated incident (which always has a 'chat-' prefix).
+            if incident_id.startswith('chat-') and source != 'chat':
+                logger.warning(f"[SAVE] Overriding source={repr(source)} → 'chat' because incident_id starts with 'chat-': {incident_id}")
+                source = 'chat'
+
             item['source'] = {'S': str(source)}
             logger.info(f"[SAVE] ✅ Saved incident {incident_id} with source: {repr(source)} (type: {type(source)})")
             
@@ -267,15 +273,17 @@ class Storage:
                     params['ExclusiveStartKey'] = last_key
             elif status:
                 params['IndexName'] = 'StatusIndex'
-                params['KeyConditionExpression'] = 'status = :status'
+                # Use ExpressionAttributeNames: "status" is a DynamoDB reserved keyword
+                params['KeyConditionExpression'] = '#status = :status'
+                params['ExpressionAttributeNames'] = {'#status': 'status'}
+                if expression_attribute_names:
+                    params['ExpressionAttributeNames'].update(expression_attribute_names)
                 params['ExpressionAttributeValues'] = {
                     ':status': {'S': status}
                 }
                 if filter_expressions:
                     params['FilterExpression'] = ' AND '.join(filter_expressions)
                     params['ExpressionAttributeValues'].update(expression_attribute_values)
-                    if expression_attribute_names:
-                        params['ExpressionAttributeNames'] = expression_attribute_names
                 logger.debug(f"Querying DynamoDB with StatusIndex, params keys: {list(params.keys())}")
                 all_items = []
                 while True:
@@ -286,13 +294,51 @@ class Storage:
                         break
                     params['ExclusiveStartKey'] = last_key
             else:
-                # Full scan (not efficient for large datasets)
+                # Full scan - when filtering by source, use DynamoDB FilterExpression so we only
+                # read matching rows (avoids loading entire table and prevents 502/OOM)
+                if use_in_memory_source_filter and source:
+                    incidents = []
+                    scan_params = {
+                        'TableName': self.incidents_table,
+                        'Limit': min(limit * 2, 100),  # request enough to get limit matches
+                        'FilterExpression': '#src = :source_val',
+                        'ExpressionAttributeNames': {'#src': 'source'},
+                        'ExpressionAttributeValues': {':source_val': {'S': source}}
+                    }
+                    try:
+                        while True:
+                            response = self.dynamodb.scan(**scan_params)
+                            for item in response.get('Items', []):
+                                parsed_item = self._parse_dynamodb_item(item)
+                                parsed_item['source'] = source
+                                if 'data' in parsed_item:
+                                    try:
+                                        parsed_item['investigation_result'] = json.loads(parsed_item['data'])
+                                    except (json.JSONDecodeError, TypeError):
+                                        pass
+                                incidents.append(parsed_item)
+                                if len(incidents) >= limit:
+                                    break
+                            if len(incidents) >= limit or not response.get('LastEvaluatedKey'):
+                                break
+                            scan_params['ExclusiveStartKey'] = response['LastEvaluatedKey']
+                    except ClientError as e:
+                        error_code = e.response.get('Error', {}).get('Code', '')
+                        if error_code == 'ValidationException':
+                            logger.warning("Source FilterExpression not supported (e.g. no top-level source), falling back to paginated in-memory filter")
+                            incidents = self._list_incidents_source_filter_fallback(source, limit)
+                        else:
+                            raise
+                    incidents = incidents[:limit]
+                    logger.info(f"Source-filtered list: returning {len(incidents)} incidents (source={source})")
+                    return incidents
+
+                # No source filter: full scan (cap scan to avoid OOM with very large tables)
                 if filter_expressions:
                     params['FilterExpression'] = ' AND '.join(filter_expressions)
                     params['ExpressionAttributeValues'] = expression_attribute_values
                     if expression_attribute_names:
                         params['ExpressionAttributeNames'] = expression_attribute_names
-                
                 logger.debug(f"Scanning DynamoDB table: {self.incidents_table}, filter: {filter_expressions}")
                 all_items = []
                 try:
@@ -303,14 +349,17 @@ class Storage:
                         if not last_key:
                             break
                         params['ExclusiveStartKey'] = last_key
+                        # Cap total items to avoid Lambda OOM (e.g. 2000 items max)
+                        if len(all_items) >= 2000:
+                            logger.warning(f"Stopping scan at 2000 items to avoid OOM")
+                            break
                     logger.info(f"Scan returned {len(all_items)} items from DynamoDB")
                 except ClientError as e:
                     error_code = e.response.get('Error', {}).get('Code', 'Unknown')
                     error_message = e.response.get('Error', {}).get('Message', str(e))
                     logger.error(f"DynamoDB scan failed: {error_code} - {error_message}", exc_info=True)
-                    # If it's a validation error, try without filter expressions as fallback
                     if error_code == 'ValidationException' and filter_expressions:
-                        logger.warning(f"Retrying scan without filter expressions due to ValidationException")
+                        logger.warning("Retrying scan without filter expressions due to ValidationException")
                         params.pop('FilterExpression', None)
                         params.pop('ExpressionAttributeValues', None)
                         params.pop('ExpressionAttributeNames', None)
@@ -322,14 +371,14 @@ class Storage:
                             if not last_key:
                                 break
                             params['ExclusiveStartKey'] = last_key
+                            if len(all_items) >= 2000:
+                                break
                         logger.info(f"Retry scan returned {len(all_items)} items from DynamoDB")
                     else:
                         raise
 
-            # Parse items
+            # Parse items (when not using source-filtered paginated path)
             incidents = []
-            # Note: use_in_memory_filter is set in the scan block above if we had to fallback
-            
             for item in all_items:
                 parsed_item = self._parse_dynamodb_item(item)
                 incident_id = parsed_item.get('incident_id', 'unknown')
@@ -426,13 +475,53 @@ class Storage:
                 logger.info(f"Returning incident IDs: {incident_ids}")
             else:
                 logger.warning(f"No incidents found matching filters: source={source}, status={status}, service={service}")
-                logger.warning(f"Total items scanned from DynamoDB: {len(response.get('Items', []))}")
+                logger.warning(f"Total items scanned from DynamoDB: {len(all_items)}")
             
             return incidents
 
         except ClientError as e:
             logger.error(f"Failed to list incidents: {str(e)}", exc_info=True)
             return []
+
+    def _list_incidents_source_filter_fallback(self, source: str, limit: int) -> List[Dict[str, Any]]:
+        """Paginated scan with in-memory source filter when FilterExpression on source is not available."""
+        incidents = []
+        scan_params = {'TableName': self.incidents_table, 'Limit': 100}
+        total_scanned = 0
+        max_scanned = 2000
+        while total_scanned < max_scanned:
+            response = self.dynamodb.scan(**scan_params)
+            page_items = response.get('Items', [])
+            total_scanned += len(page_items)
+            for item in page_items:
+                parsed_item = self._parse_dynamodb_item(item)
+                if 'data' in parsed_item:
+                    try:
+                        parsed_item['investigation_result'] = json.loads(parsed_item['data'])
+                        if 'source' not in parsed_item or not parsed_item.get('source'):
+                            nested = parsed_item['investigation_result'].get('source')
+                            if not nested and isinstance(parsed_item['investigation_result'].get('full_state'), dict):
+                                inc = (parsed_item['investigation_result']['full_state'].get('incident') or {})
+                                nested = inc.get('source') if isinstance(inc, dict) else None
+                            if not nested:
+                                ni = parsed_item.get('incident_id', '')
+                                nested = 'cloudwatch_alarm' if (ni.startswith('inc-') or ni.startswith('test-') or ni.startswith('cw-')) else 'chat'
+                            if nested:
+                                parsed_item['source'] = nested
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                if 'source' not in parsed_item or not parsed_item.get('source'):
+                    ni = parsed_item.get('incident_id', '')
+                    parsed_item['source'] = 'cloudwatch_alarm' if (ni.startswith('inc-') or ni.startswith('test-') or ni.startswith('cw-')) else 'chat' if ni.startswith('chat-') else 'chat'
+                if parsed_item.get('source') != source:
+                    continue
+                incidents.append(parsed_item)
+                if len(incidents) >= limit:
+                    return incidents[:limit]
+            if not response.get('LastEvaluatedKey'):
+                break
+            scan_params['ExclusiveStartKey'] = response['LastEvaluatedKey']
+        return incidents[:limit]
 
     def update_incident_status(
         self,

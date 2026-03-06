@@ -1,13 +1,25 @@
 /**
  * Remediation Status Component
- * Shows the automated lifecycle: Issue → Analysis → AI-Powered Fix Generation → PR Creation → AI-Powered PR Review
- * After PR creation, AI-powered PR Review is automatically triggered
+ * Shows the full incident cycle: (Alarm triggered / Chat initiated) → Issue → Analysis → Fix → PR → AI Review
+ * First stage reflects how the incident started; remediation stages come from DB.
  */
 
 import { useState, useEffect, useRef } from 'react';
 
-// Stage definitions - only automated stages
-const STAGES = [
+// Initial incident stage (how the incident was triggered) - always completed when shown
+function getTriggerStage(incidentSource) {
+  const isCloudWatch = incidentSource === 'cloudwatch_alarm';
+  return {
+    id: 'triggered',
+    name: isCloudWatch ? 'CloudWatch alarm triggered' : 'Chat initiated',
+    icon: isCloudWatch ? '🔔' : '💬',
+    description: isCloudWatch ? 'Alarm triggered the incident' : 'Investigation started from chat',
+    event: null
+  };
+}
+
+// Remediation stage definitions (after incident is initiated)
+const REMEDIATION_STAGES = [
   {
     id: 'issue',
     name: 'Issue Created',
@@ -45,9 +57,10 @@ const STAGES = [
   }
 ];
 
-export default function RemediationStatus({ 
-  incidentId, 
-  remediationStatus, 
+export default function RemediationStatus({
+  incidentId,
+  incidentSource,
+  remediationStatus,
   onRefresh,
   onPausePolling,
   onResumePolling,
@@ -118,8 +131,12 @@ export default function RemediationStatus({
 
   const { issue, pr, timeline, next_action, repo, similar_incidents_count } = remediationStatus || {};
 
+  // Full incident cycle: trigger stage (when incidentSource provided) + remediation stages
+  const stages = (incidentSource ? [getTriggerStage(incidentSource), ...REMEDIATION_STAGES] : REMEDIATION_STAGES);
+
   // Determine stage statuses
   const getStageStatus = (stage) => {
+    if (stage.id === 'triggered') return 'completed';
     const timelineEvents = timeline || [];
     
     // Check if stage is completed
@@ -132,12 +149,12 @@ export default function RemediationStatus({
         return pr?.number || event.event === 'pr_created';
       }
       if (stage.event === 'pr_reviewed') {
-        // PR review is complete if review_status exists and is not 'pending'
-        return pr?.review_status && pr.review_status !== 'pending';
+        // PR review is complete if AI review completed (from DB) or derived from review_status
+        return pr?.ai_pr_review_completed ?? (pr?.review_status && pr.review_status !== 'pending');
       }
       return event.event === stage.event;
     }) || (stage.event === 'pr_creation_started' && pr?.number) || // Also check if PR exists directly
-         (stage.event === 'pr_reviewed' && pr?.review_status && pr.review_status !== 'pending'); // Also check review_status directly
+         (stage.event === 'pr_reviewed' && (pr?.ai_pr_review_completed || (pr?.review_status && pr.review_status !== 'pending')));
 
     // Check if stage is in progress
     const isInProgress = timelineEvents.some(event => {
@@ -155,20 +172,14 @@ export default function RemediationStatus({
         return eventType === 'pr_created' || pr?.number;
       }
       if (stage.event === 'pr_reviewed') {
-        // PR review is in progress if:
-        // 1. PR exists
-        // 2. Review has started (pr_review_started event exists) OR review_status is not set
-        // 3. BUT review is NOT yet complete (review_status is null, undefined, or 'pending')
-        // If review_status is 'approved' or 'changes_requested', it's complete, not in progress
-        if (pr?.review_status && pr.review_status !== 'pending') {
-          // Review is complete, not in progress
-          return false;
+        if (pr?.ai_pr_review_completed ?? (pr?.review_status && pr.review_status !== 'pending')) {
+          return false; // Review is complete, not in progress
         }
         const reviewStarted = timelineEvents.some(e => {
           const eType = typeof e === 'object' ? e.event : e;
           return eType === 'pr_review_started';
         });
-        return pr?.number && (reviewStarted || !pr?.review_status || pr.review_status === 'pending');
+        return pr?.number && (reviewStarted || !pr?.ai_pr_review_completed);
       }
       return false;
     });
@@ -263,7 +274,7 @@ export default function RemediationStatus({
   return (
     <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-gray-800">🔄 Remediation Lifecycle</h3>
+        <h3 className="text-sm font-semibold text-gray-800">🔄 Incident &amp; Remediation Lifecycle</h3>
         <div className="flex items-center gap-2">
           {/* Pause/Resume Polling Controls */}
           {isPollingActive && onPausePolling && (
@@ -341,7 +352,7 @@ export default function RemediationStatus({
       {/* Stage Indicators */}
       <div className="mb-4">
         <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          {STAGES.map((stage, index) => {
+          {stages.map((stage, index) => {
             const status = getStageStatus(stage);
             const isCompleted = status === 'completed';
             const isInProgress = status === 'in_progress';
@@ -358,8 +369,9 @@ export default function RemediationStatus({
                                 stage.id === 'fix_generation' || 
                                 stage.id === 'pr_creation');
             
-            // Only animate if polling is active and not paused
-            const shouldAnimate = (isPollingActive && !isPollingPaused) || (!isPollingActive && !isPollingPaused);
+            // Only animate if polling is active and not paused. Never animate AI PR Review (static "waiting" to avoid blinking).
+            const isPrReviewStage = stage.id === 'pr_review';
+            const shouldAnimate = !isPrReviewStage && ((isPollingActive && !isPollingPaused) || (!isPollingActive && !isPollingPaused));
 
             return (
               <div key={stage.id} className="flex items-center flex-shrink-0">
@@ -385,10 +397,15 @@ export default function RemediationStatus({
                     {isCompleted ? (
                       <span className="text-lg">✓</span>
                     ) : isInProgress ? (
-                      <svg className={`h-5 w-5 ${shouldAnimate ? 'animate-spin' : ''}`} viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
+                      // AI PR Review: static icon (no spinner) so it doesn't blink while waiting for webhook
+                      isPrReviewStage ? (
+                        <span className="text-lg">{stage.icon}</span>
+                      ) : (
+                        <svg className={`h-5 w-5 ${shouldAnimate ? 'animate-spin' : ''}`} viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      )
                     ) : (
                       <span 
                         className="text-lg"
@@ -411,7 +428,7 @@ export default function RemediationStatus({
                   </p>
                 </div>
                 {/* Connector Line */}
-                {index < STAGES.length - 1 && (
+                {index < stages.length - 1 && (
                   <div className={`w-8 h-0.5 mx-1 ${
                     isCompleted ? 'bg-green-500' : 'bg-gray-300'
                   }`} />
@@ -425,10 +442,15 @@ export default function RemediationStatus({
         {currentExplanation && (
           <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
             <div className="flex items-center gap-2">
-              <svg className={`h-3 w-3 text-blue-600 ${(isPollingActive && !isPollingPaused) ? 'animate-spin' : ''}`} viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
+              {/* Static icon for PR Review waiting state (no spinner to avoid blinking) */}
+              {currentExplanation.includes('PR Review') ? (
+                <span className="text-blue-600">🤖</span>
+              ) : (
+                <svg className={`h-3 w-3 text-blue-600 ${(isPollingActive && !isPollingPaused) ? 'animate-spin' : ''}`} viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              )}
               <p className="text-xs text-blue-800">
                 <span className="font-semibold">In Progress:</span> {currentExplanation}
               </p>

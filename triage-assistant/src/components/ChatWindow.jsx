@@ -123,25 +123,57 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   }, [routeSessionId]);
 
-  // Fetch untriaged alarm count for bell icon (open cloudwatch incidents, optionally today)
+  // Mark incidents as "seen" the moment the user opens the dialog — this is how count resets
+  useEffect(() => {
+    if (showCloudWatchIncidentsDialog) {
+      localStorage.setItem('tars_incidents_last_viewed', new Date().toISOString());
+    }
+  }, [showCloudWatchIncidentsDialog]);
+
+  // Helper: count today's incidents created AFTER the last time the user viewed the dialog
+  const calcUntriagedCount = (incidents) => {
+    const today = new Date().toDateString();
+    const lastViewed = localStorage.getItem('tars_incidents_last_viewed');
+    const lastViewedDate = lastViewed ? new Date(lastViewed) : null;
+    return incidents.filter((inc) => {
+      const raw = inc.data ? (typeof inc.data === 'string' ? JSON.parse(inc.data) : inc.data) : inc;
+      const created = raw?.created_at || raw?.timestamp || inc.created_at;
+      if (!created) return !lastViewedDate; // no timestamp: show only if never viewed
+      const createdDate = new Date(created);
+      if (createdDate.toDateString() !== today) return false;       // not today
+      if (lastViewedDate && createdDate <= lastViewedDate) return false; // already seen
+      return true;
+    }).length;
+  };
+
+  // Fetch untriaged alarm count for bell icon — re-runs when dialog closes (and lastViewed is fresh)
   useEffect(() => {
     let cancelled = false;
     fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'open' })
       .then((incidents) => {
         if (cancelled) return;
-        const today = new Date().toDateString();
-        const count = incidents.filter((inc) => {
-          const raw = inc.data ? (typeof inc.data === 'string' ? JSON.parse(inc.data) : inc.data) : inc;
-          const created = raw?.created_at || raw?.timestamp || inc.created_at;
-          if (!created) return true; // no date = include
-          return new Date(created).toDateString() === today;
-        }).length;
+        const count = calcUntriagedCount(incidents);
         setUntriagedCount(count);
         onUntriagedCountChange?.(count);
       })
       .catch(() => { if (!cancelled) { setUntriagedCount(0); onUntriagedCountChange?.(0); } });
     return () => { cancelled = true; };
-  }, [showCloudWatchIncidentsDialog, onUntriagedCountChange]); // Re-fetch when incidents dialog closes
+  }, [showCloudWatchIncidentsDialog, onUntriagedCountChange]);
+
+  // Keep untriaged count live — re-poll every 60s in the background
+  useEffect(() => {
+    const poll = () => {
+      fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'open' })
+        .then((incidents) => {
+          const count = calcUntriagedCount(incidents);
+          setUntriagedCount(count);
+          onUntriagedCountChange?.(count);
+        })
+        .catch(() => {});
+    };
+    const id = setInterval(poll, 60_000);
+    return () => clearInterval(id);
+  }, [onUntriagedCountChange]);
 
   // Fetch log groups on mount (CloudWatch is always selected for now)
   useEffect(() => {
@@ -630,7 +662,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   };
 
-  const handleLoadCloudWatchIncident = (incidentMessage) => {
+  const handleLoadCloudWatchIncident = (incidentMessage, initialRemediationStatus = null) => {
     console.log('📥 Loading CloudWatch incident:', incidentMessage);
     console.log('🔍 Incident data check:', {
       source: incidentMessage.incident?.source,
@@ -639,6 +671,14 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       has_github_issue: !!incidentMessage.incident?.execution_results?.github_issue,
       github_issue_status: incidentMessage.incident?.execution_results?.github_issue?.status
     });
+
+    // Seed remediation status from Incidents dialog so detail view shows correct stage immediately (e.g. AI PR Review Complete)
+    if (incidentMessage.incident?.incident_id && initialRemediationStatus) {
+      setRemediationStatuses(prev => ({
+        ...prev,
+        [incidentMessage.incident.incident_id]: initialRemediationStatus
+      }));
+    }
     
     // Add incident message to chat, avoiding duplicates
     setMessages(prev => {
@@ -1280,7 +1320,10 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
 
   useImperativeHandle(ref, () => ({
     sendMessage: handleSendMessage,
-    openIncidents: () => setShowCloudWatchIncidentsDialog(true),
+    openIncidents: (source) => {
+      if (source != null && source !== '') setDefaultIncidentSource(source);
+      setShowCloudWatchIncidentsDialog(true);
+    },
     openSessionDialog: () => setShowSessionDialog(true),
   }), [handleSendMessage]);
 
@@ -1408,7 +1451,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             <span className="text-gray-600 font-medium">Incident source:</span>
             <select value={defaultIncidentSource} onChange={(e) => setDefaultIncidentSource(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-md text-gray-700 bg-white text-xs">
               <option value="all">All</option>
-              <option value="cloudwatch_alarm">CloudWatch</option>
+              <option value="cloudwatch_alarm">Alarm triggered (CloudWatch)</option>
+              <option value="chat">Chat</option>
               <option value="servicenow">ServiceNow</option>
               <option value="jira">Jira</option>
             </select>

@@ -293,6 +293,7 @@ def handle_github_actions_webhook(payload: Dict[str, Any]) -> Dict[str, Any]:
                 'pr_url': pr_url,
                 'pr_status': 'created' if pr_number else None,
                 'pr_review_status': None,
+                'ai_pr_review_completed': False,
                 'pr_merge_status': None,
                 'created_at': datetime.utcnow().isoformat(),
                 'updated_at': datetime.utcnow().isoformat(),
@@ -410,10 +411,14 @@ def handle_pr_review_update(incident_id: str, pr_number: int, review_status: str
             'reviewer': 'PR Review Agent'
         })
         
-        # Update DynamoDB
-        update_expression = "SET pr_review_status = :review_status, timeline = :timeline, updated_at = :now"
+        # AI PR review completed = True when we have a definitive outcome (agent finished)
+        ai_pr_review_completed = review_status in ('approved', 'changes_requested', 'commented')
+        
+        # Update DynamoDB (store explicit completed flag for clear display)
+        update_expression = "SET pr_review_status = :review_status, ai_pr_review_completed = :ai_completed, timeline = :timeline, updated_at = :now"
         expression_values = {
             ':review_status': review_status,
+            ':ai_completed': ai_pr_review_completed,
             ':timeline': timeline,
             ':now': datetime.utcnow().isoformat()
         }

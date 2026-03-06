@@ -6,6 +6,7 @@ Save, load, and list chat sessions for resuming conversations
 import json
 import logging
 import os
+from decimal import Decimal
 from typing import Dict, Any
 from datetime import datetime, timedelta
 import boto3
@@ -13,6 +14,17 @@ import uuid
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+def _float_to_decimal(obj: Any) -> Any:
+    """Recursively convert floats to Decimal for DynamoDB (boto3 rejects float)."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: _float_to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_float_to_decimal(v) for v in obj]
+    return obj
 
 # DynamoDB client
 dynamodb = boto3.resource('dynamodb')
@@ -167,6 +179,9 @@ def _save_session(table, data: Dict[str, Any]) -> Dict[str, Any]:
         
         # Remove None values to avoid DynamoDB issues
         item = {k: v for k, v in item.items() if v is not None}
+        
+        # DynamoDB (boto3) does not accept float; convert to Decimal (e.g. confidence 0.85 in messages/remediation_statuses)
+        item = _float_to_decimal(item)
         
         logger.info(f"Attempting to save session: session_id={session_id}, messages={len(messages) if messages else 0}, table={CHAT_SESSIONS_TABLE}")
         

@@ -1,6 +1,20 @@
 """
 Remediation Status Handler
-API endpoint to poll remediation status (Issue → PR → Review → Merge)
+API endpoint to get remediation status (Issue → PR → AI Review → Merge).
+
+Architecture: DB as single source of truth
+- This handler only READS from DynamoDB (remediation_state table). It does not call GitHub.
+- Display (incidents list, expanded cards) always shows what is stored in DB, including old
+  incidents whose repos may no longer exist. No live polling of GitHub per incident.
+- Updates to remediation state happen only via webhooks (e.g. from GitHub Actions when
+  PR is created, when PR Review Agent completes). During execution, the workflow may poll
+  GitHub to get the definitive review result, then the webhook records it in DB.
+
+AI review status only (not human review):
+- pr_review_status in DB = outcome of the AI PR Review Agent only (during execution or in background).
+- Success: approved / changes_requested / commented (AI agent finished and posted its review).
+- Not done / failed: null or pending (AI agent did not complete, e.g. workflow didn't run or failed).
+- We do not track whether a human has reviewed or approved the PR; that is separate (merge is human decision).
 """
 
 import json
@@ -101,15 +115,18 @@ def remediation_status_handler(event: Dict[str, Any], context: Any) -> Dict[str,
             logger.info(f"DynamoDB response: Item found: {item is not None}")
             
             if not item:
-                # This is OK - remediation state might not exist yet (issue just created)
+                # Return 200 with has_state: false so the browser doesn't log 404 for every incident without remediation
                 logger.info(f"Remediation state not found for incident {incident_id} - this is normal if issue was just created")
                 return {
-                    'statusCode': 404,
+                    'statusCode': 200,
                     'headers': {'Content-Type': 'application/json'},
                     'body': json.dumps({
-                        'error': 'Remediation state not found',
                         'incident_id': incident_id,
-                        'message': 'Remediation state will be created when GitHub issue is created'
+                        'has_state': False,
+                        'issue': None,
+                        'pr': None,
+                        'timeline': [],
+                        'next_action': None
                     })
                 }
             
@@ -159,12 +176,18 @@ def remediation_status_handler(event: Dict[str, Any], context: Any) -> Dict[str,
             
             # Add PR info if available
             if pr_number:
-                logger.info(f"PR found in DynamoDB for {incident_id}: pr_number={pr_number}, pr_status={item.get('pr_status')}, pr_url={item.get('pr_url')}")
+                pr_review_status = item.get('pr_review_status')
+                # Explicit flag for "AI PR review completed"; derive from pr_review_status if not set (backfill)
+                ai_completed = item.get('ai_pr_review_completed')
+                if ai_completed is None and pr_review_status is not None:
+                    ai_completed = pr_review_status in ('approved', 'changes_requested', 'commented')
+                logger.info(f"PR found in DynamoDB for {incident_id}: pr_number={pr_number}, pr_status={item.get('pr_status')}, ai_pr_review_completed={ai_completed}")
                 result['pr'] = {
                     'number': convert_dynamodb_types(pr_number),
                     'url': item.get('pr_url'),
                     'status': item.get('pr_status', 'unknown'),
-                    'review_status': item.get('pr_review_status'),
+                    'review_status': pr_review_status,
+                    'ai_pr_review_completed': bool(ai_completed) if ai_completed is not None else False,
                     'merge_status': item.get('pr_merge_status')
                 }
             else:

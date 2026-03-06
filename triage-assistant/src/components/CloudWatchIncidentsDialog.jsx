@@ -35,20 +35,22 @@ export default function CloudWatchIncidentsDialog({
     { value: 'all', label: 'All Time' }
   ];
 
-  // When dialog opens, sync incident source from parent (main dashboard "Incident source" dropdown)
+  // When dialog opens or initialSource changes: sync state and load immediately with correct source.
+  // Passing source directly to loadIncidents avoids the stale-state race condition where
+  // the load effect fires before setIncidentSource has taken effect.
   useEffect(() => {
-    if (isOpen && initialSource) {
-      setIncidentSource(initialSource);
-    }
+    if (!isOpen) return;
+    setIncidentSource(initialSource);
+    loadIncidents(initialSource);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialSource]);
 
-  // Load incidents when dialog opens or when timeframe / incident source changes
+  // Re-load when timeframe changes while dialog is already open (source is already synced above).
   useEffect(() => {
-    if (isOpen) {
-      loadIncidents();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, timeframe, incidentSource]);
+    if (!isOpen) return;
+    loadIncidents(incidentSource);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeframe]);
 
   // Fetch remediation status when incident is expanded (always refetch so expanded card is up to date)
   useEffect(() => {
@@ -62,23 +64,43 @@ export default function CloudWatchIncidentsDialog({
     filterIncidentsByTimeframe();
   }, [timeframe, allIncidents]);
 
-  const loadIncidents = async (forceRefresh = false) => {
+  const loadIncidents = async (sourceOrForceRefresh = null, forceRefresh = false) => {
+    // Backwards-compatible: loadIncidents(true) means forceRefresh, loadIncidents('cloudwatch_alarm') means source override
+    let source = incidentSource;
+    if (typeof sourceOrForceRefresh === 'boolean') {
+      forceRefresh = sourceOrForceRefresh;
+    } else if (typeof sourceOrForceRefresh === 'string') {
+      source = sourceOrForceRefresh;
+    }
     setIsLoading(true);
     setError(null);
     try {
-      const result = await fetchIncidents({
-        limit: 100,
-        source: incidentSource,
-        status: 'all'
-      });
-      let list = result || [];
+      let list;
+      if (source === 'all') {
+        // Fetch both known sources in parallel and merge — more reliable than a single "all" scan
+        // which can miss items due to DynamoDB scan pagination behaviour.
+        const [chatItems, alarmItems] = await Promise.all([
+          fetchIncidents({ limit: 100, source: 'chat', status: 'all' }).catch(() => []),
+          fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'all' }).catch(() => []),
+        ]);
+        // Deduplicate by incident_id in case any item appears in both lists
+        const seen = new Set();
+        list = [...chatItems, ...alarmItems].filter((inc) => {
+          const id = inc.incident_id || inc.data?.incident_id;
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+      } else {
+        list = await fetchIncidents({ limit: 100, source, status: 'all' }) || [];
+      }
 
-      if (incidentSource === 'servicenow' || incidentSource === 'jira') {
+      if (source === 'servicenow' || source === 'jira') {
         // Use mock data when API returns empty (e.g. Incident MCP not deployed)
         if (list.length === 0) {
-          list = incidentSource === 'servicenow' ? MOCK_SERVICENOW_TICKETS : MOCK_JIRA_ISSUES;
+          list = source === 'servicenow' ? MOCK_SERVICENOW_TICKETS : MOCK_JIRA_ISSUES;
         }
-        const normalizer = incidentSource === 'servicenow' ? normalizeServiceNowTicket : normalizeJiraIssue;
+        const normalizer = source === 'servicenow' ? normalizeServiceNowTicket : normalizeJiraIssue;
         const normalized = list.map((item) => normalizer(item));
         const sorted = normalized.sort((a, b) => {
           const tsA = a.timestamp || '';
@@ -218,7 +240,7 @@ export default function CloudWatchIncidentsDialog({
     setIncidents(filtered);
   };
 
-  const handleLoadIncident = (incidentItem) => {
+  const handleLoadIncident = (incidentItem, initialRemediationStatus = null) => {
     try {
       let incidentMessage;
       if (incidentItem.source === 'servicenow' || incidentItem.source === 'jira') {
@@ -261,8 +283,16 @@ export default function CloudWatchIncidentsDialog({
         };
       } else {
         incidentMessage = incidentToMessage(incidentItem);
+        // Pass remediation status we already have so chat shows correct stage immediately (e.g. AI PR Review Complete)
+        const parsed = parseIncidentData(incidentItem.data
+          ? (typeof incidentItem.data === 'string' ? JSON.parse(incidentItem.data) : incidentItem.data)
+          : (incidentItem.investigation_result || incidentItem));
+        const incidentId = parsed?.incident_id;
+        if (incidentId && remediationStatuses[incidentId]) {
+          initialRemediationStatus = remediationStatuses[incidentId];
+        }
       }
-      onLoadIncident(incidentMessage);
+      onLoadIncident(incidentMessage, initialRemediationStatus);
       onClose();
     } catch (err) {
       console.error('Error loading incident:', err);
@@ -419,12 +449,13 @@ export default function CloudWatchIncidentsDialog({
     const hasIssue = issue?.issue_url || issue?.url || githubIssue?.issue_url;
     const hasPR = pr?.pr_url || pr?.url || pr?.number;
     const reviewStatus = pr?.review_status;
+    const aiPrReviewCompleted = pr?.ai_pr_review_completed ?? (reviewStatus && reviewStatus !== 'pending');
 
     // Check timeline events to determine stage
     const timelineEvents = timeline.map(e => typeof e === 'object' ? e.event : e);
     
-    // PR Review complete
-    if (reviewStatus && reviewStatus !== 'pending') {
+    // PR Review complete (use explicit flag from DB, fallback to review_status)
+    if (aiPrReviewCompleted) {
       return { 
         stage: 'pr_review', 
         text: 'AI PR Review Complete', 
@@ -435,7 +466,7 @@ export default function CloudWatchIncidentsDialog({
     }
     
     // PR Review in progress
-    if (hasPR && (timelineEvents.includes('pr_review_started') || !reviewStatus || reviewStatus === 'pending')) {
+    if (hasPR && (timelineEvents.includes('pr_review_started') || !aiPrReviewCompleted)) {
       return { 
         stage: 'pr_review', 
         text: 'AI PR Review', 
@@ -532,6 +563,9 @@ export default function CloudWatchIncidentsDialog({
     let isInProgress = false;
     
     switch (stageId) {
+      case 'triggered':
+        isCompleted = true;
+        break;
       case 'issue':
         isCompleted = !!(issue?.issue_url || issue?.url) || timelineEvents.includes('issue_created');
         break;
@@ -548,7 +582,7 @@ export default function CloudWatchIncidentsDialog({
         isInProgress = timelineEvents.includes('pr_creation_started') && !isCompleted;
         break;
       case 'pr_review':
-        isCompleted = pr?.review_status && pr.review_status !== 'pending';
+        isCompleted = pr?.ai_pr_review_completed ?? (pr?.review_status && pr.review_status !== 'pending');
         isInProgress = (timelineEvents.includes('pr_review_started') || !!(pr?.pr_url || pr?.url)) && !isCompleted;
         break;
     }
@@ -749,11 +783,12 @@ export default function CloudWatchIncidentsDialog({
                 <select
                   id="incident-source"
                   value={incidentSource}
-                  onChange={(e) => setIncidentSource(e.target.value)}
+                  onChange={(e) => { const s = e.target.value; setIncidentSource(s); loadIncidents(s); }}
                   className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
                 >
                   <option value="all">All</option>
-                  <option value="cloudwatch_alarm">CloudWatch</option>
+                  <option value="cloudwatch_alarm">Alarm triggered (CloudWatch)</option>
+                  <option value="chat">Chat</option>
                   <option value="servicenow">ServiceNow</option>
                   <option value="jira">Jira</option>
                 </select>
@@ -801,10 +836,13 @@ export default function CloudWatchIncidentsDialog({
           ) : incidents.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p className="text-sm">
-                No {incidentSource === 'all' ? '' : incidentSource === 'cloudwatch_alarm' ? 'CloudWatch ' : incidentSource === 'servicenow' ? 'ServiceNow ' : 'Jira '}incidents found.
+                No {incidentSource === 'all' ? '' : incidentSource === 'cloudwatch_alarm' ? 'alarm-triggered ' : incidentSource === 'chat' ? 'Chat ' : incidentSource === 'servicenow' ? 'ServiceNow ' : 'Jira '}incidents found.
               </p>
               {incidentSource === 'cloudwatch_alarm' && (
-                <p className="text-xs mt-2">Create and trigger a CloudWatch alarm to see incidents here.</p>
+                <p className="text-xs mt-2">Alarm-triggered incidents appear here. Create and trigger a CloudWatch alarm, or use &quot;Auto trigger incidents&quot; to test.</p>
+              )}
+              {incidentSource === 'chat' && (
+                <p className="text-xs mt-2">Incidents created from chat investigations will appear here.</p>
               )}
               {incidentSource === 'all' && (
                 <p className="text-xs mt-2">Chat-created and CloudWatch alarm incidents will appear here.</p>
@@ -888,8 +926,11 @@ export default function CloudWatchIncidentsDialog({
                 const issueUrl = githubIssue?.issue_url || issue?.issue_url || issue?.url;
                 const prUrl = pr?.pr_url || pr?.url;
                 
-                // Define stages for lifecycle display
+                // Full incident cycle: trigger (from incident source) + remediation stages
+                const triggerLabel = parsed.source === 'cloudwatch_alarm' ? 'Alarm triggered' : parsed.source === 'servicenow' ? 'ServiceNow' : parsed.source === 'jira' ? 'Jira' : 'Chat initiated';
+                const triggerIcon = parsed.source === 'cloudwatch_alarm' ? '🔔' : '💬';
                 const stages = [
+                  { id: 'triggered', name: triggerLabel, icon: triggerIcon },
                   { id: 'issue', name: 'Issue', icon: '📋' },
                   { id: 'analysis', name: 'Analysis', icon: '🔍' },
                   { id: 'fix_generation', name: 'Fix', icon: '✏️' },
@@ -973,7 +1014,7 @@ export default function CloudWatchIncidentsDialog({
                                         isCompleted 
                                           ? 'bg-green-100 text-green-800' 
                                           : isInProgress 
-                                          ? 'bg-blue-100 text-blue-800 animate-pulse' 
+                                          ? 'bg-blue-100 text-blue-800'
                                           : 'bg-gray-100 text-gray-400'
                                       }`}>
                                         <span>{isCompleted ? '✅' : isInProgress ? '⏳' : '○'}</span>
@@ -1094,7 +1135,7 @@ export default function CloudWatchIncidentsDialog({
                         {/* Remediation Lifecycle Status - Detailed view */}
                         {(remediationStatus || githubIssue || executionType === 'code_fix') && (
                           <div>
-                            <p className="text-xs font-semibold text-gray-700 mb-2">Remediation Lifecycle</p>
+                            <p className="text-xs font-semibold text-gray-700 mb-2">Incident &amp; Remediation Lifecycle</p>
                             <div className="bg-white p-3 rounded border border-gray-200">
                               <div className="flex items-center gap-1">
                                 {stages.map((stage, index) => {
@@ -1108,7 +1149,7 @@ export default function CloudWatchIncidentsDialog({
                                         isCompleted 
                                           ? 'bg-green-100 text-green-800' 
                                           : isInProgress 
-                                          ? 'bg-blue-100 text-blue-800 animate-pulse' 
+                                          ? 'bg-blue-100 text-blue-800'
                                           : 'bg-gray-100 text-gray-400'
                                       }`}>
                                         <span>{isCompleted ? '✅' : isInProgress ? '⏳' : '○'}</span>
@@ -1149,8 +1190,8 @@ export default function CloudWatchIncidentsDialog({
                               {/* Status message */}
                               {currentStageInfo.text !== 'New' && (
                                 <p className="text-xs text-gray-600 mt-2">
-                                  {currentStageInfo.text === 'AI PR Review Complete' && '✅ AI review complete. Please review and approve before merging.'}
-                                  {currentStageInfo.text === 'AI PR Review' && '🤖 AI-powered PR Review Agent is analyzing the pull request...'}
+                                  {currentStageInfo.text === 'AI PR Review Complete' && '✅ AI PR Review Agent finished (success). Human can review and merge when ready.'}
+                                  {currentStageInfo.text === 'AI PR Review' && '🤖 AI PR Review Agent is running (in progress or not started).'}
                                   {currentStageInfo.text === 'PR Created' && '🔵 Pull request created. AI-powered review will start automatically...'}
                                   {currentStageInfo.text === 'Creating PR' && '⏳ Creating pull request with AI-generated fix...'}
                                   {currentStageInfo.text === 'Generating Fix' && '✏️ AI is generating fix based on analysis...'}
