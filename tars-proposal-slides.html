@@ -14,31 +14,87 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 48px;
     padding: 48px 0;
     min-height: 100vh;
   }
 
   .slide {
     width: 1200px;
-    height: 675px;
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 25px 80px rgba(0,0,0,0.5);
     position: relative;
     flex-shrink: 0;
-  }
-
-  /* ─── SLIDE 1 ─── */
-  .slide-1 {
     display: flex;
+    flex-direction: column;
   }
 
-  /* Left: Pain points */
+  /* ─── TITLE BAR ─── */
+  .title-bar {
+    background: linear-gradient(135deg, #f3f0ff 0%, #ede9fe 100%);
+    padding: 24px 44px;
+    text-align: center;
+    border-bottom: 3px solid #c4b5fd;
+  }
+  .title-bar h1 {
+    font-size: 24px;
+    font-weight: 800;
+    color: #1e1040;
+    line-height: 1.3;
+  }
+  .title-bar .subtitle {
+    font-size: 14px;
+    color: #6b7280;
+    font-weight: 400;
+    margin-top: 4px;
+    font-style: italic;
+  }
+
+  /* ─── PERSONA ROW ─── */
+  .persona-row {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 20px 44px;
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .persona-box {
+    flex: 1;
+    max-width: 320px;
+    background: #f9f7ff;
+    border: 1px solid #e5e0f5;
+    border-radius: 10px;
+    padding: 14px 20px;
+    text-align: center;
+  }
+  .persona-icon {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  .persona-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1e1040;
+    margin-bottom: 3px;
+  }
+  .persona-desc {
+    font-size: 11px;
+    color: #6b7280;
+    line-height: 1.4;
+  }
+
+  /* ─── MAIN CONTENT ROW ─── */
+  .main-content {
+    display: flex;
+    flex: 1;
+  }
+
+  /* Left: Challenges */
   .s1-left {
     width: 48%;
     background: linear-gradient(160deg, #f8f6ff 0%, #ffffff 40%, #f3f0ff 100%);
-    padding: 44px 40px;
+    padding: 32px 36px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -52,16 +108,16 @@
     letter-spacing: 2.5px;
     text-transform: uppercase;
     color: #7c3aed;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
     opacity: 0.7;
   }
 
   .s1-left h2 {
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 800;
     color: #1e1040;
     line-height: 1.3;
-    margin-bottom: 28px;
+    margin-bottom: 22px;
   }
   .s1-left h2 em {
     font-style: normal;
@@ -74,8 +130,8 @@
   .pain-point {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: 10px;
+    margin-bottom: 10px;
     position: relative;
     z-index: 1;
   }
@@ -84,13 +140,13 @@
     width: 6px; height: 6px;
     border-radius: 50%;
     background: #ef4444;
-    margin-top: 7px;
+    margin-top: 6px;
     box-shadow: 0 0 6px rgba(239,68,68,0.3);
   }
   .pain-text {
-    font-size: 13px;
+    font-size: 12px;
     color: #374151;
-    line-height: 1.5;
+    line-height: 1.45;
     font-weight: 400;
   }
   .pain-text strong {
@@ -98,11 +154,11 @@
     font-weight: 600;
   }
 
-  /* Right: TARS intro (dark, matching reference image) */
+  /* Right: TARS Intro (dark) */
   .s1-right {
     width: 52%;
     background: linear-gradient(145deg, #0a0a0a 0%, #111111 50%, #0d0d0d 100%);
-    padding: 48px 44px 40px;
+    padding: 32px 36px 24px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -124,36 +180,36 @@
     letter-spacing: 3px;
     text-transform: uppercase;
     color: #7c3aed;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
   .s1-tars-title {
-    font-size: 72px;
+    font-size: 64px;
     font-weight: 800;
     color: #ffffff;
     letter-spacing: -1px;
     line-height: 1;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
   .s1-tars-title .a-highlight {
     color: #7c3aed;
   }
 
   .s1-tars-subtitle {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 3px;
     text-transform: uppercase;
     color: rgba(255,255,255,0.4);
-    margin-bottom: 20px;
+    margin-bottom: 14px;
   }
 
   .s1-tars-tagline {
-    font-size: 16px;
+    font-size: 14px;
     color: rgba(255,255,255,0.85);
     line-height: 1.5;
     font-weight: 400;
-    margin-bottom: 32px;
+    margin-bottom: 22px;
   }
   .s1-tars-tagline em {
     font-style: normal;
@@ -164,13 +220,14 @@
   .feature-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 7px;
+    margin-bottom: 22px;
   }
   .pill {
     display: inline-block;
-    padding: 7px 16px;
+    padding: 6px 14px;
     border-radius: 20px;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     background: linear-gradient(135deg, #7c3aed, #a855f7);
     color: #fff;
@@ -178,171 +235,8 @@
     letter-spacing: 0.2px;
   }
 
-
-  /* ─── SLIDE 2 ─── */
-  .slide-2 {
-    background: linear-gradient(170deg, #ffffff 0%, #f8f6ff 50%, #f0ebff 100%);
-    display: flex;
-    flex-direction: column;
-    position: relative;
-  }
-  .slide-2::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, #7c3aed, #a78bfa, #c4b5fd, #a78bfa, #7c3aed);
-  }
-
-  .s2-header {
-    text-align: center;
-    padding: 44px 60px 0;
-  }
-  .s2-header h2 {
-    font-size: 28px;
-    font-weight: 800;
-    color: #1e1040;
-    line-height: 1.2;
-  }
-  .s2-header h2 em {
-    font-style: normal;
-    background: linear-gradient(90deg, #7c3aed, #a855f7);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .s2-subtitle {
-    font-size: 14px;
-    color: #6b7280;
-    margin-top: 8px;
-    font-weight: 400;
-  }
-
-  /* 3-step flow */
-  .steps-row {
-    display: flex;
-    justify-content: center;
-    gap: 0;
-    padding: 36px 60px 0;
-    flex: 1;
-  }
-
-  .step-card {
-    flex: 1;
-    max-width: 320px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    position: relative;
-    padding: 0 24px;
-  }
-
-  /* Connector arrows between steps */
-  .step-card:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    top: 32px;
-    right: -6px;
-    width: 36px;
-    height: 2px;
-    background: linear-gradient(90deg, #c4b5fd, #a78bfa);
-    z-index: 1;
-  }
-  .step-card:not(:last-child)::before {
-    content: '';
-    position: absolute;
-    top: 27px;
-    right: -6px;
-    width: 0; height: 0;
-    border-top: 5px solid transparent;
-    border-bottom: 5px solid transparent;
-    border-left: 8px solid #a78bfa;
-    z-index: 2;
-  }
-
-  .step-number {
-    width: 64px; height: 64px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 26px;
-    margin-bottom: 18px;
-    position: relative;
-  }
-  .step-1-icon {
-    background: linear-gradient(135deg, #fef2f2, #fee2e2);
-    border: 2px solid #fecaca;
-  }
-  .step-2-icon {
-    background: linear-gradient(135deg, #eff6ff, #dbeafe);
-    border: 2px solid #bfdbfe;
-  }
-  .step-3-icon {
-    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-    border: 2px solid #bbf7d0;
-  }
-
-  .step-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #1e1040;
-    margin-bottom: 10px;
-  }
-  .step-desc {
-    font-size: 12.5px;
-    color: #4b5563;
-    line-height: 1.55;
-    font-weight: 400;
-  }
-  .step-desc strong {
-    color: #4c1d95;
-    font-weight: 600;
-  }
-
-  /* Bottom section */
-  .s2-bottom {
-    background: linear-gradient(135deg, #1e1040, #2d1b69);
-    padding: 22px 60px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-  }
-
-  .s2-metrics {
-    display: flex;
-    gap: 36px;
-  }
-
-  .metric {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .metric-icon {
-    font-size: 18px;
-    width: 36px; height: 36px;
-    border-radius: 8px;
-    background: rgba(167,139,250,0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .metric-text {
-    font-size: 12px;
-    color: rgba(255,255,255,0.6);
-    line-height: 1.3;
-  }
-  .metric-text strong {
-    display: block;
-    font-size: 13.5px;
-    color: #fff;
-    font-weight: 600;
-  }
-
-  .s2-cta {
+  .cta-button {
+    display: inline-block;
     background: linear-gradient(135deg, #7c3aed, #a855f7);
     color: #fff;
     padding: 12px 28px;
@@ -350,20 +244,82 @@
     font-size: 13px;
     font-weight: 700;
     letter-spacing: 0.3px;
-    white-space: nowrap;
     box-shadow: 0 4px 20px rgba(124,58,237,0.4);
+    margin-bottom: 20px;
+    text-align: center;
+    align-self: flex-start;
   }
 
-  /* Slide label (for preview) */
-  .slide-label {
-    color: rgba(255,255,255,0.3);
-    font-family: 'Inter', sans-serif;
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 1px;
+  .powered-by {
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding-top: 14px;
+    margin-top: auto;
+  }
+  .powered-by-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 2px;
     text-transform: uppercase;
-    margin-bottom: -32px;
-    margin-top: 8px;
+    color: rgba(255,255,255,0.25);
+    margin-bottom: 8px;
+  }
+  .powered-by-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .powered-by-item {
+    font-size: 9px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.05);
+    padding: 4px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* ─── USE CASE ROW ─── */
+  .usecase-section {
+    background: linear-gradient(135deg, #1e1040, #2d1b69);
+    padding: 20px 44px 24px;
+  }
+  .usecase-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    text-align: center;
+    margin-bottom: 14px;
+  }
+  .usecase-row {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+  }
+  .usecase-box {
+    flex: 1;
+    max-width: 340px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(167,139,250,0.2);
+    border-radius: 10px;
+    padding: 16px 20px;
+    text-align: center;
+  }
+  .usecase-icon {
+    font-size: 24px;
+    margin-bottom: 6px;
+  }
+  .usecase-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 4px;
+  }
+  .usecase-desc {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    line-height: 1.4;
   }
 
   /* Responsive scaling */
@@ -377,151 +333,128 @@
 </head>
 <body>
 
-<!-- ═══════════ SLIDE 1 ═══════════ -->
-<div class="slide-label">Slide 1</div>
-<div class="slide slide-1">
+<div class="slide">
 
-  <!-- LEFT: Pain Points -->
-  <div class="s1-left">
-    <div class="s1-left-label">The Challenge</div>
-    <h2>What if your SRE team could focus on <em>building</em>, not firefighting?</h2>
+  <!-- TITLE BAR -->
+  <div class="title-bar">
+    <h1>AI-Powered Incident Triage &amp; Resolution Accelerator</h1>
+    <div class="subtitle">From alert to resolution &mdash; at the speed of a conversation</div>
+  </div>
 
-    <div class="pain-point">
-      <div class="pain-bullet"></div>
-      <div class="pain-text"><strong>Alert fatigue</strong> — up to 70% of alerts are noise, burying real incidents in the backlog</div>
+  <!-- PERSONA ROW -->
+  <div class="persona-row">
+    <div class="persona-box">
+      <div class="persona-icon">&#x1F6E0;</div>
+      <div class="persona-title">SRE Engineer</div>
+      <div class="persona-desc">Incident / defects triage, traces</div>
     </div>
-    <div class="pain-point">
-      <div class="pain-bullet"></div>
-      <div class="pain-text"><strong>MTTR measured in hours</strong> — most time spent finding the problem, not fixing it</div>
+    <div class="persona-box">
+      <div class="persona-icon">&#x1F4BB;</div>
+      <div class="persona-title">Developers</div>
+      <div class="persona-desc">Debug / investigate failures, query logs</div>
     </div>
-    <div class="pain-point">
-      <div class="pain-bullet"></div>
-      <div class="pain-text"><strong>On-call burnout</strong> — engineers woken at 3AM for issues that could be auto-triaged</div>
-    </div>
-    <div class="pain-point">
-      <div class="pain-bullet"></div>
-      <div class="pain-text"><strong>Siloed observability</strong> — logs, metrics, and traces scattered across platforms with no unified view</div>
-    </div>
-    <div class="pain-point">
-      <div class="pain-bullet"></div>
-      <div class="pain-text"><strong>Tribal knowledge lost</strong> — expertise walks out the door with attrition, runbooks go stale</div>
-    </div>
-    <div class="pain-point">
-      <div class="pain-bullet"></div>
-      <div class="pain-text"><strong>Inconsistent response</strong> — incident quality depends on who's on call, not a repeatable process</div>
-    </div>
-    <div class="pain-point">
-      <div class="pain-bullet"></div>
-      <div class="pain-text"><strong>Builders become firefighters</strong> — engineering velocity drops when SREs are stuck in reactive mode</div>
+    <div class="persona-box">
+      <div class="persona-icon">&#x26A1;</div>
+      <div class="persona-title">Auto Trigger Alerts</div>
+      <div class="persona-desc">Event driven triage upon alert trigger</div>
     </div>
   </div>
 
-  <!-- RIGHT: TARS Intro (dark, image-style) -->
-  <div class="s1-right">
-    <div class="s1-intro-label">Introducing</div>
-    <div class="s1-tars-title">T<span class="a-highlight">A</span>RS</div>
-    <div class="s1-tars-subtitle">Telemetry Analysis &amp; Resolution System</div>
-    <div class="s1-tars-tagline">
-      One <em>intelligent interface</em> across all your observability platforms — from alert to resolution, at the speed of a conversation.
-    </div>
-    <div class="feature-pills">
-      <span class="pill">One-Stop Observability</span>
-      <span class="pill">MCP Plug &amp; Play</span>
-      <span class="pill">Multi-Agent System</span>
-      <span class="pill">Chat Interface</span>
-      <span class="pill">Auto Trigger On Alerts</span>
-      <span class="pill">AI Triage &amp; Remediation</span>
-      <span class="pill">Root Cause Analysis</span>
-      <span class="pill">GitHub Integration</span>
-      <span class="pill">Auto PR Reviews</span>
-      <span class="pill">Auto Fixes</span>
-      <span class="pill">JIRA / ServiceNow *</span>
-      <span class="pill">Human-in-the-Loop</span>
-    </div>
-  </div>
+  <!-- MAIN CONTENT: Challenges + TARS -->
+  <div class="main-content">
 
-</div>
+    <!-- LEFT: Challenges -->
+    <div class="s1-left">
+      <div class="s1-left-label">The Challenges</div>
+      <h2>Incident triage is still a largely <em>manual</em> process</h2>
 
-
-<!-- ═══════════ SLIDE 2 ═══════════ -->
-<div class="slide-label">Slide 2</div>
-<div class="slide slide-2">
-
-  <!-- Header -->
-  <div class="s2-header">
-    <h2>AI-Assisted Incident Resolution — <em>From Hours to Minutes</em></h2>
-    <div class="s2-subtitle">Three steps. One intelligent pipeline. Your team in control.</div>
-  </div>
-
-  <!-- 3-Step Flow -->
-  <div class="steps-row">
-
-    <div class="step-card">
-      <div class="step-number step-1-icon">&#x26A1;</div>
-      <div class="step-title">Detect</div>
-      <div class="step-desc">
-        Monitoring platform triggers an alert.<br>
-        TARS <strong>auto-triages</strong> by analyzing logs,<br>
-        metrics, and historical patterns to<br>
-        identify the <strong>root cause</strong>.
+      <div class="pain-point">
+        <div class="pain-bullet"></div>
+        <div class="pain-text"><strong>Alerts fire, but triage is manual</strong> &mdash; teams scramble to correlate alerts with logs, metrics, and recent deployments by hand</div>
+      </div>
+      <div class="pain-point">
+        <div class="pain-bullet"></div>
+        <div class="pain-text"><strong>High MTTR &mdash; root cause discovery is the bottleneck</strong> &mdash; most incident time is spent finding the problem, not fixing it</div>
+      </div>
+      <div class="pain-point">
+        <div class="pain-bullet"></div>
+        <div class="pain-text"><strong>Siloed observability</strong> &mdash; logs, metrics, and traces scattered across platforms with no unified view</div>
+      </div>
+      <div class="pain-point">
+        <div class="pain-bullet"></div>
+        <div class="pain-text"><strong>Manual, repetitive triage</strong> &mdash; engineers repeat the same diagnostic steps for recurring issue patterns</div>
+      </div>
+      <div class="pain-point">
+        <div class="pain-bullet"></div>
+        <div class="pain-text"><strong>Knowledge siloed with key SMEs</strong> &mdash; expertise walks out the door with attrition, runbooks go stale</div>
+      </div>
+      <div class="pain-point">
+        <div class="pain-bullet"></div>
+        <div class="pain-text"><strong>No standardized incident response</strong> &mdash; quality depends on who&rsquo;s on call, not a repeatable process</div>
+      </div>
+      <div class="pain-point">
+        <div class="pain-bullet"></div>
+        <div class="pain-text"><strong>Troubleshooting requires platform expertise</strong> &mdash; only a few engineers know where to look across complex distributed systems</div>
       </div>
     </div>
 
-    <div class="step-card">
-      <div class="step-number step-2-icon">&#x1F9E0;</div>
-      <div class="step-title">Resolve</div>
-      <div class="step-desc">
-        AI creates an <strong>incident ticket</strong>,<br>
-        proposes a <strong>targeted code fix</strong>,<br>
-        and submits a pull request —<br>
-        all within minutes of detection.
+    <!-- RIGHT: TARS Intro -->
+    <div class="s1-right">
+      <div class="s1-intro-label">Introducing</div>
+      <div class="s1-tars-title">T<span class="a-highlight">A</span>RS</div>
+      <div class="s1-tars-subtitle">Telemetry Analysis &amp; Resolution System</div>
+      <div class="s1-tars-tagline">
+        One <em>intelligent interface</em> across all your observability platforms &mdash; from alert to resolution, at the speed of a conversation.
       </div>
-    </div>
-
-    <div class="step-card">
-      <div class="step-number step-3-icon">&#x2705;</div>
-      <div class="step-title">Approve</div>
-      <div class="step-desc">
-        Engineer <strong>reviews the fix</strong>,<br>
-        validates AI's recommendation,<br>
-        and merges — <strong>human-in-the-loop</strong><br>
-        at every decision point.
+      <div class="feature-pills">
+        <span class="pill">One-Stop Observability</span>
+        <span class="pill">MCP Plug &amp; Play</span>
+        <span class="pill">Multi-Agent System</span>
+        <span class="pill">Chat Interface</span>
+        <span class="pill">Auto Trigger On Alerts</span>
+        <span class="pill">AI Triage &amp; Remediation</span>
+        <span class="pill">Root Cause Analysis</span>
+        <span class="pill">GitHub Integration</span>
+        <span class="pill">Auto PR Reviews</span>
+        <span class="pill">Auto Fixes</span>
+        <span class="pill">JIRA / ServiceNow *</span>
+        <span class="pill">Human-in-the-Loop</span>
       </div>
-    </div>
-
-  </div>
-
-  <!-- Bottom Strip -->
-  <div class="s2-bottom">
-    <div class="s2-metrics">
-
-      <div class="metric">
-        <div class="metric-icon">&#x23F1;</div>
-        <div class="metric-text">
-          <strong>MTTR: Hours &rarr; Minutes</strong>
-          AI handles triage, humans decide
+      <div class="cta-button">Let us build this for you &rarr;</div>
+      <div class="powered-by">
+        <div class="powered-by-label">Powered By</div>
+        <div class="powered-by-items">
+          <span class="powered-by-item">AWS Serverless / ECR</span>
+          <span class="powered-by-item">CloudWatch MCP</span>
+          <span class="powered-by-item">Claude Sonnet 4.x LLM</span>
+          <span class="powered-by-item">LangGraph</span>
+          <span class="powered-by-item">Titan Embedding Models</span>
         </div>
       </div>
-
-      <div class="metric">
-        <div class="metric-icon">&#x1F50C;</div>
-        <div class="metric-text">
-          <strong>Pluggable Observability</strong>
-          CloudWatch, Datadog, Elastic, Dynatrace
-        </div>
-      </div>
-
-      <div class="metric">
-        <div class="metric-icon">&#x1F512;</div>
-        <div class="metric-text">
-          <strong>Built Within Your Network</strong>
-          Your data, your cloud, your control
-        </div>
-      </div>
-
     </div>
 
-    <div class="s2-cta">Let us build this for you &rarr;</div>
+  </div>
+
+  <!-- USE CASE ROW -->
+  <div class="usecase-section">
+    <div class="usecase-label">Key Use Cases</div>
+    <div class="usecase-row">
+      <div class="usecase-box">
+        <div class="usecase-icon">&#x1F50D;</div>
+        <div class="usecase-title">Defect Triage</div>
+        <div class="usecase-desc">AI-powered log analysis, root cause identification, and incident correlation across services</div>
+      </div>
+      <div class="usecase-box">
+        <div class="usecase-icon">&#x1F6E0;</div>
+        <div class="usecase-title">GitHub Issues, AI Powered Fixes &amp; PR Reviews</div>
+        <div class="usecase-desc">Automated issue creation, targeted code fixes, and intelligent pull request reviews</div>
+      </div>
+      <div class="usecase-box">
+        <div class="usecase-icon">&#x26A1;</div>
+        <div class="usecase-title">Auto Triage of Alerts</div>
+        <div class="usecase-desc">Event-driven triage pipeline that activates on alert triggers without human intervention</div>
+      </div>
+    </div>
   </div>
 
 </div>
