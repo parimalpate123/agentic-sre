@@ -413,6 +413,24 @@ export async function listChatSessions(limit = 20) {
   }
 }
 
+export async function deleteChatSession(sessionId) {
+  try {
+    const response = await fetch(`${API_ENDPOINT}?action=delete_session&session_id=${sessionId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete_session', session_id: sessionId }),
+    });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  } catch (error) {
+    console.error('Error deleting chat session:', error);
+    throw error;
+  }
+}
+
 export async function getRemediationStatus(incidentId) {
   try {
     const params = new URLSearchParams({
@@ -608,6 +626,7 @@ export default {
   saveChatSession,
   loadChatSession,
   listChatSessions,
+  deleteChatSession,
   kbUpload,
   kbUploadFile,
   kbUploadComplete,

@@ -3,7 +3,7 @@
  * Main chat interface that combines all components
  */
 
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import MessageBubble from './MessageBubble';
 import InputBox from './InputBox';
@@ -20,6 +20,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [useMCP, setUseMCP] = useState(true); // Default to ON (true), user can toggle to OFF (false)
   const [searchMode, setSearchMode] = useState('quick'); // 'quick' = real-time, 'deep' = Logs Insights
@@ -92,11 +93,16 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Sync session from route: load when sessionId present, clear when new chat
+  // Sync session from route: load when sessionId present, clear when new chat.
+  // Skip loading if this session is already loaded (e.g. after auto-save navigates to /chat/:id).
   useEffect(() => {
-    currentSessionIdRef.current = routeSessionId || null;
     if (routeSessionId) {
+      // Already loaded — auto-save just set the URL, don't re-fetch
+      if (currentSessionIdRef.current === routeSessionId) return;
+      currentSessionIdRef.current = routeSessionId;
+
       let cancelled = false;
+      setIsSessionLoading(true);
       loadChatSession(routeSessionId)
         .then((session) => {
           if (cancelled) return;
@@ -114,9 +120,13 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         })
         .catch((err) => {
           if (!cancelled) console.error('Failed to load session:', err);
+        })
+        .finally(() => {
+          if (!cancelled) setIsSessionLoading(false);
         });
       return () => { cancelled = true; };
     } else {
+      currentSessionIdRef.current = null;
       setMessages([]);
       setPendingIncidentData(null);
       setRemediationStatuses({});
@@ -171,7 +181,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         })
         .catch(() => {});
     };
-    const id = setInterval(poll, 60_000);
+    const id = setInterval(poll, 120_000);
     return () => clearInterval(id);
   }, [onUntriagedCountChange]);
 
@@ -664,22 +674,31 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
 
   const handleLoadCloudWatchIncident = (incidentMessage, initialRemediationStatus = null) => {
     console.log('📥 Loading CloudWatch incident:', incidentMessage);
-    console.log('🔍 Incident data check:', {
-      source: incidentMessage.incident?.source,
-      execution_type: incidentMessage.incident?.execution_type,
-      execution_results: incidentMessage.incident?.execution_results,
-      has_github_issue: !!incidentMessage.incident?.execution_results?.github_issue,
-      github_issue_status: incidentMessage.incident?.execution_results?.github_issue?.status
-    });
 
-    // Seed remediation status from Incidents dialog so detail view shows correct stage immediately (e.g. AI PR Review Complete)
+    // If already in a saved session, open the incident in a fresh chat.
+    // Navigate to /chat (new chat), then load the incident after state clears.
+    if (currentSessionIdRef.current) {
+      currentSessionIdRef.current = null;
+      navigate('/chat');
+      // Defer so the route change + state clear runs first
+      setTimeout(() => {
+        _loadIncidentIntoChat(incidentMessage, initialRemediationStatus);
+      }, 50);
+      return;
+    }
+
+    _loadIncidentIntoChat(incidentMessage, initialRemediationStatus);
+  };
+
+  const _loadIncidentIntoChat = (incidentMessage, initialRemediationStatus = null) => {
+    // Seed remediation status from Incidents dialog so detail view shows correct stage immediately
     if (incidentMessage.incident?.incident_id && initialRemediationStatus) {
       setRemediationStatuses(prev => ({
         ...prev,
         [incidentMessage.incident.incident_id]: initialRemediationStatus
       }));
     }
-    
+
     // Add incident message to chat, avoiding duplicates
     setMessages(prev => {
       const existingIncidentIds = new Set(
@@ -687,15 +706,13 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           .filter(m => m.incident?.incident_id)
           .map(m => m.incident.incident_id)
       );
-      
-      // If incident already exists, don't add duplicate
-      if (incidentMessage.incident?.incident_id && 
+
+      if (incidentMessage.incident?.incident_id &&
           existingIncidentIds.has(incidentMessage.incident.incident_id)) {
         console.log('⚠️ Incident already in chat, skipping duplicate');
         return prev;
       }
-      
-      // Append at end of chat
+
       return [...prev, incidentMessage];
     });
     
@@ -733,13 +750,10 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     const currentIncidentData = pendingIncidentDataRef.current;
     const currentRemediationStatuses = remediationStatusesRef.current;
     
-    // Don't auto-save if no messages or too soon since last save
-    if (currentMessages.length === 0) return; // No messages to save
-    
+    // Don't auto-save if no messages
+    if (currentMessages.length === 0) return;
+
     const now = Date.now();
-    if (lastAutoSaveRef.current && (now - lastAutoSaveRef.current) < 5 * 60 * 1000) {
-      return; // Don't save more than once every 5 minutes
-    }
     
     try {
       const wasNewChat = !currentSessionIdRef.current;
@@ -774,31 +788,19 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   };
 
-  // Auto-save on key events
+  // Auto-save on key events — single consolidated effect with 3s debounce
   const remediationStatusesCount = Object.keys(remediationStatuses).length;
   const hasIncident = messages.some(m => m.incident);
-  
-  useEffect(() => {
-    // Auto-save after incident creation or significant message changes
-    if (hasIncident && messages.length > 1) {
-      const timer = setTimeout(() => {
-        autoSaveSession();
-      }, 2000); // Debounce: wait 2 seconds after change
-      return () => clearTimeout(timer);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length, hasIncident]);
 
   useEffect(() => {
-    // Auto-save after GitHub issue creation (remediation status added)
-    if (remediationStatusesCount > 0) {
-      const timer = setTimeout(() => {
-        autoSaveSession();
-      }, 2000); // Debounce: wait 2 seconds after change
-      return () => clearTimeout(timer);
-    }
+    if (messages.length < 2) return; // Need at least a Q+A pair
+    if (!hasIncident && remediationStatusesCount === 0) return; // Only auto-save when there's meaningful data
+    const timer = setTimeout(() => {
+      autoSaveSession();
+    }, 3000); // Debounce: wait 3 seconds after any change
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remediationStatusesCount]);
+  }, [messages.length, hasIncident, remediationStatusesCount]);
 
   // Handle "Create GitHub Issue" button click from incident display
   const handleCreateGitHubIssue = (incident) => {
@@ -1256,7 +1258,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   }, [showPasswordDialog]);
 
-  const handleSendMessage = async (question) => {
+  const handleSendMessage = useCallback(async (question) => {
     // Add user message
     const userMessage = {
       id: `user-${Date.now()}`,
@@ -1316,7 +1318,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedService, timeRange, useMCP, searchMode]);
 
   useImperativeHandle(ref, () => ({
     sendMessage: handleSendMessage,
@@ -1331,6 +1333,12 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     try {
       const incidents = await fetchIncidents({ limit: 10, source: 'cloudwatch_alarm', status: 'all' });
       if (incidents.length > 0) {
+        // If in a saved session, open a new chat before injecting incidents
+        if (currentSessionIdRef.current) {
+          currentSessionIdRef.current = null;
+          navigate('/chat');
+          await new Promise((r) => setTimeout(r, 50));
+        }
         const incidentMessages = incidents.map((incidentItem) => incidentToMessage(incidentItem));
         setMessages((prev) => {
           const existingIncidentIds = new Set(prev.filter((m) => m.incident?.incident_id).map((m) => m.incident.incident_id));
@@ -1391,6 +1399,14 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 bg-white">
         <div className="max-w-[90rem] mx-auto w-full">
+          {isSessionLoading && (
+            <div className="flex justify-center items-center py-12">
+              <div className="flex items-center gap-3 text-gray-500 text-sm">
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Loading session...
+              </div>
+            </div>
+          )}
           {messages.map((message) => (
             <MessageBubble
               key={message.id}

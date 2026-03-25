@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PREDEFINED_QUESTIONS } from './SuggestedQuestions';
-import { listChatSessions } from '../services/api';
+import { listChatSessions, deleteChatSession } from '../services/api';
 
 export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick, onOpenIncidents, onOpenSessionDialog, onShowAdmin, untriagedCount = 0 }) {
   const navigate = useNavigate();
@@ -14,6 +14,8 @@ export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick
   const [sessions, setSessions] = useState([]);
   const [showSamplePopover, setShowSamplePopover] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null); // session_id pending delete confirmation
+  const [deletingId, setDeletingId] = useState(null); // session_id currently being deleted
   const samplePopoverRef = useRef(null);
 
   // Load session list when sidebar mounts or refresh is triggered
@@ -36,6 +38,29 @@ export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick
 
   const handleSessionClick = (sessionId) => {
     navigate(`/chat/${sessionId}`);
+  };
+
+  const handleDeleteSession = async (sessionId) => {
+    if (confirmDeleteId !== sessionId) {
+      // First click — show confirmation state
+      setConfirmDeleteId(sessionId);
+      return;
+    }
+    // Second click — actually delete
+    setDeletingId(sessionId);
+    setConfirmDeleteId(null);
+    try {
+      await deleteChatSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.session_id !== sessionId));
+      // If user is viewing the deleted session, navigate to new chat
+      if (routeSessionId === sessionId) {
+        navigate('/chat');
+      }
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const exampleQuestions = [
@@ -205,21 +230,47 @@ export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick
           ) : (
             sessions.map((session) => {
               const isActive = routeSessionId === session.session_id;
+              const isConfirming = confirmDeleteId === session.session_id;
+              const isDeleting = deletingId === session.session_id;
               const label = session.session_name || `Chat Session ${formatSessionDate(session.updated_at || session.created_at)}`;
               return (
-                <button
+                <div
                   key={session.session_id}
-                  type="button"
-                  onClick={() => handleSessionClick(session.session_id)}
-                  className={`w-full text-left text-xs px-3 py-2 rounded-md transition-colors overflow-hidden min-w-0 flex items-center gap-2 ${
+                  className={`group flex items-center rounded-md transition-colors overflow-hidden min-w-0 ${
                     isActive
                       ? 'bg-violet-50 text-violet-800 font-medium'
                       : 'text-gray-700 hover:bg-gray-100'
                   }`}
-                  title={label}
                 >
-                  <span className="block truncate flex-1 min-w-0">{truncate(label)}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSessionClick(session.session_id)}
+                    className="flex-1 text-left text-xs px-3 py-2 min-w-0 truncate"
+                    title={label}
+                  >
+                    {truncate(label)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.session_id); }}
+                    onBlur={() => { if (confirmDeleteId === session.session_id) setConfirmDeleteId(null); }}
+                    disabled={isDeleting}
+                    className={`shrink-0 p-1.5 mr-1 rounded transition-colors ${
+                      isConfirming
+                        ? 'text-red-600 bg-red-50 hover:bg-red-100 opacity-100'
+                        : 'text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100'
+                    } ${isDeleting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    title={isConfirming ? 'Click again to confirm delete' : 'Delete session'}
+                  >
+                    {isDeleting ? (
+                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    ) : (
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               );
             })
           )}

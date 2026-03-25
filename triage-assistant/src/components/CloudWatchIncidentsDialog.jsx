@@ -36,8 +36,7 @@ export default function CloudWatchIncidentsDialog({
   ];
 
   // When dialog opens or initialSource changes: sync state and load immediately with correct source.
-  // Passing source directly to loadIncidents avoids the stale-state race condition where
-  // the load effect fires before setIncidentSource has taken effect.
+  // Load + filter is handled inside loadIncidents itself — no separate filter effect needed.
   useEffect(() => {
     if (!isOpen) return;
     setIncidentSource(initialSource);
@@ -46,31 +45,26 @@ export default function CloudWatchIncidentsDialog({
   }, [isOpen, initialSource]);
 
   // Re-load when timeframe changes while dialog is already open (source is already synced above).
+  // We don't re-fetch from API — just re-filter the already-loaded allIncidents.
   useEffect(() => {
     if (!isOpen) return;
-    loadIncidents(incidentSource);
+    filterIncidentsByTimeframe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
 
-  // Fetch remediation status when incident is expanded (always refetch so expanded card is up to date)
+  // Fetch remediation status lazily when incident is expanded (only if not already cached)
   useEffect(() => {
-    if (expandedIncident) {
-      fetchRemediationStatusForIncident(expandedIncident, true);
+    if (expandedIncident && !remediationStatuses[expandedIncident]) {
+      fetchRemediationStatusForIncident(expandedIncident, false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedIncident]);
 
-  // Filter incidents when timeframe changes
-  useEffect(() => {
-    filterIncidentsByTimeframe();
-  }, [timeframe, allIncidents]);
-
-  const loadIncidents = async (sourceOrForceRefresh = null, forceRefresh = false) => {
-    // Backwards-compatible: loadIncidents(true) means forceRefresh, loadIncidents('cloudwatch_alarm') means source override
+  const loadIncidents = async (sourceOverride = null) => {
+    // Accept a source string or boolean (true = refresh with current source)
     let source = incidentSource;
-    if (typeof sourceOrForceRefresh === 'boolean') {
-      forceRefresh = sourceOrForceRefresh;
-    } else if (typeof sourceOrForceRefresh === 'string') {
-      source = sourceOrForceRefresh;
+    if (typeof sourceOverride === 'string') {
+      source = sourceOverride;
     }
     setIsLoading(true);
     setError(null);
@@ -115,6 +109,7 @@ export default function CloudWatchIncidentsDialog({
           }
         });
         setAllIncidents(sorted);
+        applyTimeframeFilter(sorted);
         setRemediationStatuses({});
         return;
       }
@@ -142,7 +137,9 @@ export default function CloudWatchIncidentsDialog({
         }
       });
       setAllIncidents(sorted);
-      fetchRemediationStatusesForAll(sorted, forceRefresh);
+      // Apply timeframe filter immediately instead of relying on a separate effect
+      applyTimeframeFilter(sorted);
+      // Don't bulk-fetch remediation for all incidents — fetch lazily on expand
     } catch (err) {
       console.error('Error loading incidents:', err);
       setError('Failed to load incidents. Please try again.');
@@ -151,94 +148,30 @@ export default function CloudWatchIncidentsDialog({
     }
   };
 
-  const fetchRemediationStatusesForAll = async (incidentsList, forceRefresh = false) => {
-    // Fetch remediation status for all incidents in parallel.
-    // When forceRefresh is true (e.g. user clicked Refresh), refetch for every incident
-    // so the list shows up-to-date state without reopening the page.
-    const statusPromises = incidentsList.map(async (incident) => {
-      try {
-        const rawData = incident.data
-          ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data)
-          : (incident.investigation_result || incident);
-        const parsed = parseIncidentData(rawData);
-        const incidentId = parsed.incident_id;
-
-        if (!incidentId) return null;
-        if (!forceRefresh && remediationStatuses[incidentId]) return null;
-
-        const status = await getRemediationStatus(incidentId);
-        if (status) {
-          return { incidentId, status };
-        }
-        return null;
-      } catch (err) {
-        console.error(`Error fetching remediation status for incident:`, err);
-        return null;
-      }
-    });
-    
-    // Wait for all requests to complete (don't block UI)
-    Promise.all(statusPromises).then(results => {
-      const newStatuses = {};
-      results.forEach(result => {
-        if (result) {
-          newStatuses[result.incidentId] = result.status;
-        }
-      });
-      
-      if (Object.keys(newStatuses).length > 0) {
-        setRemediationStatuses(prev => ({
-          ...prev,
-          ...newStatuses
-        }));
-      }
-    });
-  };
-
-  const filterIncidentsByTimeframe = () => {
+  // Apply timeframe filter to a given list (or current allIncidents) and update displayed incidents
+  const applyTimeframeFilter = (list) => {
+    const source = list || allIncidents;
     if (timeframe === 'all') {
-      setIncidents(allIncidents);
+      setIncidents(source);
       return;
     }
 
     const now = new Date();
-    let cutoffTime;
+    const durations = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+    const ms = durations[timeframe];
+    if (!ms) { setIncidents(source); return; }
+    const cutoffTime = new Date(now - ms);
 
-    switch (timeframe) {
-      case '1h':
-        cutoffTime = new Date(now - 60 * 60 * 1000);
-        break;
-      case '6h':
-        cutoffTime = new Date(now - 6 * 60 * 60 * 1000);
-        break;
-      case '24h':
-        cutoffTime = new Date(now - 24 * 60 * 60 * 1000);
-        break;
-      case '7d':
-        cutoffTime = new Date(now - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case '30d':
-        cutoffTime = new Date(now - 30 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        setIncidents(allIncidents);
-        return;
-    }
-
-    const filtered = allIncidents.filter(incident => {
+    const filtered = source.filter(incident => {
       const timestamp = incident.timestamp || incident.created_at || incident.investigation_result?.timestamp;
-      if (!timestamp) return true; // Include incidents without timestamp
-      
-      try {
-        const incidentDate = new Date(timestamp);
-        return incidentDate >= cutoffTime;
-      } catch {
-        return true; // Include incidents with invalid timestamp
-      }
+      if (!timestamp) return true;
+      try { return new Date(timestamp) >= cutoffTime; } catch { return true; }
     });
 
     setIncidents(filtered);
   };
+
+  const filterIncidentsByTimeframe = () => applyTimeframeFilter(null);
 
   const handleLoadIncident = (incidentItem, initialRemediationStatus = null) => {
     try {

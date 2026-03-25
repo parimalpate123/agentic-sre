@@ -113,7 +113,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Create GitHub issue after user approval
             logger.info("Routing to create_github_issue_handler (create_github_issue_after_approval action detected)")
             response = create_github_issue_handler(event, context)
-        elif action in ['save_session', 'load_session', 'list_sessions']:
+        elif action in ['save_session', 'load_session', 'list_sessions', 'delete_session']:
             # Chat session management
             logger.info(f"Routing to chat_session_handler ({action} action detected)")
             from chat_session_handler import chat_session_handler

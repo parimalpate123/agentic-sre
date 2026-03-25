@@ -120,6 +120,15 @@ def chat_session_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     })
                 }
             return _load_session(table, session_id)
+        elif action == 'delete_session':
+            session_id = query_params.get('session_id') or (body.get('session_id') if body else None)
+            if not session_id:
+                return {
+                    'statusCode': 400,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({'error': 'Missing session_id parameter'})
+                }
+            return _delete_session(table, session_id)
         elif action == 'list_sessions':
             limit = int(query_params.get('limit', 20) or (body.get('limit', 20) if body else 20))
             return _list_sessions(table, limit)
@@ -129,7 +138,7 @@ def chat_session_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'headers': {'Content-Type': 'application/json'},
                 'body': json.dumps({
                     'error': f'Unknown action: {action}',
-                    'valid_actions': ['save_session', 'load_session', 'list_sessions']
+                    'valid_actions': ['save_session', 'load_session', 'list_sessions', 'delete_session']
                 })
             }
             
@@ -320,6 +329,31 @@ def _list_sessions(table, limit: int = 20) -> Dict[str, Any]:
             'headers': {'Content-Type': 'application/json'},
             'body': json.dumps({
                 'error': 'Failed to list chat sessions',
+                'message': str(e)
+            })
+        }
+
+
+def _delete_session(table, session_id: str) -> Dict[str, Any]:
+    """Delete a chat session by session_id"""
+    try:
+        table.delete_item(Key={'session_id': session_id})
+        logger.info(f"Deleted chat session: {session_id}")
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps({
+                'session_id': session_id,
+                'message': 'Chat session deleted successfully'
+            })
+        }
+    except Exception as e:
+        logger.error(f"Failed to delete chat session: {e}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps({
+                'error': 'Failed to delete chat session',
                 'message': str(e)
             })
         }
