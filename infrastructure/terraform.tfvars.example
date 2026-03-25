@@ -10,7 +10,7 @@ github_org = "your-github-org-or-username"
 # After running terraform apply, set the token using:
 # aws ssm put-parameter \
 #   --name "/sre-poc/github/token" \
-#   --value "ghp_your_token_here" \
+#   --value "<YOUR_GITHUB_PAT_TOKEN>" \
 #   --type "SecureString" \
 #   --overwrite
 #
