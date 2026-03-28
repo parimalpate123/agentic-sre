@@ -8,7 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { PREDEFINED_QUESTIONS } from './SuggestedQuestions';
 import { listChatSessions, deleteChatSession } from '../services/api';
 
-export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick, onOpenIncidents, onOpenSessionDialog, onShowAdmin, untriagedCount = 0 }) {
+export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick, onOpenIncidents, onOpenSessionDialog, onShowAdmin, untriagedCount = 0, activeMode = 'ask', onModeChange }) {
   const navigate = useNavigate();
   const { sessionId: routeSessionId } = useParams();
   const [sessions, setSessions] = useState([]);
@@ -204,6 +204,31 @@ export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick
           Knowledge base
         </button>
       </div>
+
+      {/* Mode selector */}
+      {onModeChange && (
+        <div className="px-3 py-3 border-b border-gray-100">
+          {[
+            { id: 'ask',         icon: '✦', label: 'Ask',         desc: 'Q&A about logs'          },
+            { id: 'trace',       icon: '~', label: 'Trace',       desc: 'Trace across services'   },
+            { id: 'investigate', icon: '△', label: 'Investigate', desc: 'Full auto investigation' },
+          ].map(mode => (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => onModeChange(mode.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                activeMode === mode.id
+                  ? 'bg-violet-50 text-violet-700 font-semibold'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <span className={`text-sm font-mono w-3 text-center ${activeMode === mode.id ? 'text-violet-600' : 'text-gray-400'}`}>{mode.icon}</span>
+              <span>{mode.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Sample questions – small link, before Recents */}
       <div className="px-3 py-2 border-b border-gray-100" ref={samplePopoverRef}>

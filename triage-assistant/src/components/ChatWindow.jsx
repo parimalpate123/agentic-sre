@@ -3,22 +3,35 @@
  * Main chat interface that combines all components
  */
 
-import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import MessageBubble from './MessageBubble';
+import SynthesisPanel from './SynthesisPanel';
+import IncidentPickerModal from './IncidentPickerModal';
 import InputBox from './InputBox';
 import SuggestedQuestions from './SuggestedQuestions';
 import IncidentApprovalDialog from './IncidentApprovalDialog';
 import ChatSessionDialog from './ChatSessionDialog';
 import CloudWatchIncidentsDialog from './CloudWatchIncidentsDialog';
-import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession, reanalyzeIncident, loadChatSession, fetchIncidents } from '../services/api';
+import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSampleLogs, createGitHubIssueAfterApproval, getRemediationStatus, saveChatSession, reanalyzeIncident, loadChatSession, fetchIncidents, fetchRecentCorrelationIds } from '../services/api';
 import { incidentToMessage } from '../utils/incidentParser';
 import { PREDEFINED_QUESTIONS } from './SuggestedQuestions';
 
-const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel, onSessionCreated, onUntriagedCountChange }, ref) {
+const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel, onSessionCreated, onUntriagedCountChange, activeMode: activeModeprop = 'ask', onModeChange }, ref) {
   const { sessionId: routeSessionId } = useParams();
   const navigate = useNavigate();
-  const [messages, setMessages] = useState([]);
+  // activeMode is lifted to ChatLayout — received via props so sidebar and chat share the same state
+  const activeMode = activeModeprop;
+  const setActiveMode = onModeChange || (() => {});
+  const [modeMessages, setModeMessages] = useState({ ask: [], trace: [], investigate: [] });
+  const messages = modeMessages[activeMode]; // Current mode's messages (derived)
+  // Convenience setter scoped to active mode — for all non-useCallback handlers
+  const setMessages = (updater) => {
+    setModeMessages(prev => ({
+      ...prev,
+      [activeMode]: typeof updater === 'function' ? updater(prev[activeMode]) : updater
+    }));
+  };
   const [isLoading, setIsLoading] = useState(false);
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
@@ -53,6 +66,19 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   const [untriagedCount, setUntriagedCount] = useState(0); // Alarm-triggered incidents today, not triaged (for bell icon)
   const currentSessionIdRef = useRef(null); // Track current session ID for auto-save
   const lastAutoSaveRef = useRef(null); // Track last auto-save time
+
+  // Synthesis panel state
+  const [showSynthesisPanel, setShowSynthesisPanel] = useState(false);
+  const [pinnedMessageId, setPinnedMessageId] = useState(null); // which message the panel is pinned to
+  const lastShownSynthesisIdRef = useRef(null); // track which message last triggered auto-open
+
+  // Guided flow state
+  const [recentIds, setRecentIds] = useState([]); // Trace mode: recent correlation IDs
+  const [recentIdsLoading, setRecentIdsLoading] = useState(false);
+  const [bridgeIncidents, setBridgeIncidents] = useState([]); // Investigate mode: live alert incidents
+  const [bridgeIncidentsLoading, setBridgeIncidentsLoading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSource, setPickerSource] = useState('alerts');
   
   // Hardcoded password for log management (matches backend)
   const LOG_MANAGEMENT_PASSWORD = '13579';
@@ -93,7 +119,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [modeMessages, activeMode]);
 
   // Sync session from route: load when sessionId present, clear when new chat.
   // Skip loading if this session is already loaded (e.g. after auto-save navigates to /chat/:id).
@@ -108,7 +134,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       loadChatSession(routeSessionId)
         .then((session) => {
           if (cancelled) return;
-          if (session.messages?.length) setMessages(session.messages);
+          if (session.messages?.length) setModeMessages(prev => ({ ...prev, ask: session.messages }));
           if (session.incident_data) setPendingIncidentData(session.incident_data);
           if (session.remediation_statuses) {
             setRemediationStatuses(session.remediation_statuses);
@@ -129,7 +155,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       return () => { cancelled = true; };
     } else {
       currentSessionIdRef.current = null;
-      setMessages([]);
+      setModeMessages({ ask: [], trace: [], investigate: [] });
       setPendingIncidentData(null);
       setRemediationStatuses({});
     }
@@ -263,13 +289,10 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       const diagnosisResult = await requestDiagnosis(logData, serviceName);
 
       // Update the message with diagnosis data
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === message.id
-            ? { ...msg, diagnosis: diagnosisResult }
-            : msg
-        )
-      );
+      setModeMessages((prev) => {
+        const mode = Object.keys(prev).find(k => prev[k].some(m => m.id === message.id)) || activeMode;
+        return { ...prev, [mode]: prev[mode].map(m => m.id === message.id ? { ...m, diagnosis: diagnosisResult } : m) };
+      });
     } catch (error) {
       console.error('Diagnosis failed:', error);
       // You could add an error message here if needed
@@ -339,7 +362,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       }
       
       // Extract question from the user message that triggered this response
-      const userMessage = messages.find(m => m.id < message.id && m.isUser);
+      const currentMsgs = modeMessages[activeMode];
+      const userMessage = currentMsgs.find(m => m.id < message.id && m.isUser);
       const question = userMessage?.text || message.incident?.alert_name || 'Incident from chat analysis';
 
       // Extract alert name from incident if available (for CW incidents)
@@ -472,28 +496,17 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           timestamp: new Date().toISOString(),
           incident: { ...incidentObj, source: message.incident?.source || 'chat' },
         };
-        setMessages((prev) => {
-          // Mark original message to hide action buttons, then append new message
-          const updated = prev.map((msg) =>
-            msg.id === message.id
-              ? { ...msg, investigationStarted: true }
-              : msg
-          );
-          return [...updated, investigationMessage];
+        setModeMessages((prev) => {
+          const mode = Object.keys(prev).find(k => prev[k].some(m => m.id === message.id)) || activeMode;
+          const updated = prev[mode].map(msg => msg.id === message.id ? { ...msg, investigationStarted: true } : msg);
+          return { ...prev, [mode]: [...updated, investigationMessage] };
         });
       } else {
         // Normal flow (e.g. chat search result): update the existing message with incident creation result
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === message.id
-              ? {
-                  ...msg,
-                  text: incidentAnalysisText,
-                  incident: incidentObj,
-                }
-              : msg
-          )
-        );
+        setModeMessages((prev) => {
+          const mode = Object.keys(prev).find(k => prev[k].some(m => m.id === message.id)) || activeMode;
+          return { ...prev, [mode]: prev[mode].map(msg => msg.id === message.id ? { ...msg, text: incidentAnalysisText, incident: incidentObj } : msg) };
+        });
       }
       
       // Check if approval is needed (code_fix and service known)
@@ -540,7 +553,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         isUser: false,
         timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      setModeMessages((prev) => ({ ...prev, [activeMode]: [...prev[activeMode], errorMessage] }));
     } finally {
       setCreatingIncidentMessageId(null);
     }
@@ -1170,6 +1183,67 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     };
   }, []);
 
+  // Synthesis panel: ID of the most recent message with insights/recommendations
+  const lastSynthesisMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m.isUser && (m.insights?.length || m.recommendations?.length)) return m.id;
+    }
+    return null;
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Derive synthesis data for whichever message is currently pinned
+  const pinnedSynthesis = useMemo(() => {
+    const id = pinnedMessageId || lastSynthesisMessageId;
+    if (!id) return null;
+    const m = messages.find(msg => msg.id === id);
+    if (!m || (!m.insights?.length && !m.recommendations?.length)) return null;
+    return { insights: m.insights || [], recommendations: m.recommendations || [], messageId: m.id };
+  }, [messages, pinnedMessageId, lastSynthesisMessageId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-pin to latest message + auto-open panel when new synthesis arrives
+  useEffect(() => {
+    if (lastSynthesisMessageId && lastSynthesisMessageId !== lastShownSynthesisIdRef.current) {
+      lastShownSynthesisIdRef.current = lastSynthesisMessageId;
+      setPinnedMessageId(lastSynthesisMessageId);
+      setShowSynthesisPanel(true);
+    }
+  }, [lastSynthesisMessageId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handler: user clicks "view in Analysis" on a specific message
+  const handlePinSynthesis = useCallback((messageId) => {
+    setPinnedMessageId(messageId);
+    setShowSynthesisPanel(true);
+  }, []);
+
+  // Guided flow: fetch recent correlation IDs when entering Trace mode with no messages
+  useEffect(() => {
+    if (activeMode !== 'trace' || modeMessages.trace.length > 0) return;
+    if (recentIds.length > 0 || recentIdsLoading) return;
+    let cancelled = false;
+    setRecentIdsLoading(true);
+    fetchRecentCorrelationIds(24)
+      .then(data => { if (!cancelled) setRecentIds(data.correlation_ids || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setRecentIdsLoading(false); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMode, modeMessages.trace.length]);
+
+  // Guided flow: fetch untriaged incidents when entering Investigate mode with no messages
+  useEffect(() => {
+    if (activeMode !== 'investigate' || modeMessages.investigate.length > 0) return;
+    if (bridgeIncidents.length > 0 || bridgeIncidentsLoading) return;
+    let cancelled = false;
+    setBridgeIncidentsLoading(true);
+    fetchIncidents({ limit: 5, source: 'cloudwatch_alarm', status: 'open' })
+      .then(incidents => { if (!cancelled) setBridgeIncidents(incidents || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setBridgeIncidentsLoading(false); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMode, modeMessages.investigate.length]);
+
   const handleManageLogs = async (operation) => {
     // Show password dialog instead of window.prompt
     setPendingOperation(operation);
@@ -1268,7 +1342,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       isUser: true,
       timestamp: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    setModeMessages((prev) => ({ ...prev, [activeMode]: [...prev[activeMode], userMessage] }));
     setIsLoading(true);
     setSuggestions([]);
 
@@ -1285,8 +1359,9 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       );
 
       // Add assistant message
+      const assistantMessageId = `assistant-${Date.now()}`;
       const assistantMessage = {
-        id: `assistant-${Date.now()}`,
+        id: assistantMessageId,
         text: response.answer || 'I could not process your request. Please try again.',
         isUser: false,
         timestamp: response.timestamp || new Date().toISOString(),
@@ -1307,10 +1382,15 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         esContext: response.es_context || null,
         dataSources: response.data_sources || null,
       };
-      setMessages((prev) => [...prev, assistantMessage]);
+      setModeMessages((prev) => ({ ...prev, [activeMode]: [...prev[activeMode], assistantMessage] }));
 
       if (response.follow_up_questions && response.follow_up_questions.length > 0) {
         setSuggestions(response.follow_up_questions);
+      }
+
+      // Investigate mode: auto-run full investigation after response arrives
+      if (activeMode === 'investigate') {
+        setTimeout(() => handleDiagnose(assistantMessage), 400);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -1320,11 +1400,11 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         isUser: false,
         timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      setModeMessages((prev) => ({ ...prev, [activeMode]: [...prev[activeMode], errorMessage] }));
     } finally {
       setIsLoading(false);
     }
-  }, [selectedService, timeRange, useMCP, searchMode]);
+  }, [selectedService, timeRange, useMCP, searchMode, activeMode]);
 
   useImperativeHandle(ref, () => ({
     sendMessage: handleSendMessage,
@@ -1346,10 +1426,11 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           await new Promise((r) => setTimeout(r, 50));
         }
         const incidentMessages = incidents.map((incidentItem) => incidentToMessage(incidentItem));
-        setMessages((prev) => {
-          const existingIncidentIds = new Set(prev.filter((m) => m.incident?.incident_id).map((m) => m.incident.incident_id));
+        setModeMessages((prev) => {
+          const cur = prev[activeMode];
+          const existingIncidentIds = new Set(cur.filter((m) => m.incident?.incident_id).map((m) => m.incident.incident_id));
           const newIncidentMessages = incidentMessages.filter((msg) => !existingIncidentIds.has(msg.incident?.incident_id));
-          if (newIncidentMessages.length > 0) return [...newIncidentMessages, ...prev];
+          if (newIncidentMessages.length > 0) return { ...prev, [activeMode]: [...newIncidentMessages, ...cur] };
           return prev;
         });
       }
@@ -1360,7 +1441,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   };
 
   const handleClearChat = () => {
-    setMessages([]);
+    setModeMessages(prev => ({ ...prev, [activeMode]: [] }));
     setSuggestions([]);
     currentSessionIdRef.current = null;
     navigate('/chat');
@@ -1368,15 +1449,47 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
 
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
-      {/* Single top row: Search, Quick/Deep, Service, Refresh, Save, Clear, Time */}
-      <header className="flex items-center gap-4 flex-wrap px-4 py-2 bg-gray-50 border-b border-gray-200 shrink-0 text-xs text-gray-600">
-        <div className="flex items-center gap-1.5">
-          <span className="font-medium">Search:</span>
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
-            <button type="button" onClick={() => setSearchMode('quick')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'quick' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Quick</button>
-            <button type="button" onClick={() => setSearchMode('deep')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'deep' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Deep</button>
-          </div>
+      {/* Mode tabs */}
+      <div className="flex items-center gap-1 px-4 pt-2 pb-0 bg-white border-b border-gray-200 shrink-0">
+        {[
+          { id: 'ask',         icon: '✦', label: 'Ask'         },
+          { id: 'trace',       icon: '~', label: 'Trace'       },
+          { id: 'investigate', icon: '△', label: 'Investigate' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveMode(tab.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeMode === tab.id
+                ? 'border-violet-600 text-violet-700 bg-violet-50 rounded-t-md'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <span className="mr-1.5">{tab.icon}</span>{tab.label}
+          </button>
+        ))}
+        <div className="flex items-center gap-1 ml-auto pb-1">
+          <button type="button" onClick={handleRefreshIncidents} className="text-gray-500 hover:text-violet-600 p-1.5 rounded text-xs" title="Refresh incidents from CloudWatch">🔄</button>
+          <button type="button" onClick={() => setShowSessionDialog(true)} className="text-gray-500 hover:text-violet-600 p-1.5 rounded text-xs" title="Save or load a chat session">💾</button>
+          <button type="button" onClick={handleClearChat} className="flex items-center gap-1 text-gray-500 hover:text-violet-600 p-1.5 rounded transition-colors text-xs" title="Clear current tab" aria-label="Clear chat">
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M6 20L8 8l12-2 2 10-2 4H6z" /><path d="M10 8l8-1M10 10l8-1" /></svg>
+            Clear
+          </button>
         </div>
+      </div>
+
+      {/* Controls row — mode-aware */}
+      <header className="flex items-center gap-4 flex-wrap px-4 py-2 bg-gray-50 border-b border-gray-200 shrink-0 text-xs text-gray-600">
+        {activeMode === 'ask' && (
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium">Search:</span>
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              <button type="button" onClick={() => setSearchMode('quick')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'quick' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Quick</button>
+              <button type="button" onClick={() => setSearchMode('deep')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'deep' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Deep</button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="font-medium">Service:</span>
           <select value={selectedService} onChange={(e) => setSelectedService(e.target.value)} disabled={isLoadingLogGroups} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white min-w-[140px]">
@@ -1389,18 +1502,35 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             {timeRanges.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-1 ml-auto">
-          <button type="button" onClick={handleRefreshIncidents} className="text-gray-500 hover:text-violet-600 p-1.5 rounded" title="Refresh incidents from CloudWatch">🔄</button>
-          <button type="button" onClick={() => setShowSessionDialog(true)} className="text-gray-500 hover:text-violet-600 p-1.5 rounded" title="Save or load a chat session">💾</button>
-          <button type="button" onClick={handleClearChat} className="flex items-center gap-1.5 text-gray-600 hover:text-violet-600 p-1.5 rounded transition-colors" title="Clear chat and start over" aria-label="Clear chat">
-            <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-              <path d="M6 20L8 8l12-2 2 10-2 4H6z" />
-              <path d="M10 8l8-1M10 10l8-1" />
+        {activeMode === 'trace' && (
+          <span className="text-violet-500 text-xs italic">Enter a correlation ID (CORR-xxx) or describe the request</span>
+        )}
+        {activeMode === 'investigate' && (
+          <span className="text-violet-500 text-xs italic">Describe the issue — full investigation runs automatically</span>
+        )}
+        {/* Synthesis panel toggle — only shown when there's content */}
+        {pinnedSynthesis && (
+          <button
+            type="button"
+            onClick={() => setShowSynthesisPanel(v => !v)}
+            className={`ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+              showSynthesisPanel
+                ? 'bg-violet-100 text-violet-700 border border-violet-200'
+                : 'text-gray-500 hover:text-violet-600 border border-gray-200 hover:border-violet-200'
+            }`}
+            title={showSynthesisPanel ? 'Hide analysis panel' : 'Show analysis panel'}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm12-3c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z" />
             </svg>
-            <span className="text-xs font-medium">Clear</span>
+            Analysis
           </button>
-        </div>
+        )}
       </header>
+
+      {/* Body: messages + input (left) + synthesis panel (right) */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 bg-white">
@@ -1421,6 +1551,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
               onQuestionClick={handleSendMessage}
               onDiagnose={handleDiagnose}
               isDiagnosing={diagnosingMessageId === message.id}
+              activeMode={activeMode}
               onCreateIncident={handleCreateIncident}
               onCreateGitHubIssue={handleCreateGitHubIssue}
               isCreatingIncident={creatingIncidentMessageId === message.id}
@@ -1433,8 +1564,147 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
               onCheckPRStatus={() => message.incident?.incident_id && checkPRStatus(message.incident.incident_id)}
               onReanalyzeIncident={handleReanalyzeIncident}
               isReanalyzing={message.incident?.incident_id === reanalyzingIncidentId}
+              onPinSynthesis={handlePinSynthesis}
             />
           ))}
+          {/* Guided empty state */}
+          {messages.length === 0 && !isSessionLoading && (
+            <div className="py-4">
+
+              {/* ✦ Ask mode — compact flow strip + sample questions */}
+              {activeMode === 'ask' && (
+                <div className="max-w-xl">
+                  {/* Compact workflow strip */}
+                  <div className="flex items-center gap-1 mb-4">
+                    {[
+                      { label: '✦ Ask',         active: true  },
+                      { label: 'Analyze',        active: false },
+                      { label: 'Investigate',    active: false },
+                      { label: 'Remediate',      active: false },
+                    ].map((s, i, arr) => (
+                      <div key={s.label} className="flex items-center gap-1">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          s.active
+                            ? 'bg-violet-100 text-violet-700 border border-violet-200'
+                            : 'text-gray-400'
+                        }`}>
+                          {s.label}
+                        </span>
+                        {i < arr.length - 1 && (
+                          <span className="text-gray-300 text-xs">→</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Sample questions */}
+                  <p className="text-xs text-gray-400 mb-2 font-medium">Try asking:</p>
+                  <div className="flex flex-col gap-1.5 mb-3">
+                    {[
+                      'What errors occurred in payment-service in the last hour?',
+                      'Show me error patterns in rating-service',
+                      'Are there any database connection issues?',
+                    ].map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => handleSendMessage(q)}
+                        className="text-left text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700 transition-colors text-gray-600"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* More questions dropdown */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 shrink-0">More:</span>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => { if (e.target.value) { handleSendMessage(e.target.value); e.target.value = ''; } }}
+                      className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-600"
+                    >
+                      <option value="">Select a category…</option>
+                      {Object.entries(PREDEFINED_QUESTIONS).map(([cat, qs]) => (
+                        <optgroup key={cat} label={cat}>
+                          {qs.map((q) => <option key={q} value={q}>{q}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* ~ Trace mode — recent correlation IDs */}
+              {activeMode === 'trace' && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-3">
+                    <span className="text-violet-700">~ Trace</span>
+                    <span className="text-gray-500"> — Recent correlation IDs (last 24h)</span>
+                  </p>
+                  {recentIdsLoading ? (
+                    <div className="flex items-center gap-2 text-gray-400 text-sm py-4">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      Scanning logs...
+                    </div>
+                  ) : recentIds.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-4">
+                      No correlation IDs found in the last 24h. Enter one manually — e.g.{' '}
+                      <span className="font-mono text-violet-600">CORR-8a2f3b1c</span> or{' '}
+                      <span className="font-mono text-violet-600">TXN-100007</span>
+                    </p>
+                  ) : (
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      {recentIds.map((item, idx) => (
+                        <button
+                          key={`${item.value}-${idx}`}
+                          type="button"
+                          onClick={() => handleSendMessage(`Trace ${item.value} across services`)}
+                          className="w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-violet-50 transition-colors border-b border-gray-100 last:border-b-0"
+                        >
+                          <span className="font-mono text-violet-700 font-medium">{item.value}</span>
+                          <span className="flex items-center gap-3 text-xs text-gray-400">
+                            <span className="bg-gray-100 px-1.5 py-0.5 rounded">{item.service}</span>
+                            <span>{item.timestamp}</span>
+                            <span className="text-violet-500">→</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* △ Investigate mode — load incidents from external sources */}
+              {activeMode === 'investigate' && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-3">
+                    <span className="text-violet-700">△ Investigate</span>
+                    <span className="text-gray-500"> — load an open incident to investigate, or describe below</span>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: 'alerts',     label: '🔔 Alerts',     desc: 'CloudWatch alarms' },
+                      { id: 'servicenow', label: '🎫 ServiceNow', desc: 'Open incidents' },
+                      { id: 'jira',       label: '📋 Jira',       desc: 'Open issues' },
+                    ].map(src => (
+                      <button
+                        key={src.id}
+                        type="button"
+                        onClick={() => { setPickerSource(src.id); setPickerOpen(true); }}
+                        className="flex flex-col items-start px-4 py-3 border border-gray-200 rounded-lg bg-white hover:border-violet-300 hover:bg-violet-50 transition-colors text-left min-w-[140px]"
+                      >
+                        <span className="text-sm font-medium text-gray-700">{src.label}</span>
+                        <span className="text-xs text-gray-400 mt-0.5">{src.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
+
           {isLoading && (
             <div className="flex justify-start mb-4">
               <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-2 text-gray-500 text-sm">
@@ -1447,20 +1717,20 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         </div>
       </div>
 
-      {/* Welcome when empty */}
-      {messages.length === 0 && (
-        <div className="px-4 pb-2 max-w-[90rem] mx-auto w-full border-t border-gray-100 pt-2">
-          <p className="text-xs text-gray-600">
-            Hi! I'm <span className="font-bold text-violet-800">TARS</span>
-            <span className="text-gray-500"> - Telemetry Analysis & Resolution System</span>. Ask a question or open sample questions from the left pane.
-          </p>
-        </div>
-      )}
-
       {/* Input + source row below */}
       <div className="p-4 bg-white border-t border-gray-200">
         <div className="max-w-[90rem] mx-auto w-full">
-          <InputBox onSend={handleSendMessage} disabled={isLoading} />
+          <InputBox
+            onSend={handleSendMessage}
+            disabled={isLoading}
+            placeholder={
+              activeMode === 'trace'
+                ? 'Enter a correlation ID (e.g. CORR-abc123) or describe the request to trace...'
+                : activeMode === 'investigate'
+                ? 'Describe the issue to investigate (e.g. "payment-service errors spiking")...'
+                : 'Ask about your logs...'
+            }
+          />
           <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3 text-xs">
             <span className="text-gray-600 font-medium">Source:</span>
             <div className="flex gap-1.5">
@@ -1510,6 +1780,29 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           </div>
         </div>
       </div>
+
+      {/* End of left (messages + input) column */}
+      </div>
+
+      {/* Right: synthesis panel */}
+      {showSynthesisPanel && pinnedSynthesis && (
+        <SynthesisPanel
+          synthesis={pinnedSynthesis}
+          onClose={() => setShowSynthesisPanel(false)}
+        />
+      )}
+
+      {/* End of body flex row */}
+      </div>
+
+      {/* Incident Picker Modal */}
+      <IncidentPickerModal
+        isOpen={pickerOpen}
+        initialSource={pickerSource}
+        alerts={bridgeIncidents}
+        onLoad={(prompt) => handleSendMessage(prompt)}
+        onClose={() => setPickerOpen(false)}
+      />
 
       {/* Password Dialog Modal */}
       {showPasswordDialog && (

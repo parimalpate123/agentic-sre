@@ -14,6 +14,7 @@ export default function ChatLayout({
 }) {
   const [sessionListRefreshTrigger, setSessionListRefreshTrigger] = useState(0);
   const [untriagedCount, setUntriagedCount] = useState(0);
+  const [activeMode, setActiveMode] = useState('ask'); // 'ask' | 'trace' | 'investigate'
 
   // Reflect incident count in browser tab title so it's visible across tabs
   useEffect(() => {
@@ -46,6 +47,8 @@ export default function ChatLayout({
         onOpenSessionDialog={handleOpenSessionDialog}
         onShowAdmin={onShowUtilityPanel}
         untriagedCount={untriagedCount}
+        activeMode={activeMode}
+        onModeChange={setActiveMode}
       />
       <div className="flex-1 flex flex-col min-w-0 bg-white overflow-hidden">
         <ChatWindow
@@ -55,6 +58,8 @@ export default function ChatLayout({
           onShowUtilityPanel={onShowUtilityPanel}
           onSessionCreated={handleSessionCreated}
           onUntriagedCountChange={setUntriagedCount}
+          activeMode={activeMode}
+          onModeChange={setActiveMode}
         />
       </div>
     </div>

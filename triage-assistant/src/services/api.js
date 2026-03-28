@@ -653,6 +653,27 @@ export async function reanalyzeIncident(incidentId) {
   }
 }
 
+/**
+ * Fetch recent correlation IDs from CloudWatch logs (Trace mode guided flow)
+ * @param {number} hours - How many hours back to scan (default: 24)
+ * @returns {Promise<Object>} - { correlation_ids: [{value, service, timestamp}] }
+ */
+export async function fetchRecentCorrelationIds(hours = 24) {
+  try {
+    const params = new URLSearchParams({ action: 'get_recent_correlation_ids', hours: hours.toString() });
+    const response = await fetch(`${API_ENDPOINT}?${params.toString()}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) throw new Error(`API error: ${response.status} ${response.statusText}`);
+    const data = await response.json();
+    return typeof data.body === 'string' ? JSON.parse(data.body) : data;
+  } catch (error) {
+    console.error('Error fetching recent correlation IDs:', error);
+    throw error;
+  }
+}
+
 export default {
   askQuestion,
   checkHealth,

@@ -70,6 +70,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if http_method == 'GET' and query_params.get('action') == 'list_incidents':
             logger.info("Routing to list_incidents_handler (GET request for listing incidents)")
             return list_incidents_handler(event, context)
+
+        # Check if this is a GET request for recent correlation IDs (Trace mode guided flow)
+        if http_method == 'GET' and query_params.get('action') == 'get_recent_correlation_ids':
+            logger.info("Routing to correlation_ids_handler (GET request for recent correlation IDs)")
+            from correlation_ids_handler import get_recent_correlation_ids_handler
+            return get_recent_correlation_ids_handler(event, context)
         
         # Check if this is a POST request for remediation webhook
         if http_method == 'POST':

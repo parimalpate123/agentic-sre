@@ -234,19 +234,29 @@ async def analyze_logs_async(
 
         hours = parse_time_range(time_range)
 
-        # Perform cross-service correlation search (CW logs + ES traces in parallel)
-        correlation_result = await correlate_across_services(
-            correlation_id=correlation_id,
-            hours=hours,
-            use_mcp=use_mcp
-        )
+        # Perform cross-service correlation search — respects source toggles
+        if not use_cw:
+            logger.info("CloudWatch disabled by user — skipping correlation log search")
+            correlation_result = {
+                'timeline': [], 'total_events': 0, 'services_found': [],
+                'request_flow': [], 'error': 'CloudWatch disabled'
+            }
+        else:
+            correlation_result = await correlate_across_services(
+                correlation_id=correlation_id,
+                hours=hours,
+                use_mcp=use_mcp
+            )
 
-        # Enrich with ES trace data if available (non-blocking)
+        # Enrich with ES trace data if available and enabled (non-blocking)
         es_corr_context = {'available': False}
-        try:
-            es_corr_context = get_es_context_for_correlation(correlation_id, hours)
-        except Exception as es_err:
-            logger.warning(f"ES correlation enrichment skipped: {es_err}")
+        if use_es:
+            try:
+                es_corr_context = get_es_context_for_correlation(correlation_id, hours)
+            except Exception as es_err:
+                logger.warning(f"ES correlation enrichment skipped: {es_err}")
+        else:
+            logger.info("Elasticsearch disabled by user — skipping ES trace enrichment")
 
         # Synthesize answer for correlation results
         answer = await synthesize_correlation_answer(question, correlation_result)

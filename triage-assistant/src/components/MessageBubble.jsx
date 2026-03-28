@@ -26,7 +26,9 @@ export default function MessageBubble({
   isPollingPaused = false,
   onCheckPRStatus = null,
   onReanalyzeIncident = null,
-  isReanalyzing = false
+  isReanalyzing = false,
+  activeMode = 'ask',
+  onPinSynthesis = null,   // called with messageId when user clicks the synthesis indicator
 }) {
   // Get search mode badge text and styles
   const getSearchModeBadge = () => {
@@ -97,19 +99,22 @@ export default function MessageBubble({
         {/* Message text - but if it's an incident, we'll show it after Execution Results */}
         {!message.incident && <p className="text-sm whitespace-pre-wrap">{message.text}</p>}
 
-        {/* Insights (for assistant messages) */}
-        {!isUser && message.insights && message.insights.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <p className="text-xs font-semibold text-gray-500 mb-2">💡 Insights:</p>
-            <ul className="space-y-1">
-              {message.insights.map((insight, index) => (
-                <li key={index} className="text-xs text-gray-600 flex items-start">
-                  <span className="mr-2">•</span>
-                  <span>{insight}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {/* Compact synthesis indicator — insights/recommendations live in the Analysis panel */}
+        {!isUser && (message.insights?.length > 0 || message.recommendations?.length > 0) && (
+          <button
+            type="button"
+            onClick={() => onPinSynthesis?.(message.id)}
+            title="Click to pin this message's insights &amp; recommendations in the Analysis panel on the right"
+            className="mt-3 pt-3 border-t border-gray-200 w-full text-left flex items-center gap-2 text-xs text-gray-500 hover:text-violet-600 transition-colors group"
+          >
+            <span className="text-violet-400 group-hover:text-violet-600">💡</span>
+            <span className="group-hover:text-violet-600">
+              {message.insights?.length > 0 && `${message.insights.length} insight${message.insights.length > 1 ? 's' : ''}`}
+              {message.insights?.length > 0 && message.recommendations?.length > 0 && ' · '}
+              {message.recommendations?.length > 0 && `${message.recommendations.length} recommendation${message.recommendations.length > 1 ? 's' : ''}`}
+            </span>
+            <span className="ml-auto text-xs font-medium text-violet-500 group-hover:text-violet-700 group-hover:underline">View in Analysis →</span>
+          </button>
         )}
 
         {/* Generic Source Panel — badges + terminal boxes for all data sources */}
@@ -124,37 +129,14 @@ export default function MessageBubble({
           <CorrelationView correlationData={message.correlationData} />
         )}
 
-        {/* Recommendations (for assistant messages) - clickable as follow-up questions */}
-        {!isUser && message.recommendations && message.recommendations.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <p className="text-xs font-semibold text-gray-900 mb-2">🎯 Recommendations:</p>
-            <ul className="space-y-1.5">
-              {message.recommendations.map((recommendation, index) => (
-                <li key={index} className="text-xs text-gray-900 flex items-start">
-                  <span className="mr-2">→</span>
-                  {onQuestionClick ? (
-                    <button
-                      type="button"
-                      onClick={() => onQuestionClick(recommendation)}
-                      className="text-left text-gray-900 hover:text-black hover:underline focus:outline-none focus:underline"
-                    >
-                      {recommendation}
-                    </button>
-                  ) : (
-                    <span>{recommendation}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {/* Recommendations moved to Analysis panel — see compact indicator above */}
 
         {/* KB and ES are now rendered by SourcePanel above */}
 
         {/* Action links (for assistant messages with log data) – link-style, content-first UX */}
         {!isUser && (message.logEntries?.length > 0 || message.patternData || message.correlationData) && !message.diagnosis && (
           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onCreateIncident && 
+            {onCreateIncident && activeMode !== 'investigate' &&
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                   onClick={() => onCreateIncident(message)}
@@ -301,7 +283,7 @@ export default function MessageBubble({
          !message.diagnosis &&
          !message.investigationStarted && (
           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onCreateIncident && (
+            {onCreateIncident && activeMode !== 'investigate' && (
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
@@ -335,7 +317,7 @@ export default function MessageBubble({
          !message.diagnosis &&
          !message.investigationStarted && (
           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onCreateIncident && 
+            {onCreateIncident && activeMode !== 'investigate' &&
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                 onClick={() => onCreateIncident(message)}
@@ -358,7 +340,7 @@ export default function MessageBubble({
                 )}
               </button>
             )}
-            
+
             {/* Auto-execution status for CloudWatch incidents with code_fix */}
             {message.incident?.source === 'cloudwatch_alarm' && 
              message.incident?.execution_type === 'code_fix' && (
