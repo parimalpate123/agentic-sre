@@ -126,7 +126,7 @@ export default function MessageBubble({
 
         {/* Correlation View (for cross-service trace mode) */}
         {!isUser && message.searchMode === 'correlation' && message.correlationData && (
-          <CorrelationView correlationData={message.correlationData} />
+          <CorrelationView correlationData={message.correlationData} esContext={message.esContext} />
         )}
 
         {/* Recommendations moved to Analysis panel — see compact indicator above */}
@@ -135,8 +135,17 @@ export default function MessageBubble({
 
         {/* Action links (for assistant messages with log data) – link-style, content-first UX */}
         {!isUser && (message.logEntries?.length > 0 || message.patternData || message.correlationData) && !message.diagnosis && (
-          <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onCreateIncident && activeMode !== 'investigate' &&
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            {/* Guidance note for Trace / Investigate modes */}
+            {(activeMode === 'trace' || activeMode === 'investigate') &&
+             !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
+              <div className="mb-2 px-3 py-2 bg-violet-50 border border-violet-100 rounded-md text-xs text-gray-600 leading-relaxed">
+                <span className="font-semibold text-violet-700">What happens next?</span>{' '}
+                Click <span className="font-medium">"Run full investigation"</span> to perform deep root-cause analysis, generate a remediation plan, and optionally create a GitHub issue with the proposed fix. You stay in control — nothing is executed without your approval.
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {onCreateIncident &&
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                   onClick={() => onCreateIncident(message)}
@@ -234,6 +243,7 @@ export default function MessageBubble({
                 )}
               </div>
             )}
+            </div>
           </div>
         )}
 
@@ -283,7 +293,7 @@ export default function MessageBubble({
          !message.diagnosis &&
          !message.investigationStarted && (
           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onCreateIncident && activeMode !== 'investigate' && (
+            {onCreateIncident && (
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
@@ -317,7 +327,7 @@ export default function MessageBubble({
          !message.diagnosis &&
          !message.investigationStarted && (
           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onCreateIncident && activeMode !== 'investigate' &&
+            {onCreateIncident &&
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                 onClick={() => onCreateIncident(message)}

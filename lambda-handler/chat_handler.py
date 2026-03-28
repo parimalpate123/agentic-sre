@@ -258,8 +258,8 @@ async def analyze_logs_async(
         else:
             logger.info("Elasticsearch disabled by user — skipping ES trace enrichment")
 
-        # Synthesize answer for correlation results
-        answer = await synthesize_correlation_answer(question, correlation_result)
+        # Synthesize answer for correlation results (include ES trace data if available)
+        answer = await synthesize_correlation_answer(question, correlation_result, es_context=es_corr_context)
 
         return {
             'answer': answer['response'],
@@ -1861,7 +1861,8 @@ def determine_request_flow(timeline: List[Dict]) -> List[Dict]:
 
 async def synthesize_correlation_answer(
     question: str,
-    correlation_data: Dict[str, Any]
+    correlation_data: Dict[str, Any],
+    es_context: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """
     Generate a conversational answer for correlation results using Claude
@@ -1869,6 +1870,7 @@ async def synthesize_correlation_answer(
     Args:
         question: Original user question
         correlation_data: Processed correlation results
+        es_context: Elasticsearch APM trace data (optional)
 
     Returns:
         Synthesized answer with insights and recommendations
@@ -1893,11 +1895,35 @@ async def synthesize_correlation_answer(
     else:
         flow_summary = "Unable to determine request flow."
 
+    # Build ES APM trace summary
+    es_section = ""
+    if es_context and es_context.get('available') and es_context.get('traces'):
+        traces = es_context['traces']
+        trace_lines = []
+        for t in traces[:10]:
+            spans = t.get('spans', [])
+            trace_status = t.get('trace', {}).get('status', 'unknown')
+            duration = t.get('duration_ms') or t.get('trace', {}).get('duration_ms', 'N/A')
+            span_summary = []
+            for s in spans[:5]:
+                svc = s.get('service', 'unknown')
+                s_dur = s.get('duration_ms', 'N/A')
+                s_status = s.get('status', 'ok')
+                span_summary.append(f"    - {svc}: {s_dur}ms (status: {s_status})")
+            trace_lines.append(f"- Trace status: {trace_status}, Duration: {duration}ms")
+            trace_lines.extend(span_summary)
+        es_section = f"""
+
+ELASTICSEARCH APM TRACE DATA ({es_context.get('total_traces', len(traces))} traces found):
+{chr(10).join(trace_lines)}
+
+IMPORTANT: Use APM trace data to identify latency bottlenecks, error spans, and service-level performance issues. Compare with CloudWatch log timeline to provide a holistic analysis."""
+
     prompt = f"""You are an expert SRE assistant analyzing a cross-service request trace.
 
 User Question: {question}
 
-CORRELATION DATA:
+CORRELATION DATA (CloudWatch Logs):
 - Correlation ID: {correlation_id}
 - Services Found: {', '.join(services_found) if services_found else 'None'}
 - Total Events: {correlation_data.get('total_events', 0)}
@@ -1906,21 +1932,24 @@ CORRELATION DATA:
 REQUEST FLOW:
 {flow_summary}
 
-EVENT TIMELINE:
+EVENT TIMELINE (CloudWatch):
 {timeline_summary}
+{es_section}
 
 Your task:
 1. Explain the request flow across services in plain language
 2. Identify any errors, failures, or anomalies in the trace
 3. Note any missing services or gaps in the flow
-4. Provide specific investigation recommendations
+4. If APM trace data is available, analyze latency distribution across services and flag slow spans
+5. Provide specific investigation recommendations combining both log and APM evidence
 
 Respond ONLY with JSON:
 {{
-  "response": "Clear, conversational explanation of the request trace and what happened",
+  "response": "Clear, conversational explanation of the request trace and what happened. Include APM latency findings if available.",
   "insights": [
     "Key observation about the flow",
-    "Any issues or anomalies found"
+    "Any issues or anomalies found",
+    "APM-specific findings (latency, error spans) if data available"
   ],
   "recommendations": [
     "What to investigate next",

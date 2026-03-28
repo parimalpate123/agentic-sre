@@ -1388,10 +1388,9 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         setSuggestions(response.follow_up_questions);
       }
 
-      // Investigate mode: auto-run full investigation after response arrives
-      if (activeMode === 'investigate') {
-        setTimeout(() => handleDiagnose(assistantMessage), 400);
-      }
+      // Note: Investigate mode no longer auto-runs diagnosis.
+      // User sees the initial analysis and decides whether to "Run full investigation".
+      // CloudWatch alarm auto-trigger flow (handler_incident_only.py) is unaffected.
     } catch (error) {
       console.error('Error:', error);
       const errorMessage = {
