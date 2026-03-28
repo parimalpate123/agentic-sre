@@ -92,8 +92,25 @@ export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick
         className="w-full text-left px-4 pt-5 pb-3 border-b border-gray-100 hover:bg-gray-50 transition-colors rounded-none"
         title="Go to Home"
       >
-        <div className="text-base font-semibold text-violet-800">TARS</div>
-        <div className="text-[11px] text-gray-500 mt-1 leading-tight">Telemetry Analysis & Resolution System</div>
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600 to-violet-800 flex items-center justify-center shadow-sm shrink-0">
+            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+              {/* Magnifying glass */}
+              <circle cx="10.5" cy="10.5" r="6" />
+              <path strokeLinecap="round" d="M15 15l4.5 4.5" />
+              {/* Data nodes inside lens */}
+              <circle cx="8" cy="12" r="0.8" fill="currentColor" stroke="none" />
+              <circle cx="10.5" cy="8.5" r="0.8" fill="currentColor" stroke="none" />
+              <circle cx="13" cy="11" r="0.8" fill="currentColor" stroke="none" />
+              {/* Connecting lines between nodes */}
+              <path strokeLinecap="round" strokeWidth={1.2} d="M8 12l2.5-3.5M10.5 8.5L13 11" />
+            </svg>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-violet-800 tracking-tight">TARS</div>
+            <div className="text-xs text-gray-500 leading-tight">Telemetry Analysis & Resolution System</div>
+          </div>
+        </div>
       </button>
 
       {/* Alert strip – shown only when there are untriaged auto-triggered incidents */}

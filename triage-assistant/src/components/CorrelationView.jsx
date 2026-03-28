@@ -157,25 +157,25 @@ export default function CorrelationView({ correlationData, esContext = null }) {
   // Render
   // -----------------------------------------------------------------------
   return (
-    <div className="mt-4 border border-blue-200 rounded-lg overflow-hidden bg-white">
+    <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
       {/* Header */}
-      <div className="bg-blue-50 px-4 py-3 border-b border-blue-200">
+      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 border-l-4 border-l-violet-400">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-lg">🔗</span>
-            <span className="font-semibold text-blue-800">Cross-Service Trace</span>
+            <span className="font-semibold text-gray-800">Cross-Service Trace</span>
           </div>
           <div className="flex items-center gap-3">
             {duration && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">{duration}</span>
+              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">{duration}</span>
             )}
-            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
               {total_events} events
             </span>
             {request_flow.length > 0 && (
               <button
                 onClick={() => setShowGraphModal(true)}
-                className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium flex items-center gap-1"
+                className="text-xs text-violet-600 hover:text-violet-800 hover:underline font-medium flex items-center gap-1"
                 title="View topology"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -186,12 +186,12 @@ export default function CorrelationView({ correlationData, esContext = null }) {
             )}
           </div>
         </div>
-        <p className="text-xs text-blue-600 mt-1 font-mono break-all">{correlation_id}</p>
+        <p className="text-xs text-violet-600 mt-1 font-mono break-all">{correlation_id}</p>
       </div>
 
       {/* Request Flow Visualization — colors from both CW + APM */}
       {request_flow.length > 0 && (
-        <div className="px-4 py-3 bg-white border-b border-blue-100">
+        <div className="px-4 py-3 bg-white border-b border-gray-100">
           <p className="text-xs text-gray-500 mb-2 font-medium">Request Flow:</p>
           <div className="flex items-center gap-2 flex-wrap">
             {request_flow.map((step, index) => {
@@ -217,7 +217,7 @@ export default function CorrelationView({ correlationData, esContext = null }) {
       )}
 
       {/* Services Summary */}
-      <div className="px-4 py-2 bg-gray-50 border-b border-blue-100">
+      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
         <p className="text-xs text-gray-500">
           Found in {services_found.length} of {services_searched} services searched:
           {services_found.length > 0 && (
@@ -291,7 +291,7 @@ export default function CorrelationView({ correlationData, esContext = null }) {
                       href={entry.cloudwatch_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="ml-auto flex-shrink-0 text-blue-600 hover:text-blue-800"
+                      className="ml-auto flex-shrink-0 text-violet-600 hover:text-violet-800"
                       title="Open in CloudWatch Logs"
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -331,7 +331,7 @@ export default function CorrelationView({ correlationData, esContext = null }) {
 
       {/* Footer with timing info */}
       {first_seen && last_seen && (
-        <div className="px-4 py-2 bg-gray-50 border-t border-blue-100 text-xs text-gray-500 flex justify-between">
+        <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500 flex justify-between">
           <span>
             First: {new Date(first_seen.timestamp).toLocaleString()} ({first_seen.service})
           </span>

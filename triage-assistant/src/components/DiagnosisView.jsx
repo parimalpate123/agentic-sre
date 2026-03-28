@@ -40,13 +40,13 @@ export default function DiagnosisView({ diagnosis }) {
   const categoryColor = categoryColors[category] || categoryColors.UNKNOWN;
 
   return (
-    <div className="mt-4 border border-blue-200 rounded-lg overflow-hidden">
+    <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="bg-blue-50 px-4 py-3 border-b border-blue-200">
+      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 border-l-4 border-l-violet-400">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-lg">🔍</span>
-            <span className="font-semibold text-blue-800">Root Cause Diagnosis</span>
+            <span className="font-semibold text-gray-800">Root Cause Diagnosis</span>
           </div>
           <div className={`px-3 py-1 rounded-full border text-sm font-medium ${getConfidenceColor(confidence)}`}>
             {confidence}% Confidence
@@ -128,7 +128,7 @@ export default function DiagnosisView({ diagnosis }) {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-2 bg-gray-50 border-t border-blue-100 text-xs text-gray-500">
+      <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
         Diagnosis generated at {diagnosis.diagnosed_at ? new Date(diagnosis.diagnosed_at).toLocaleString() : 'unknown time'}
       </div>
     </div>

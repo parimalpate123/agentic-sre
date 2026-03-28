@@ -1449,7 +1449,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
       {/* Mode tabs */}
-      <div className="flex items-center gap-1 px-4 pt-2 pb-0 bg-white border-b border-gray-200 shrink-0">
+      <div className="flex items-center gap-1 px-4 pt-2 pb-0 bg-white border-b border-gray-100 shrink-0">
         {[
           { id: 'ask',         icon: '✦', label: 'Ask'         },
           { id: 'trace',       icon: '~', label: 'Trace'       },
@@ -1461,8 +1461,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             onClick={() => setActiveMode(tab.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeMode === tab.id
-                ? 'border-violet-600 text-violet-700 bg-violet-50 rounded-t-md'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-violet-600 text-violet-700 bg-violet-50/60 rounded-t-md'
+                : 'border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300'
             }`}
           >
             <span className="mr-1.5">{tab.icon}</span>{tab.label}
@@ -1479,25 +1479,25 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       </div>
 
       {/* Controls row — mode-aware */}
-      <header className="flex items-center gap-4 flex-wrap px-4 py-2 bg-gray-50 border-b border-gray-200 shrink-0 text-xs text-gray-600">
+      <header className="flex items-center gap-4 flex-wrap px-4 py-2 bg-white border-b border-gray-100 shrink-0 text-xs text-gray-600">
         {activeMode === 'ask' && (
           <div className="flex items-center gap-1.5">
             <span className="font-medium">Search:</span>
             <div className="flex bg-gray-100 rounded-lg p-0.5">
-              <button type="button" onClick={() => setSearchMode('quick')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'quick' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Quick</button>
-              <button type="button" onClick={() => setSearchMode('deep')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'deep' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-600'}`}>Deep</button>
+              <button type="button" onClick={() => setSearchMode('quick')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'quick' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-500'}`}>Quick</button>
+              <button type="button" onClick={() => setSearchMode('deep')} className={`px-2.5 py-1 rounded-md text-xs ${searchMode === 'deep' ? 'bg-white text-violet-600 font-semibold shadow-sm' : 'text-gray-500'}`}>Deep</button>
             </div>
           </div>
         )}
         <div className="flex items-center gap-1.5">
           <span className="font-medium">Service:</span>
-          <select value={selectedService} onChange={(e) => setSelectedService(e.target.value)} disabled={isLoadingLogGroups} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white min-w-[140px]">
+          <select value={selectedService} onChange={(e) => setSelectedService(e.target.value)} disabled={isLoadingLogGroups} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white min-w-[140px]">
             {isLoadingLogGroups ? <option>Loading…</option> : logGroups.length > 0 ? logGroups.map((g) => <option key={g.value || g.fullName} value={g.fullName || g.value}>{g.label}</option>) : defaultServices.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="font-medium">Time range:</span>
-          <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white" title="Time window for log search">
+          <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" title="Time window for log search">
             {timeRanges.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </div>
@@ -1532,7 +1532,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 bg-white">
+      <div className="flex-1 overflow-y-auto p-4 bg-gray-50/60">
         <div className="max-w-[90rem] mx-auto w-full">
           {isSessionLoading && (
             <div className="flex justify-center items-center py-12">
@@ -1608,7 +1608,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                         key={q}
                         type="button"
                         onClick={() => handleSendMessage(q)}
-                        className="text-left text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700 transition-colors text-gray-600"
+                        className="text-left text-sm px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-violet-50/60 hover:border-violet-300 hover:text-violet-700 transition-colors text-gray-600 shadow-sm"
                       >
                         {q}
                       </button>
@@ -1621,7 +1621,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                     <select
                       defaultValue=""
                       onChange={(e) => { if (e.target.value) { handleSendMessage(e.target.value); e.target.value = ''; } }}
-                      className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-600"
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600"
                     >
                       <option value="">Select a category…</option>
                       {Object.entries(PREDEFINED_QUESTIONS).map(([cat, qs]) => (
@@ -1653,13 +1653,13 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                       <span className="font-mono text-violet-600">TXN-100007</span>
                     </p>
                   ) : (
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                       {recentIds.map((item, idx) => (
                         <button
                           key={`${item.value}-${idx}`}
                           type="button"
                           onClick={() => handleSendMessage(`Trace ${item.value} across services`)}
-                          className="w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-violet-50 transition-colors border-b border-gray-100 last:border-b-0"
+                          className="w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-violet-50/60 transition-colors border-b border-gray-100 last:border-b-0"
                         >
                           <span className="font-mono text-violet-700 font-medium">{item.value}</span>
                           <span className="flex items-center gap-3 text-xs text-gray-400">
@@ -1691,7 +1691,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                         key={src.id}
                         type="button"
                         onClick={() => { setPickerSource(src.id); setPickerOpen(true); }}
-                        className="flex flex-col items-start px-4 py-3 border border-gray-200 rounded-lg bg-white hover:border-violet-300 hover:bg-violet-50 transition-colors text-left min-w-[140px]"
+                        className="flex flex-col items-start px-4 py-3 border border-gray-200 rounded-xl bg-white hover:border-violet-300 hover:bg-violet-50/60 transition-colors text-left min-w-[140px] shadow-sm"
                       >
                         <span className="text-sm font-medium text-gray-700">{src.label}</span>
                         <span className="text-xs text-gray-400 mt-0.5">{src.desc}</span>
@@ -1706,7 +1706,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
 
           {isLoading && (
             <div className="flex justify-start mb-4">
-              <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-2 text-gray-500 text-sm">
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-2 text-gray-500 text-sm">
                 <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                 Analyzing logs...
               </div>
@@ -1731,13 +1731,13 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
             }
           />
           <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3 text-xs">
-            <span className="text-gray-600 font-medium">Source:</span>
+            <span className="text-gray-500 font-medium">Source:</span>
             <div className="flex gap-1.5">
               {/* CloudWatch toggle */}
               <button
                 type="button"
                 onClick={() => setUseCW((v) => !v)}
-                className={`px-2.5 py-1.5 rounded-md font-medium border transition-colors inline-flex items-center gap-1.5 ${useCW ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'}`}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${useCW ? 'bg-white text-violet-700 border-violet-200' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'}`}
                 title={useCW ? 'CloudWatch enabled — click to disable' : 'CloudWatch disabled — click to enable'}
               >
                 <span className={`inline-block w-3 h-3 rounded-sm border ${useCW ? 'bg-violet-600 border-violet-600' : 'bg-white border-gray-300'}`}>
@@ -1749,7 +1749,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
               <button
                 type="button"
                 onClick={() => setUseES((v) => !v)}
-                className={`px-2.5 py-1.5 rounded-md font-medium border transition-colors inline-flex items-center gap-1.5 ${useES ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'}`}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${useES ? 'bg-white text-violet-700 border-violet-200' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'}`}
                 title={useES ? 'Elasticsearch enabled — click to disable' : 'Elasticsearch disabled — click to enable'}
               >
                 <span className={`inline-block w-3 h-3 rounded-sm border ${useES ? 'bg-violet-600 border-violet-600' : 'bg-white border-gray-300'}`}>
@@ -1758,18 +1758,18 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
                 Elasticsearch
               </button>
               {/* Future sources — disabled */}
-              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed inline-flex items-center gap-1.5">
+              <button type="button" disabled className="px-2.5 py-1.5 rounded-lg text-xs bg-gray-50 text-gray-400 cursor-not-allowed inline-flex items-center gap-1.5 border border-gray-200">
                 <span className="inline-block w-3 h-3 rounded-sm border bg-white border-gray-300"></span>
                 Datadog
               </button>
-              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed inline-flex items-center gap-1.5">
+              <button type="button" disabled className="px-2.5 py-1.5 rounded-lg text-xs bg-gray-50 text-gray-400 cursor-not-allowed inline-flex items-center gap-1.5 border border-gray-200">
                 <span className="inline-block w-3 h-3 rounded-sm border bg-white border-gray-300"></span>
                 Dynatrace
               </button>
             </div>
             <span className="text-gray-300">|</span>
             <span className="text-gray-600 font-medium">Incident source:</span>
-            <select value={defaultIncidentSource} onChange={(e) => setDefaultIncidentSource(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-md text-gray-700 bg-white text-xs">
+            <select value={defaultIncidentSource} onChange={(e) => setDefaultIncidentSource(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-gray-700 bg-white text-xs">
               <option value="all">All</option>
               <option value="cloudwatch_alarm">Alarm triggered (CloudWatch)</option>
               <option value="chat">Chat</option>
@@ -1806,7 +1806,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       {/* Password Dialog Modal */}
       {showPasswordDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-md">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-96 max-w-md">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               Enter Password
             </h3>

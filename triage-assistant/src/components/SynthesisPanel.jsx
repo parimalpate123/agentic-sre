@@ -11,7 +11,7 @@ export default function SynthesisPanel({ synthesis, onClose }) {
   if (!hasContent) return null;
 
   return (
-    <div className="w-64 border-l border-gray-200 bg-white flex flex-col shrink-0 overflow-hidden">
+    <div className="w-64 border-l border-gray-200 bg-white flex flex-col shrink-0 overflow-hidden shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 shrink-0">
         <span className="text-xs font-semibold text-gray-600 tracking-wide uppercase">Analysis</span>

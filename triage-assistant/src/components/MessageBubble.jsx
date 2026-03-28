@@ -75,7 +75,7 @@ export default function MessageBubble({
         className={`max-w-[80%] rounded-2xl px-4 py-3 ${
           isUser
             ? 'bg-violet-100 text-gray-900 rounded-br-md shadow-sm border-l-4 border-violet-600'
-            : 'bg-gray-100 text-gray-800 rounded-bl-md'
+            : 'bg-white text-gray-800 rounded-bl-md border border-gray-200/60 shadow-sm'
         }`}
       >
         {/* Search Mode Badge (for assistant messages) */}
@@ -139,7 +139,7 @@ export default function MessageBubble({
             {/* Guidance note for Trace / Investigate modes */}
             {(activeMode === 'trace' || activeMode === 'investigate') &&
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
-              <div className="mb-2 px-3 py-2 bg-violet-50 border border-violet-100 rounded-md text-xs text-gray-600 leading-relaxed">
+              <div className="mb-2 px-3 py-2 bg-violet-50 border border-violet-100 rounded-xl text-xs text-gray-600 leading-relaxed">
                 <span className="font-semibold text-violet-700">What happens next?</span>{' '}
                 Click <span className="font-medium">"Run full investigation"</span> to perform deep root-cause analysis, generate a remediation plan, and optionally create a GitHub issue with the proposed fix. You stay in control — nothing is executed without your approval.
               </div>
@@ -190,7 +190,7 @@ export default function MessageBubble({
             })() && (
               <div className="mt-3 pt-3 border-t border-gray-200">
                 {message.incident?.execution_results?.github_issue?.status === 'success' ? (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-3">
                     <div className="flex items-center gap-2 text-green-800">
                       <span>✅</span>
                       <span className="font-medium">Auto-execution Complete</span>
@@ -208,7 +208,7 @@ export default function MessageBubble({
                     </p>
                   </div>
                 ) : message.incident?.execution_results?.github_issue?.status === 'pending_approval' ? (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3">
                     <div className="flex items-center gap-2 text-yellow-800">
                       <span>⏳</span>
                       <span className="font-medium">Auto-execution Pending</span>
@@ -218,7 +218,7 @@ export default function MessageBubble({
                     </p>
                   </div>
                 ) : message.incident?.execution_results?.github_issue?.status === 'error' ? (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3">
                     <div className="flex items-center gap-2 text-red-800">
                       <span>❌</span>
                       <span className="font-medium">Auto-execution Failed</span>
@@ -228,15 +228,15 @@ export default function MessageBubble({
                     </p>
                   </div>
                 ) : (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <div className="flex items-center gap-2 text-blue-800">
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                    <div className="flex items-center gap-2 text-gray-700">
                       <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
                       <span className="font-medium">Auto-creating GitHub Issue...</span>
                     </div>
-                    <p className="text-sm text-blue-700 mt-1">
+                    <p className="text-sm text-gray-600 mt-1">
                       This CloudWatch incident requires code changes. GitHub issue is being created automatically.
                     </p>
                   </div>
@@ -356,7 +356,7 @@ export default function MessageBubble({
              message.incident?.execution_type === 'code_fix' && (
               <div className="mt-3 pt-3 border-t border-gray-200">
                 {message.incident?.execution_results?.github_issue?.status === 'success' ? (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-3">
                     <div className="flex items-center gap-2 text-green-800">
                       <span>✅</span>
                       <span className="font-medium">Auto-execution Complete</span>
@@ -374,7 +374,7 @@ export default function MessageBubble({
                     </p>
                   </div>
                 ) : message.incident?.execution_results?.github_issue?.status === 'pending_approval' ? (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3">
                     <div className="flex items-center gap-2 text-yellow-800">
                       <span>⏳</span>
                       <span className="font-medium">Auto-execution Pending</span>
@@ -384,7 +384,7 @@ export default function MessageBubble({
                     </p>
                   </div>
                 ) : message.incident?.execution_results?.github_issue?.status === 'error' ? (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3">
                     <div className="flex items-center gap-2 text-red-800">
                       <span>❌</span>
                       <span className="font-medium">Auto-execution Failed</span>
@@ -394,15 +394,15 @@ export default function MessageBubble({
                     </p>
                   </div>
                 ) : (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <div className="flex items-center gap-2 text-blue-800">
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                    <div className="flex items-center gap-2 text-gray-700">
                       <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
                       <span className="font-medium">Auto-creating GitHub Issue...</span>
                     </div>
-                    <p className="text-sm text-blue-700 mt-1">
+                    <p className="text-sm text-gray-600 mt-1">
                       This CloudWatch incident requires code changes. GitHub issue is being created automatically.
                     </p>
                   </div>

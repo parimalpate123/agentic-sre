@@ -32,7 +32,7 @@ export default function InputBox({ onSend, disabled = false, placeholder = "Ask 
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
-        className={`flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent text-sm ${
+        className={`flex-1 px-4 py-3 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent text-sm ${
           disabled ? 'bg-gray-100 text-gray-400' : 'bg-white'
         }`}
       />
@@ -42,7 +42,7 @@ export default function InputBox({ onSend, disabled = false, placeholder = "Ask 
         className={`px-6 py-3 rounded-full font-medium text-sm transition-colors ${
           disabled || !input.trim()
             ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            : 'bg-violet-500 text-white hover:bg-violet-600'
+            : 'bg-violet-600 text-white hover:bg-violet-700'
         }`}
       >
         {disabled ? (
