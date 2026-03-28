@@ -23,6 +23,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [useMCP, setUseMCP] = useState(true); // Default to ON (true), user can toggle to OFF (false)
+  const [useCW, setUseCW] = useState(true);   // CloudWatch Logs toggle
+  const [useES, setUseES] = useState(true);   // Elasticsearch APM toggle
   const [searchMode, setSearchMode] = useState('quick'); // 'quick' = real-time, 'deep' = Logs Insights
   const [selectedService, setSelectedService] = useState(''); // Empty = auto-detect from question
   const [timeRange, setTimeRange] = useState('24h'); // Default 24 hours
@@ -1271,13 +1273,15 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     setSuggestions([]);
 
     try {
-      // Call API with all options
+      // Call API with all options including source toggles
       const response = await askQuestion(
         question,
         selectedService || null,  // null = auto-detect
         timeRange,
         useMCP,
-        searchMode  // 'quick' or 'deep'
+        searchMode,  // 'quick' or 'deep'
+        useES,       // ES APM toggle
+        useCW        // CloudWatch toggle
       );
 
       // Add assistant message
@@ -1300,6 +1304,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         patternData: response.pattern_data || null,
         followUpQuestions: response.follow_up_questions || [],
         kbSources: response.kb_sources || [],
+        esContext: response.es_context || null,
+        dataSources: response.data_sources || null,
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
@@ -1458,10 +1464,39 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3 text-xs">
             <span className="text-gray-600 font-medium">Source:</span>
             <div className="flex gap-1.5">
-              <button type="button" className="px-2.5 py-1.5 rounded-md bg-violet-50 text-violet-600 font-medium border border-violet-200" title="CloudWatch Logs">CloudWatch</button>
-              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">Elasticsearch</button>
-              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">Datadog</button>
-              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">Dynatrace</button>
+              {/* CloudWatch toggle */}
+              <button
+                type="button"
+                onClick={() => setUseCW((v) => !v)}
+                className={`px-2.5 py-1.5 rounded-md font-medium border transition-colors inline-flex items-center gap-1.5 ${useCW ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'}`}
+                title={useCW ? 'CloudWatch enabled — click to disable' : 'CloudWatch disabled — click to enable'}
+              >
+                <span className={`inline-block w-3 h-3 rounded-sm border ${useCW ? 'bg-violet-600 border-violet-600' : 'bg-white border-gray-300'}`}>
+                  {useCW && <svg className="w-3 h-3 text-white" viewBox="0 0 12 12"><path d="M3.5 6L5.5 8L8.5 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </span>
+                CloudWatch
+              </button>
+              {/* Elasticsearch toggle */}
+              <button
+                type="button"
+                onClick={() => setUseES((v) => !v)}
+                className={`px-2.5 py-1.5 rounded-md font-medium border transition-colors inline-flex items-center gap-1.5 ${useES ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'}`}
+                title={useES ? 'Elasticsearch enabled — click to disable' : 'Elasticsearch disabled — click to enable'}
+              >
+                <span className={`inline-block w-3 h-3 rounded-sm border ${useES ? 'bg-violet-600 border-violet-600' : 'bg-white border-gray-300'}`}>
+                  {useES && <svg className="w-3 h-3 text-white" viewBox="0 0 12 12"><path d="M3.5 6L5.5 8L8.5 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </span>
+                Elasticsearch
+              </button>
+              {/* Future sources — disabled */}
+              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed inline-flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm border bg-white border-gray-300"></span>
+                Datadog
+              </button>
+              <button type="button" disabled className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed inline-flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm border bg-white border-gray-300"></span>
+                Dynatrace
+              </button>
             </div>
             <span className="text-gray-300">|</span>
             <span className="text-gray-600 font-medium">Incident source:</span>

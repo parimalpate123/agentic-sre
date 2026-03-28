@@ -71,6 +71,11 @@ cp kb_chunker.py package/ && echo "  ✓ kb_chunker.py"
 cp kb_embedder.py package/ && echo "  ✓ kb_embedder.py"
 cp kb_retriever.py package/ && echo "  ✓ kb_retriever.py"
 
+# Copy ES modules
+echo "Copying ES modules..."
+cp es_mcp_client.py package/ && echo "  ✓ es_mcp_client.py"
+cp es_sample_data_handler.py package/ && echo "  ✓ es_sample_data_handler.py"
+
 # Verify chat_session_handler.py was copied
 echo ""
 echo "Verifying handler files were copied..."

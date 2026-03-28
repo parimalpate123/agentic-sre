@@ -82,6 +82,37 @@ variable "enable_incident_mcp" {
   default     = true
 }
 
+# Elasticsearch MCP — APM metrics, traces, infrastructure metrics (optional, off by default)
+variable "enable_elasticsearch_mcp" {
+  description = "Deploy Elasticsearch + ES MCP server (ECS/ECR) for APM metrics and traces"
+  type        = bool
+  default     = false
+}
+
+variable "es_cpu" {
+  description = "CPU units for Elasticsearch Fargate task (512 = 0.5 vCPU)"
+  type        = number
+  default     = 512
+}
+
+variable "es_memory" {
+  description = "Memory (MB) for Elasticsearch Fargate task"
+  type        = number
+  default     = 1024
+}
+
+variable "es_mcp_cpu" {
+  description = "CPU units for ES MCP server Fargate task (256 = 0.25 vCPU)"
+  type        = number
+  default     = 256
+}
+
+variable "es_mcp_memory" {
+  description = "Memory (MB) for ES MCP server Fargate task"
+  type        = number
+  default     = 512
+}
+
 # Note: github_token is stored in SSM Parameter Store, not as a Terraform variable
 # Use AWS CLI or Console to set it: 
 # aws ssm put-parameter --name "/sre-poc/github/token" --value "<YOUR_GITHUB_PAT>" --type "SecureString"

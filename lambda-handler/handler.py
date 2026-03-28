@@ -166,6 +166,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             logger.info("Routing to kb_handler (kb_reembed)")
             from kb_handler import handle_kb_reembed
             response = handle_kb_reembed(body)
+        elif action == 'es_manage_sample_data':
+            logger.info("Routing to es_sample_data_handler (ES APM data management)")
+            from es_sample_data_handler import es_sample_data_handler
+            response = es_sample_data_handler(event, context)
         elif 'question' in body:
             # Chat query
             logger.info("Routing to chat_handler (question detected)")

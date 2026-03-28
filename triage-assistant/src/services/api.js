@@ -15,7 +15,7 @@ const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT ||
  * @param {string} searchMode - 'quick' for real-time filter_log_events, 'deep' for Logs Insights
  * @returns {Promise<Object>} - The API response
  */
-export async function askQuestion(question, service = null, timeRange = '1h', useMCP = null, searchMode = 'quick') {
+export async function askQuestion(question, service = null, timeRange = '1h', useMCP = null, searchMode = 'quick', useES = null, useCW = null) {
   const payload = {
     question,
     time_range: timeRange,
@@ -29,6 +29,14 @@ export async function askQuestion(question, service = null, timeRange = '1h', us
   // Add use_mcp parameter if explicitly provided (overrides server default)
   if (useMCP !== null) {
     payload.use_mcp = useMCP;
+  }
+
+  // Source toggles
+  if (useES !== null) {
+    payload.use_es = useES;
+  }
+  if (useCW !== null) {
+    payload.use_cw = useCW;
   }
 
   try {
@@ -244,6 +252,40 @@ export async function manageSampleLogs(operation = 'clean_and_regenerate', passw
     return result;
   } catch (error) {
     console.error('Log Management API Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Manage Elasticsearch sample APM data (generate, clean, regenerate, status)
+ */
+export async function manageESSampleData(operation = 'regenerate', password) {
+  const payload = {
+    action: 'es_manage_sample_data',
+    operation: operation,
+    password: password,
+  };
+
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+
+    if (!response.ok) {
+      const error = new Error(result.message || `API error: ${response.status} ${response.statusText}`);
+      error.status = response.status;
+      error.data = result;
+      throw error;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('ES Sample Data API Error:', error);
     throw error;
   }
 }
@@ -618,6 +660,7 @@ export default {
   requestDiagnosis,
   createIncident,
   manageSampleLogs,
+  manageESSampleData,
   createGitHubIssueAfterApproval,
   getRemediationStatus,
   fetchIncidents,

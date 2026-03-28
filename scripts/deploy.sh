@@ -31,6 +31,7 @@ DEPLOY_MCP=true
 DEPLOY_LAMBDA=true
 DEPLOY_UI=false
 DEPLOY_INCIDENT_MCP=false
+DEPLOY_ES_MCP=false
 
 show_help() {
     echo "Usage: ./scripts/deploy.sh [options]"
@@ -39,7 +40,8 @@ show_help() {
     echo "  --all              Deploy everything (default: infra, MCP, Lambda)"
     echo "  --infra            Deploy only infrastructure (Terraform)"
     echo "  --mcp              Deploy only MCP server (Docker + ECS)"
-    echo "  --incident-mcp     Also build/push Incident MCP server (requires enable_incident_mcp=true in Terraform)"
+    echo "  --incident-mcp     Also build/push Incident MCP server (requires enable_incident_mcp=true in Terraform)
+  --es-mcp           Also build/push ES MCP server (requires enable_elasticsearch_mcp=true in Terraform)"
     echo "  --lambda           Deploy only Lambda function"
     echo "  --ui               Deploy UI to CloudFront/S3"
       echo "  --help, -h         Show this help message"
@@ -78,6 +80,9 @@ if [ $# -gt 0 ]; then
             --incident-mcp)
                 DEPLOY_INCIDENT_MCP=true
                 ;;
+            --es-mcp)
+                DEPLOY_ES_MCP=true
+                ;;
             --ui)
                 DEPLOY_UI=true
                 ;;
@@ -100,6 +105,7 @@ echo -e "${BLUE}Deployment Plan:${NC}"
 echo "  • Infrastructure (Terraform): $([ "$DEPLOY_INFRA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • MCP Server (Docker+ECS): $([ "$DEPLOY_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Incident MCP (optional): $([ "$DEPLOY_INCIDENT_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
+echo "  • ES MCP (optional):       $([ "$DEPLOY_ES_MCP" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Lambda Function: $([ "$DEPLOY_LAMBDA" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • UI (CloudFront/S3): $([ "$DEPLOY_UI" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
 echo "  • Test Invocation: $([ "$RUN_TEST" = true ] && echo "✅ Yes" || echo "⏭️  Skip")"
@@ -398,6 +404,45 @@ if [ "$DEPLOY_INCIDENT_MCP" = true ]; then
         fi
     else
         echo -e "${YELLOW}⚠️  mcp-incident-tools not found, skipping Incident MCP${NC}"
+    fi
+    echo ""
+fi
+
+# Optional: Build and push ES MCP server (only when --es-mcp and enable_elasticsearch_mcp in Terraform)
+if [ "$DEPLOY_ES_MCP" = true ]; then
+    echo "🐳 Step 3c/5: Building and pushing ES MCP server..."
+    ES_MCP_DIR="$PROJECT_ROOT/mcp-elasticsearch"
+    ECR_ES_MCP_REPO="$AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/${PROJECT_NAME}-es-mcp-server"
+
+    if [ -d "$ES_MCP_DIR" ]; then
+        aws ecr get-login-password --region $AWS_REGION | \
+            docker login --username AWS --password-stdin $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+        cd "$ES_MCP_DIR"
+        docker build --platform linux/amd64 -t ${PROJECT_NAME}-es-mcp-server:latest . --quiet
+        docker tag ${PROJECT_NAME}-es-mcp-server:latest $ECR_ES_MCP_REPO:latest
+        docker push $ECR_ES_MCP_REPO:latest --quiet
+        cd "$PROJECT_ROOT"
+
+        SERVICE_EXISTS=$(aws ecs describe-services \
+            --cluster ${PROJECT_NAME}-mcp-cluster \
+            --services ${PROJECT_NAME}-es-mcp-server \
+            --region $AWS_REGION \
+            --query 'services[0].status' \
+            --output text 2>/dev/null)
+
+        if [ "$SERVICE_EXISTS" = "ACTIVE" ]; then
+            aws ecs update-service \
+                --cluster ${PROJECT_NAME}-mcp-cluster \
+                --service ${PROJECT_NAME}-es-mcp-server \
+                --force-new-deployment \
+                --region $AWS_REGION \
+                --no-cli-pager > /dev/null
+            echo -e "${GREEN}✅ ES MCP image pushed and ECS service updated${NC}"
+        else
+            echo -e "${GREEN}✅ ES MCP image pushed (ECS service not found; run Terraform with enable_elasticsearch_mcp=true first)${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  mcp-elasticsearch not found, skipping ES MCP${NC}"
     fi
     echo ""
 fi

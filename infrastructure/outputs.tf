@@ -145,3 +145,22 @@ output "aws_account_id" {
   description = "AWS account ID"
   value       = data.aws_caller_identity.current.account_id
 }
+
+# ============================================
+# Elasticsearch MCP Outputs (conditional)
+# ============================================
+
+output "es_ecr_repository_url" {
+  description = "ECR repository URL for ES MCP server"
+  value       = var.enable_elasticsearch_mcp ? aws_ecr_repository.es_mcp_server[0].repository_url : ""
+}
+
+output "es_mcp_endpoint" {
+  description = "ES MCP server internal endpoint"
+  value       = var.enable_elasticsearch_mcp ? "http://es-mcp-server.${aws_service_discovery_private_dns_namespace.mcp.name}:8020" : ""
+}
+
+output "elasticsearch_endpoint" {
+  description = "Elasticsearch internal endpoint"
+  value       = var.enable_elasticsearch_mcp ? "http://elasticsearch.${aws_service_discovery_private_dns_namespace.mcp.name}:9200" : ""
+}

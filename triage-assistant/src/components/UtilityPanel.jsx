@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { manageSampleLogs, fetchIncidents } from '../services/api';
+import { manageSampleLogs, manageESSampleData, fetchIncidents } from '../services/api';
 
 export default function UtilityPanel({ onClose }) {
   const [activeTab, setActiveTab] = useState('alarms'); // 'alarms', 'logs', 'incidents', 'lambda-logs'
@@ -31,6 +31,10 @@ export default function UtilityPanel({ onClose }) {
   const [incidents, setIncidents] = useState([]);
   const [incidentFilter, setIncidentFilter] = useState({ source: 'all', status: 'all' });
 
+  // ES status state
+  const [esStatusData, setEsStatusData] = useState(null);
+  const [pendingOperationType, setPendingOperationType] = useState(null);
+
   const handlePasswordSubmit = async () => {
     if (!password) {
       setMessage({ type: 'error', text: 'Password is required' });
@@ -43,10 +47,16 @@ export default function UtilityPanel({ onClose }) {
       
       try {
         const result = await pendingOperation.fn(password);
-        setMessage({ type: 'success', text: result.message || 'Operation completed successfully' });
+        if (pendingOperationType === 'status') {
+          setEsStatusData(result);
+          setMessage({ type: '', text: '' });
+        } else {
+          setMessage({ type: 'success', text: result.message || 'Operation completed successfully' });
+        }
         setShowPasswordInput(false);
         setPassword('');
         setPendingOperation(null);
+        setPendingOperationType(null);
       } catch (error) {
         setMessage({ type: 'error', text: error.message || 'Operation failed' });
       } finally {
@@ -58,6 +68,15 @@ export default function UtilityPanel({ onClose }) {
   const handleLogOperation = async (operation) => {
     setPendingOperation({
       fn: async (pwd) => await manageSampleLogs(operation, pwd)
+    });
+    setShowPasswordInput(true);
+  };
+
+  const handleESOperation = async (operation) => {
+    setEsStatusData(null);
+    setPendingOperationType(operation);
+    setPendingOperation({
+      fn: async (pwd) => await manageESSampleData(operation, pwd)
     });
     setShowPasswordInput(true);
   };
@@ -190,6 +209,16 @@ export default function UtilityPanel({ onClose }) {
           }`}
         >
           View Incidents
+        </button>
+        <button
+          onClick={() => setActiveTab('es-data')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'es-data'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          ES APM Data
         </button>
         <button
           onClick={() => setActiveTab('lambda-logs')}
@@ -500,6 +529,87 @@ export default function UtilityPanel({ onClose }) {
               {isLoading ? 'Loading incidents...' : 'No incidents found. Try loading with different filters or trigger a test alarm.'}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ES APM Data Tab */}
+      {activeTab === 'es-data' && (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Manage Elasticsearch APM Data</h3>
+          <p className="text-sm text-gray-600">
+            Generate sample APM metrics, distributed traces, and infrastructure telemetry in Elasticsearch.
+            Data is aligned with CloudWatch sample logs (same services, correlation IDs, time windows).
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800">
+            <strong>Note:</strong> Requires <code className="bg-amber-100 px-1 rounded">enable_elasticsearch_mcp = true</code> in Terraform.
+            ES stores APM data only — logs remain in CloudWatch.
+          </div>
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <button
+              onClick={() => handleESOperation('regenerate')}
+              disabled={isLoading}
+              className="bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-700 disabled:opacity-50"
+            >
+              Regenerate APM Data
+            </button>
+            <button
+              onClick={() => handleESOperation('status')}
+              disabled={isLoading}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              Check ES Status
+            </button>
+            <button
+              onClick={() => handleESOperation('generate')}
+              disabled={isLoading}
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
+            >
+              Generate (append)
+            </button>
+            <button
+              onClick={() => handleESOperation('clean')}
+              disabled={isLoading}
+              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+            >
+              Clean All ES Data
+            </button>
+          </div>
+          {esStatusData && (
+            <div className="mt-4 border border-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
+                <span className="font-semibold text-sm text-gray-700">ES Cluster Status</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  esStatusData.cluster_health === 'green' ? 'bg-green-100 text-green-700' :
+                  esStatusData.cluster_health === 'yellow' ? 'bg-amber-100 text-amber-700' :
+                  'bg-red-100 text-red-700'
+                }`}>{esStatusData.cluster_health}</span>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="text-left px-4 py-2 text-gray-600 font-medium">Index</th>
+                    <th className="text-right px-4 py-2 text-gray-600 font-medium">Documents</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(esStatusData.indices || {}).map(([name, info]) => (
+                    <tr key={name} className="border-b border-gray-100 last:border-0">
+                      <td className="px-4 py-2 font-mono text-xs text-gray-700">{name}</td>
+                      <td className="px-4 py-2 text-right text-gray-900 font-medium">{info.doc_count.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-gray-50">
+                    <td className="px-4 py-2 font-semibold text-gray-700">Total</td>
+                    <td className="px-4 py-2 text-right font-bold text-gray-900">{(esStatusData.total_docs || 0).toLocaleString()}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="mt-4 text-sm text-gray-500">
+            <strong>Data generated:</strong> APM metrics (latency, throughput, error rates), distributed traces,
+            infrastructure metrics (CPU, memory, disk), service health, service topology.
+          </div>
         </div>
       )}
 

@@ -20,3 +20,7 @@ github_org = "your-github-org-or-username"
 # Optional: Override other defaults
 # aws_region = "us-east-1"
 # project_name = "sre-poc"
+
+# Elasticsearch MCP (APM metrics, traces, infrastructure monitoring)
+# Set to true to deploy ES + ES MCP server on ECS
+# enable_elasticsearch_mcp = true

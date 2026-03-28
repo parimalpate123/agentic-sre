@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 
 import boto3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import search utilities for fuzzy matching, deduplication, and relevance scoring
 # DISABLED - Uncomment after deploying search_utils.py with Lambda
@@ -40,6 +41,23 @@ try:
 except ImportError:
     logger.warning("MCP client not available, will use direct API calls")
     MCP_AVAILABLE = False
+
+# Import ES MCP client (APM metrics/traces — always non-blocking)
+try:
+    from es_mcp_client import get_es_context_for_service, get_es_context_for_correlation, is_es_available
+    ES_MCP_AVAILABLE = True
+except ImportError:
+    logger.info("ES MCP client not available (elasticsearch MCP not enabled)")
+    ES_MCP_AVAILABLE = False
+
+    def is_es_available():
+        return False
+
+    def get_es_context_for_service(*a, **kw):
+        return {'available': False}
+
+    def get_es_context_for_correlation(*a, **kw):
+        return {'available': False}
 
 # =============================================================================
 # Cross-Service Correlation Configuration
@@ -105,7 +123,13 @@ def chat_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         else:
             use_mcp = str(use_mcp).lower() == 'true'
 
-        logger.info(f"Search mode: {search_mode}, Use MCP: {use_mcp}")
+        # Source toggles (UI source checkboxes)
+        use_cw_raw = body.get('use_cw')
+        use_cw = (str(use_cw_raw).lower() == 'true') if use_cw_raw is not None else True
+        use_es_raw = body.get('use_es')
+        use_es = (str(use_es_raw).lower() == 'true') if use_es_raw is not None else True
+
+        logger.info(f"Search mode: {search_mode}, Use MCP: {use_mcp}, Use CW: {use_cw}, Use ES: {use_es}")
 
         if not question:
             return {
@@ -121,7 +145,7 @@ def chat_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             }
 
         # Run async analysis
-        result = asyncio.run(analyze_logs_async(question, service, time_range, use_mcp=use_mcp, search_mode=search_mode))
+        result = asyncio.run(analyze_logs_async(question, service, time_range, use_mcp=use_mcp, search_mode=search_mode, use_es=use_es, use_cw=use_cw))
 
         return {
             'statusCode': 200,
@@ -146,7 +170,9 @@ async def analyze_logs_async(
     service: str = None,
     time_range: str = '1h',
     use_mcp: bool = True,
-    search_mode: str = 'quick'
+    search_mode: str = 'quick',
+    use_es: bool = True,
+    use_cw: bool = True,
 ) -> Dict[str, Any]:
     """
     Analyze logs based on natural language question
@@ -208,12 +234,19 @@ async def analyze_logs_async(
 
         hours = parse_time_range(time_range)
 
-        # Perform cross-service correlation search
+        # Perform cross-service correlation search (CW logs + ES traces in parallel)
         correlation_result = await correlate_across_services(
             correlation_id=correlation_id,
             hours=hours,
             use_mcp=use_mcp
         )
+
+        # Enrich with ES trace data if available (non-blocking)
+        es_corr_context = {'available': False}
+        try:
+            es_corr_context = get_es_context_for_correlation(correlation_id, hours)
+        except Exception as es_err:
+            logger.warning(f"ES correlation enrichment skipped: {es_err}")
 
         # Synthesize answer for correlation results
         answer = await synthesize_correlation_answer(question, correlation_result)
@@ -221,7 +254,7 @@ async def analyze_logs_async(
         return {
             'answer': answer['response'],
             'correlation_data': correlation_result,
-            'log_entries': correlation_result.get('timeline', [])[:50],  # Increased from 10 to 50 for better context
+            'log_entries': correlation_result.get('timeline', [])[:50],
             'total_results': correlation_result.get('total_events', 0),
             'queries_executed': [{'purpose': 'Cross-service correlation search', 'query': f'Search for {correlation_id} across all services'}],
             'insights': answer.get('insights', []),
@@ -230,7 +263,8 @@ async def analyze_logs_async(
             'timestamp': datetime.utcnow().isoformat(),
             'search_mode': 'correlation',
             'request_flow': correlation_result.get('request_flow', []),
-            'services_found': correlation_result.get('services_found', [])
+            'services_found': correlation_result.get('services_found', []),
+            'es_context': es_corr_context if es_corr_context.get('available') else None,
         }
 
     # =========================================================================
@@ -247,22 +281,47 @@ async def analyze_logs_async(
     # Step 2: Execute queries based on search mode and MCP preference
     # Quick Search: Uses filter_log_events (real-time, no indexing delay)
     # Deep Search: Uses CloudWatch Logs Insights (may have indexing delay)
-    if use_mcp and MCP_AVAILABLE:
+    if not use_cw:
+        logger.info("CloudWatch disabled by user — skipping log queries")
+        log_data = {'sample_logs': [], 'total_count': 0, 'queries_executed': []}
+    elif use_mcp and MCP_AVAILABLE:
         log_data = await execute_queries_via_mcp(query_plan, search_mode=search_mode)
     else:
         logger.info("Using direct CloudWatch API (MCP disabled or unavailable)")
         log_data = await execute_queries_direct(query_plan, search_mode=search_mode)
 
-    # Step 3: KB retrieval (non-blocking — chat never fails due to KB errors)
+    # Step 3: KB retrieval + ES context (parallel, non-blocking)
     kb_context = []
-    try:
+    es_context = {'available': False}
+
+    def _fetch_kb():
         from kb_retriever import retrieve_kb_context
-        kb_context = retrieve_kb_context(question, top_k=3, threshold=0.7)
-    except Exception as kb_err:
-        logger.warning(f"KB retrieval skipped: {kb_err}")
+        return retrieve_kb_context(question, top_k=3, threshold=0.7)
+
+    def _fetch_es():
+        # Determine service name from query plan
+        svc = query_plan.get('log_group', '').split('/')[-1] if query_plan.get('log_group') else None
+        if svc:
+            return get_es_context_for_service(svc, query_plan.get('hours', 1))
+        return {'available': False}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {}
+        futures['kb'] = pool.submit(_fetch_kb)
+        if use_es and is_es_available():
+            futures['es'] = pool.submit(_fetch_es)
+
+        for key, future in futures.items():
+            try:
+                if key == 'kb':
+                    kb_context = future.result(timeout=10)
+                elif key == 'es':
+                    es_context = future.result(timeout=10)
+            except Exception as err:
+                logger.warning(f"{key} retrieval skipped: {err}")
 
     # Step 4: Synthesize answer using Claude
-    answer = await synthesize_answer(question, log_data, query_plan, kb_context=kb_context)
+    answer = await synthesize_answer(question, log_data, query_plan, kb_context=kb_context, es_context=es_context)
 
     # Generate CloudWatch Logs URL (use first log group for primary URL)
     log_group = query_plan.get('log_group', '')
@@ -271,22 +330,196 @@ async def analyze_logs_async(
     aws_region = os.environ.get('AWS_REGION', os.environ.get('BEDROCK_REGION', 'us-east-1'))
     cloudwatch_url = generate_cloudwatch_url(primary_log_group, aws_region) if primary_log_group else None
 
+    # Build generic data_sources array — each source self-describes its entries
+    # Schema: name, color, count, label, url, expanded, entries[], total_entries
+    data_sources = _build_data_sources(
+        log_data, cloudwatch_url, primary_log_group,
+        es_context, kb_context
+    )
+
     return {
         'answer': answer['response'],
-        'log_entries': log_data.get('sample_logs', [])[:50],  # First 50 entries for better context
+        'log_entries': log_data.get('sample_logs', [])[:50],  # kept for backward compat
         'total_results': log_data.get('total_count', 0),
         'queries_executed': query_plan['queries'],
         'insights': answer.get('insights', []),
         'recommendations': answer.get('recommendations', []),
         'follow_up_questions': answer.get('follow_up_questions', []),
         'timestamp': datetime.utcnow().isoformat(),
-        'search_mode': search_mode,  # Include search mode for UI display
-        'cloudwatch_url': cloudwatch_url,  # CloudWatch Logs Console URL
-        'log_group': primary_log_group,  # Primary log group name for incident creation
-        'log_groups_searched': log_groups if len(log_groups) > 1 else None,  # Include if multi-service search
-        'kb_sources': kb_context,  # KB chunks used for this response
+        'search_mode': search_mode,
+        'cloudwatch_url': cloudwatch_url,
+        'log_group': primary_log_group,
+        'log_groups_searched': log_groups if len(log_groups) > 1 else None,
+        'kb_sources': kb_context,
         'kb_chunks_used': len(kb_context),
+        'es_context': es_context if es_context.get('available') else None,
+        'data_sources': data_sources,
     }
+
+
+def _build_data_sources(log_data, cloudwatch_url, log_group, es_context, kb_context):
+    """Build generic data_sources list. Each source follows a uniform schema
+    so the frontend renders them all identically — no source-specific code needed.
+
+    Schema per source:
+        name        — display name (e.g. "CloudWatch Logs")
+        color       — tailwind color key for badge/border: orange, amber, blue, green, purple
+        count       — number of data points
+        label       — badge text
+        url         — optional external link
+        expanded    — whether the terminal box starts open
+        entries     — list of {timestamp, content, meta} for terminal rendering
+        total_entries — total count for "N total" display
+    """
+    sources = []
+
+    # --- CloudWatch Logs ---
+    sample_logs = log_data.get('sample_logs', [])[:50]
+    cw_count = log_data.get('total_count', 0)
+    cw_entries = []
+    for log in sample_logs:
+        cw_entries.append({
+            'timestamp': log.get('@timestamp'),
+            'content': log.get('@message', str(log)),
+            'meta': log.get('@logGroup', ''),
+        })
+    sources.append({
+        'name': 'CloudWatch Logs',
+        'color': 'orange',
+        'count': cw_count,
+        'label': f"{cw_count} log entr{'y' if cw_count == 1 else 'ies'}",
+        'url': cloudwatch_url,
+        'expanded': len(cw_entries) > 0,  # auto-expand when there are logs
+        'entries': cw_entries,
+        'total_entries': cw_count,
+    })
+
+    # --- Elasticsearch APM ---
+    if es_context.get('available'):
+        summary = es_context.get('summary', {})
+        es_points = (es_context.get('apm_data_points', 0) +
+                     es_context.get('infra_data_points', 0))
+
+        # --- ES Summary (metrics, infra, health) ---
+        summary_entries = []
+        if summary.get('latency_p95') is not None:
+            summary_entries.append({
+                'timestamp': None,
+                'content': (f"Latency p50: {summary.get('latency_p50')}ms | "
+                            f"p95: {summary.get('latency_p95')}ms | "
+                            f"p99: {summary.get('latency_p99')}ms"),
+                'meta': 'Performance',
+            })
+            parts = []
+            if summary.get('throughput_rpm') is not None:
+                parts.append(f"Throughput: {summary['throughput_rpm']} req/min")
+            if summary.get('error_rate_pct') is not None:
+                parts.append(f"Error Rate: {summary['error_rate_pct']}%")
+            if parts:
+                summary_entries.append({
+                    'timestamp': None,
+                    'content': ' | '.join(parts),
+                    'meta': 'Performance',
+                })
+        if summary.get('cpu_pct') is not None:
+            summary_entries.append({
+                'timestamp': None,
+                'content': (f"CPU: {summary.get('cpu_pct')}% | "
+                            f"Memory: {summary.get('memory_pct')}% | "
+                            f"Disk: {summary.get('disk_pct')}%"),
+                'meta': 'Infrastructure',
+            })
+        if summary.get('health_status'):
+            health_parts = [f"Health: {summary['health_status']}"]
+            if summary.get('instances'):
+                health_parts.append(f"{summary['instances']} instances")
+            deps = summary.get('dependencies', [])
+            if deps:
+                health_parts.append(f"Deps: {', '.join(deps)}")
+            summary_entries.append({
+                'timestamp': None,
+                'content': ' | '.join(health_parts),
+                'meta': 'Service Health',
+            })
+
+        sources.append({
+            'name': 'ES APM Summary',
+            'color': 'amber',
+            'count': es_points,
+            'label': f"{es_points} data points",
+            'url': None,
+            'expanded': False,
+            'entries': summary_entries,
+            'total_entries': es_points,
+        })
+
+        # --- ES Raw Traces (like log entries — timestamp + trace detail) ---
+        all_traces = es_context.get('all_traces_sample', [])
+        trace_count = es_context.get('all_traces_count', len(all_traces))
+        trace_entries = []
+        for trace in all_traces:
+            t = trace.get('trace', {})
+            ts = trace.get('@timestamp', '')
+            status = t.get('status', 'ok')
+            status_icon = 'ERROR' if status == 'error' else 'OK'
+            # Build a log-like line: trace name, duration, status, correlation
+            line = f"[{status_icon}] {t.get('name', 'Unknown')} — {t.get('duration_ms', '?')}ms"
+            cid = trace.get('correlation_id', '')
+            tid = trace.get('transaction_id', '')
+            if cid:
+                line += f"  correlation_id={cid}"
+            if tid:
+                line += f"  transaction={tid}"
+            # Add span details
+            spans = trace.get('spans', [])
+            if spans:
+                span_parts = []
+                for s in spans[:5]:  # first 5 spans
+                    span_status = s.get('status', 'ok')
+                    span_parts.append(
+                        f"  → {s.get('service', '?')}.{s.get('operation', '?')} "
+                        f"{s.get('duration_ms', '?')}ms [{span_status}]"
+                    )
+                line += '\n' + '\n'.join(span_parts)
+            trace_entries.append({
+                'timestamp': ts,
+                'content': line,
+                'meta': f"trace/{t.get('name', 'unknown')}",
+            })
+
+        if trace_entries:
+            sources.append({
+                'name': 'ES Traces',
+                'color': 'amber',
+                'count': trace_count,
+                'label': f"{trace_count} traces",
+                'url': None,
+                'expanded': len(trace_entries) > 0,
+                'entries': trace_entries,
+                'total_entries': trace_count,
+            })
+
+    # --- Knowledge Base ---
+    if kb_context:
+        kb_entries = []
+        for chunk in kb_context:
+            kb_entries.append({
+                'timestamp': None,
+                'content': chunk.get('text', '')[:200] + ('...' if len(chunk.get('text', '')) > 200 else ''),
+                'meta': chunk.get('document_title', chunk.get('service', '')),
+            })
+        sources.append({
+            'name': 'Knowledge Base',
+            'color': 'purple',
+            'count': len(kb_context),
+            'label': f"{len(kb_context)} sources",
+            'url': None,
+            'expanded': False,
+            'entries': kb_entries,
+            'total_entries': len(kb_context),
+        })
+
+    return sources
 
 
 async def generate_query_plan(
@@ -1089,6 +1322,7 @@ async def synthesize_answer(
     log_data: Dict[str, Any],
     query_plan: Dict[str, Any],
     kb_context: list = None,
+    es_context: dict = None,
 ) -> Dict[str, Any]:
     """
     Use Claude to synthesize a conversational answer
@@ -1098,6 +1332,7 @@ async def synthesize_answer(
         log_data: Query results from MCP
         query_plan: Original query plan
         kb_context: Optional list of relevant KB chunks from retrieve_kb_context
+        es_context: Optional ES APM/trace context from es_mcp_client
 
     Returns:
         Conversational answer with insights
@@ -1176,7 +1411,34 @@ async def synthesize_answer(
         ])
         kb_section = f"\n\n## Organization Knowledge Base\n{kb_chunks_text}\nUse the above KB context as primary reference for runbooks, SOPs, and guidelines. Cite sources when applicable.\n---"
 
-    prompt = f"""You are a helpful SRE assistant analyzing CloudWatch logs. Answer the user's question based on the log data.
+    # Build ES APM context section if available
+    es_section = ""
+    if es_context and es_context.get('available'):
+        es_lines = []
+        summary = es_context.get('summary', {})
+        if summary.get('latency_p95') is not None:
+            es_lines.append(f"- Latency: p50={summary.get('latency_p50')}ms, p95={summary.get('latency_p95')}ms, p99={summary.get('latency_p99')}ms")
+        if summary.get('throughput_rpm') is not None:
+            es_lines.append(f"- Throughput: {summary.get('throughput_rpm')} req/min")
+        if summary.get('error_rate_pct') is not None:
+            es_lines.append(f"- Error rate: {summary.get('error_rate_pct')}%")
+        if summary.get('cpu_pct') is not None:
+            es_lines.append(f"- Infrastructure: CPU={summary.get('cpu_pct')}%, Memory={summary.get('memory_pct')}%, Disk={summary.get('disk_pct')}%")
+        if summary.get('health_status'):
+            es_lines.append(f"- Health status: {summary.get('health_status')} ({summary.get('instances')} instances)")
+            if summary.get('dependencies'):
+                es_lines.append(f"- Dependencies: {', '.join(summary.get('dependencies', []))}")
+        error_count = es_context.get('error_traces_count', 0)
+        if error_count:
+            es_lines.append(f"- Error traces found: {error_count}")
+            for t in es_context.get('error_traces_sample', [])[:3]:
+                trace_info = t.get('trace', {})
+                es_lines.append(f"  - Trace '{trace_info.get('name')}': {trace_info.get('duration_ms')}ms, corr={t.get('correlation_id', 'N/A')}")
+
+        if es_lines:
+            es_section = "\n\n## APM Metrics & Traces (from Elasticsearch)\n" + "\n".join(es_lines) + "\nUse the above APM data to correlate performance issues with log errors. Reference specific metrics when relevant.\n---"
+
+    prompt = f"""You are a helpful SRE assistant analyzing CloudWatch logs and APM telemetry. Answer the user's question based on the log data and APM metrics.
 
 User Question: {question}
 
@@ -1187,7 +1449,7 @@ Log Data Summary:
 - Time range: Last {query_plan.get('hours', 1)} hour(s)
 
 Sample Log Entries:
-{log_summary}{context_instruction}{multi_service_note}{kb_section}
+{log_summary}{context_instruction}{multi_service_note}{kb_section}{es_section}
 
 Your task:
 1. Answer the user's question conversationally

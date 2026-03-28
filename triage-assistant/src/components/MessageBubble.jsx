@@ -7,7 +7,7 @@ import CorrelationView from './CorrelationView';
 import ErrorPatternsView from './ErrorPatternsView';
 import DiagnosisView from './DiagnosisView';
 import RemediationStatus from './RemediationStatus';
-import KBSourceIndicator from './KBSourceIndicator';
+import SourcePanel from './SourcePanel';
 
 export default function MessageBubble({ 
   message, 
@@ -112,40 +112,10 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* Log entries preview (for assistant messages) - only for non-correlation mode */}
-        {!isUser && message.searchMode !== 'correlation' && message.logEntries && message.logEntries.length > 0 && (
+        {/* Generic Source Panel — badges + terminal boxes for all data sources */}
+        {!isUser && message.searchMode !== 'correlation' && message.dataSources?.length > 0 && (
           <div className="mt-3 pt-3 border-t border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-gray-500">
-                Log Entries ({message.totalResults} total):
-              </p>
-              {message.cloudwatchUrl && (
-                <a
-                  href={message.cloudwatchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-violet-600 hover:text-violet-800 hover:underline flex items-center gap-1 transition-colors"
-                  title="Open in CloudWatch Logs Console"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  View in CloudWatch
-                </a>
-              )}
-            </div>
-            <div className="bg-gray-800 rounded-lg p-3 max-h-96 overflow-y-auto space-y-2">
-              {message.logEntries.map((entry, index) => (
-                <div key={index} className="border-l-2 border-yellow-500 pl-2">
-                  <p className="text-xs text-gray-400 font-mono mb-1">
-                    🕐 {entry['@timestamp'] || 'No timestamp'}
-                  </p>
-                  <p className="text-xs text-green-400 font-mono whitespace-pre-wrap break-words">
-                    {entry['@message'] || JSON.stringify(entry)}
-                  </p>
-                </div>
-              ))}
-            </div>
+            <SourcePanel dataSources={message.dataSources} />
           </div>
         )}
 
@@ -179,12 +149,7 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* KB Source Indicator (shown when KB context was used) */}
-        {!isUser && message.kbSources?.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <KBSourceIndicator sources={message.kbSources} />
-          </div>
-        )}
+        {/* KB and ES are now rendered by SourcePanel above */}
 
         {/* Action links (for assistant messages with log data) – link-style, content-first UX */}
         {!isUser && (message.logEntries?.length > 0 || message.patternData || message.correlationData) && !message.diagnosis && (
