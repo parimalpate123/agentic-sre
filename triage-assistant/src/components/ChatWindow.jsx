@@ -369,15 +369,33 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       // Extract alert name from incident if available (for CW incidents)
       const alertName = message.incident?.alert_name || null;
 
-      // Call createIncident API
-      // API signature: createIncident(logData, service, question, logGroup = null, alertName = null, context = null)
+      // Call createIncident API (includes Ask-mode transcript for replay when loading from Incidents)
+      const msgIndex = currentMsgs.findIndex((m) => m.id === message.id);
+      const prefix = msgIndex >= 0 ? currentMsgs.slice(0, msgIndex + 1) : [message];
+      const chat_transcript = prefix.map((m) => ({
+        id: m.id,
+        role: m.isUser ? 'user' : 'assistant',
+        text:
+          m.text ||
+          (m.logEntries?.length
+            ? `[Log analysis — ${m.logEntries.length} entries; detail in original session if saved.]`
+            : ''),
+        timestamp:
+          m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp || new Date().toISOString(),
+        search_mode: m.searchMode || null,
+      }));
+
       const result = await createIncident(
         logData,
         serviceName,
         question,
         logGroup, // Pass extracted log group
         alertName, // Pass alert name from CW incident
-        null  // context
+        null, // context
+        {
+          chat_transcript,
+          source_session_id: currentSessionIdRef.current || undefined,
+        }
       );
 
       // Debug: Log the full result to see what we're getting
@@ -687,53 +705,54 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   };
 
-  const handleLoadCloudWatchIncident = (incidentMessage, initialRemediationStatus = null) => {
-    console.log('📥 Loading CloudWatch incident:', incidentMessage);
+  const handleLoadCloudWatchIncident = (payload, initialRemediationStatus = null) => {
+    const list = Array.isArray(payload) ? payload : [payload];
+    console.log('📥 Loading incident into a new session:', list.length, 'message(s)');
 
-    // If already in a saved session, open the incident in a fresh chat.
-    // Navigate to /chat (new chat), then load the incident after state clears.
-    if (currentSessionIdRef.current) {
+    /** Always reset to an unsaved chat with only this incident (no prior messages / sessions). */
+    const beginNewSessionAndLoadIncident = () => {
       currentSessionIdRef.current = null;
+      setModeMessages({ ask: [], trace: [], investigate: [] });
+      setPendingIncidentData(null);
+      setSuggestions([]);
+      Object.entries(pollingIntervalsRef.current).forEach(([, interval]) => clearInterval(interval));
+      pollingIntervalsRef.current = {};
+      pollingStartTimeRef.current = {};
+      lastStatusHashRef.current = {};
+      stableStatusCountRef.current = {};
+      pausedPollingRef.current = {};
+      setPollingStatus({});
+      setRemediationStatuses({});
+      _loadIncidentMessagesIntoChat(list, initialRemediationStatus);
+    };
+
+    // Leaving a routed session (/chat/:id) triggers the route effect to clear state; then we load.
+    if (routeSessionId) {
       navigate('/chat');
-      // Defer so the route change + state clear runs first
-      setTimeout(() => {
-        _loadIncidentIntoChat(incidentMessage, initialRemediationStatus);
-      }, 50);
+      setTimeout(beginNewSessionAndLoadIncident, 50);
       return;
     }
 
-    _loadIncidentIntoChat(incidentMessage, initialRemediationStatus);
+    // Already on /chat with no session id — navigate does not re-run the effect, so clear here.
+    beginNewSessionAndLoadIncident();
   };
 
-  const _loadIncidentIntoChat = (incidentMessage, initialRemediationStatus = null) => {
-    // Seed remediation status from Incidents dialog so detail view shows correct stage immediately
-    if (incidentMessage.incident?.incident_id && initialRemediationStatus) {
-      setRemediationStatuses(prev => ({
+  /** One incident card or replay list + card; all in Ask mode. */
+  const _loadIncidentMessagesIntoChat = (messageList, initialRemediationStatus = null) => {
+    const incidentMessage = messageList.find((m) => m.incident?.incident_id);
+    const incidentId = incidentMessage?.incident?.incident_id;
+
+    if (incidentId && initialRemediationStatus) {
+      setRemediationStatuses((prev) => ({
         ...prev,
-        [incidentMessage.incident.incident_id]: initialRemediationStatus
+        [incidentId]: initialRemediationStatus,
       }));
     }
 
-    // Add incident message to chat, avoiding duplicates
-    setMessages(prev => {
-      const existingIncidentIds = new Set(
-        prev
-          .filter(m => m.incident?.incident_id)
-          .map(m => m.incident.incident_id)
-      );
+    setMessages(messageList);
 
-      if (incidentMessage.incident?.incident_id &&
-          existingIncidentIds.has(incidentMessage.incident.incident_id)) {
-        console.log('⚠️ Incident already in chat, skipping duplicate');
-        return prev;
-      }
-
-      return [...prev, incidentMessage];
-    });
-    
-    // Start remediation polling only for CloudWatch incidents (not ServiceNow/Jira)
-    if (incidentMessage.incident?.incident_id && incidentMessage.incident?.source === 'cloudwatch_alarm') {
-      const incidentId = incidentMessage.incident.incident_id;
+    const src = incidentMessage?.incident?.source;
+    if (incidentId && (src === 'cloudwatch_alarm' || src === 'chat')) {
       console.log(`🔄 Starting remediation polling for incident: ${incidentId}`);
       startRemediationPolling(incidentId);
     }

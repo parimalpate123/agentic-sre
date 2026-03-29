@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { fetchIncidents, deleteIncident, reanalyzeIncident, getRemediationStatus } from '../services/api';
-import { incidentToMessage, parseIncidentData } from '../utils/incidentParser';
+import { incidentToMessage, parseIncidentData, getIncidentLoadMessages } from '../utils/incidentParser';
 import { normalizeCloudWatchIncident, normalizeServiceNowTicket, normalizeJiraIssue } from '../utils/incidentNormalizer';
 import { MOCK_SERVICENOW_TICKETS, MOCK_JIRA_ISSUES } from '../data/mockIncidents';
 
@@ -139,7 +139,7 @@ export default function CloudWatchIncidentsDialog({
       setAllIncidents(sorted);
       // Apply timeframe filter immediately instead of relying on a separate effect
       applyTimeframeFilter(sorted);
-      // Don't bulk-fetch remediation for all incidents — fetch lazily on expand
+      prefetchRemediationStatusesForList(sorted);
     } catch (err) {
       console.error('Error loading incidents:', err);
       setError('Failed to load incidents. Please try again.');
@@ -172,6 +172,40 @@ export default function CloudWatchIncidentsDialog({
   };
 
   const filterIncidentsByTimeframe = () => applyTimeframeFilter(null);
+
+  /** Resolve incident_id from a DynamoDB row (same shape as list cards). */
+  const extractIncidentIdFromRow = (incident) => {
+    try {
+      const rawData = incident.data
+        ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data)
+        : (incident.investigation_result || incident);
+      return parseIncidentData(rawData)?.incident_id || incident.incident_id || null;
+    } catch {
+      return incident.incident_id || null;
+    }
+  };
+
+  /**
+   * Chat view polls remediation status; the list used to fetch only on row expand.
+   * Prefetch after load so the pipeline + badge match reality without expanding each row.
+   */
+  const prefetchRemediationStatusesForList = (incidentList) => {
+    if (!incidentList?.length) return;
+    const ids = [...new Set(incidentList.map(extractIncidentIdFromRow).filter(Boolean))];
+    if (ids.length === 0) return;
+    void (async () => {
+      const settled = await Promise.allSettled(ids.map((id) => getRemediationStatus(id)));
+      const next = {};
+      settled.forEach((result, i) => {
+        if (result.status === 'fulfilled' && result.value) {
+          next[ids[i]] = result.value;
+        }
+      });
+      if (Object.keys(next).length > 0) {
+        setRemediationStatuses((prev) => ({ ...prev, ...next }));
+      }
+    })();
+  };
 
   const handleLoadIncident = (incidentItem, initialRemediationStatus = null) => {
     try {
@@ -215,15 +249,16 @@ export default function CloudWatchIncidentsDialog({
           }
         };
       } else {
-        incidentMessage = incidentToMessage(incidentItem);
-        // Pass remediation status we already have so chat shows correct stage immediately (e.g. AI PR Review Complete)
-        const parsed = parseIncidentData(incidentItem.data
+        const rawData = incidentItem.data
           ? (typeof incidentItem.data === 'string' ? JSON.parse(incidentItem.data) : incidentItem.data)
-          : (incidentItem.investigation_result || incidentItem));
+          : (incidentItem.investigation_result || incidentItem);
+        const parsed = parseIncidentData(rawData);
         const incidentId = parsed?.incident_id;
         if (incidentId && remediationStatuses[incidentId]) {
           initialRemediationStatus = remediationStatuses[incidentId];
         }
+        // Replay stored Ask-mode transcript (if any) + formal investigation message
+        incidentMessage = getIncidentLoadMessages(incidentItem);
       }
       onLoadIncident(incidentMessage, initialRemediationStatus);
       onClose();
@@ -379,7 +414,12 @@ export default function CloudWatchIncidentsDialog({
 
     // Determine current stage based on timeline and status
     // API returns issue.url / pr.url; support both for backwards compatibility
-    const hasIssue = issue?.issue_url || issue?.url || githubIssue?.issue_url;
+    const hasIssue =
+      issue?.issue_url ||
+      issue?.url ||
+      githubIssue?.issue_url ||
+      githubIssue?.url ||
+      githubIssue?.status === 'success';
     const hasPR = pr?.pr_url || pr?.url || pr?.number;
     const reviewStatus = pr?.review_status;
     const aiPrReviewCompleted = pr?.ai_pr_review_completed ?? (reviewStatus && reviewStatus !== 'pending');
@@ -485,11 +525,14 @@ export default function CloudWatchIncidentsDialog({
     };
   };
 
-  const getStageStatus = (stageId, currentStageInfo, remediationStatus) => {
+  const getStageStatus = (stageId, currentStageInfo, remediationStatus, parsed) => {
     const timeline = remediationStatus?.timeline || [];
     const timelineEvents = timeline.map(e => typeof e === 'object' ? e.event : e);
     const issue = remediationStatus?.issue;
     const pr = remediationStatus?.pr;
+    const ghFromIncident = parsed?.execution_results?.github_issue;
+    const issueCompleteFromSnapshot =
+      !!(ghFromIncident?.issue_url || ghFromIncident?.url) || ghFromIncident?.status === 'success';
     
     // Check if stage is completed based on timeline events and status
     let isCompleted = false;
@@ -500,7 +543,10 @@ export default function CloudWatchIncidentsDialog({
         isCompleted = true;
         break;
       case 'issue':
-        isCompleted = !!(issue?.issue_url || issue?.url) || timelineEvents.includes('issue_created');
+        isCompleted =
+          !!(issue?.issue_url || issue?.url) ||
+          timelineEvents.includes('issue_created') ||
+          issueCompleteFromSnapshot;
         break;
       case 'analysis':
         isCompleted = timelineEvents.includes('fix_generation_started') || timelineEvents.includes('pr_creation_started');
@@ -937,7 +983,7 @@ export default function CloudWatchIncidentsDialog({
                             <div className="mt-2 ml-5">
                               <div className="flex items-center gap-1">
                                 {stages.map((stage, index) => {
-                                  const stageStatus = getStageStatus(stage.id, currentStageInfo, remediationStatus);
+                                  const stageStatus = getStageStatus(stage.id, currentStageInfo, remediationStatus, parsed);
                                   const isCompleted = stageStatus === 'completed';
                                   const isInProgress = stageStatus === 'in_progress';
                                   
@@ -1072,7 +1118,7 @@ export default function CloudWatchIncidentsDialog({
                             <div className="bg-white p-3 rounded border border-gray-200">
                               <div className="flex items-center gap-1">
                                 {stages.map((stage, index) => {
-                                  const stageStatus = getStageStatus(stage.id, currentStageInfo, remediationStatus);
+                                  const stageStatus = getStageStatus(stage.id, currentStageInfo, remediationStatus, parsed);
                                   const isCompleted = stageStatus === 'completed';
                                   const isInProgress = stageStatus === 'in_progress';
                                   

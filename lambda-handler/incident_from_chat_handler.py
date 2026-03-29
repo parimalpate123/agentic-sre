@@ -107,6 +107,17 @@ def incident_from_chat_handler(event: Dict[str, Any], context: Any) -> Dict[str,
                 })
             }
 
+        # Optional: replay of Ask-mode messages leading to this incident (persisted on the incident record)
+        chat_transcript = body.get('chat_transcript')
+        source_session_id = body.get('source_session_id')
+        if isinstance(chat_transcript, list):
+            chat_transcript = chat_transcript[-40:]
+            for row in chat_transcript:
+                if isinstance(row, dict):
+                    t = row.get('text')
+                    if isinstance(t, str) and len(t) > 12000:
+                        row['text'] = t[:12000] + '\n…[truncated]'
+
         # Run async investigation
         result = asyncio.run(create_incident_from_chat_async(
             log_data=log_data,
@@ -114,7 +125,9 @@ def incident_from_chat_handler(event: Dict[str, Any], context: Any) -> Dict[str,
             question=question,
             alert_name=alert_name,
             context=context,
-            log_group=log_group
+            log_group=log_group,
+            chat_transcript=chat_transcript,
+            source_session_id=source_session_id,
         ))
 
         # Extract execution results from full_state
@@ -188,7 +201,9 @@ async def create_incident_from_chat_async(
     question: str,
     alert_name: str,
     context: str = None,
-    log_group: str = None
+    log_group: str = None,
+    chat_transcript: Any = None,
+    source_session_id: str = None,
 ) -> Dict[str, Any]:
     """
     Create and investigate incident from chat query results
@@ -243,6 +258,11 @@ async def create_incident_from_chat_async(
 
     # Convert to dict with proper recursive serialization
     result_dict = investigation_result.model_dump(mode='json')
+
+    if chat_transcript is not None:
+        result_dict['chat_transcript'] = chat_transcript
+    if source_session_id:
+        result_dict['source_session_id'] = source_session_id
 
     # Save to DynamoDB
     storage.save_incident(

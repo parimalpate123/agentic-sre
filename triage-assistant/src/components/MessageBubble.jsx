@@ -8,6 +8,7 @@ import ErrorPatternsView from './ErrorPatternsView';
 import DiagnosisView from './DiagnosisView';
 import RemediationStatus from './RemediationStatus';
 import SourcePanel from './SourcePanel';
+import ChatMarkdown from './ChatMarkdown';
 
 export default function MessageBubble({ 
   message, 
@@ -68,6 +69,22 @@ export default function MessageBubble({
 
   const badge = getSearchModeBadge();
 
+  /** Live remediation can be ahead of the stale execution_results snapshot on the message (e.g. after load from DB). */
+  const remediationIssueLive =
+    remediationStatus?.issue &&
+    (remediationStatus.issue.number != null ||
+      remediationStatus.issue.url ||
+      remediationStatus.issue.issue_url);
+  const remediationPrLive =
+    remediationStatus?.pr &&
+    (remediationStatus.pr.number != null ||
+      remediationStatus.pr.url ||
+      remediationStatus.pr.pr_url);
+  const snapshotGithubPending =
+    message.incident?.execution_results?.github_issue?.status === 'pending_approval';
+  const githubPendingSupersededByLive =
+    snapshotGithubPending && (remediationIssueLive || remediationPrLive);
+
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 w-full`}>
       <div className={`flex flex-col w-full max-w-full ${isUser ? 'items-end' : ''}`}>
@@ -96,8 +113,13 @@ export default function MessageBubble({
           </div>
         )}
 
-        {/* Message text - but if it's an incident, we'll show it after Execution Results */}
-        {!message.incident && <p className="text-sm whitespace-pre-wrap">{message.text}</p>}
+        {/* Message text - incident narrative is rendered below execution blocks */}
+        {!message.incident &&
+          (message.formatMarkdown && message.text ? (
+            <ChatMarkdown>{message.text}</ChatMarkdown>
+          ) : (
+            <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+          ))}
 
         {/* Compact synthesis indicator — insights/recommendations live in the Analysis panel */}
         {!isUser && (message.insights?.length > 0 || message.recommendations?.length > 0) && (
@@ -146,6 +168,7 @@ export default function MessageBubble({
             )}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {onCreateIncident &&
+             !message.replayFromIncident &&
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                   onClick={() => onCreateIncident(message)}
@@ -262,7 +285,11 @@ export default function MessageBubble({
         {/* Show incident analysis text BEFORE Execution Results */}
         {!isUser && message.incident && message.text && (
           <div className="mt-3 pt-3 border-t border-gray-200">
-            <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+            {message.formatMarkdown ? (
+              <ChatMarkdown>{message.text}</ChatMarkdown>
+            ) : (
+              <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+            )}
           </div>
         )}
 
@@ -293,7 +320,7 @@ export default function MessageBubble({
          !message.diagnosis &&
          !message.investigationStarted && (
           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onCreateIncident && (
+            {onCreateIncident && !message.replayFromIncident && (
               <button
                 onClick={() => onCreateIncident(message)}
                 disabled={isDiagnosing || isCreatingIncident}
@@ -328,6 +355,7 @@ export default function MessageBubble({
          !message.investigationStarted && (
           <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-2">
             {onCreateIncident &&
+             !message.replayFromIncident &&
              !(message.incident?.source === 'cloudwatch_alarm' && message.incident?.execution_type === 'code_fix') && (
               <button
                 onClick={() => onCreateIncident(message)}
@@ -481,6 +509,14 @@ export default function MessageBubble({
               </div>
             )}
             {message.incident.execution_results?.github_issue && (
+              githubPendingSupersededByLive ? (
+                <div className="mb-2 p-3 rounded border bg-emerald-50 border-emerald-200">
+                  <p className="text-xs text-emerald-900 leading-relaxed">
+                    <span className="font-semibold">GitHub workflow updated.</span> This incident record still shows &quot;pending approval&quot; from when it was saved, but live status already has an issue
+                    {remediationPrLive ? ' and pull request' : ''}. Use the <strong>Incident &amp; Remediation Lifecycle</strong> section above for the current state — do not create another issue from this snapshot.
+                  </p>
+                </div>
+              ) : (
               <div className={`mb-2 p-3 rounded border ${
                 message.incident.execution_results.github_issue.status === 'success' 
                   ? 'bg-green-50 border-green-200' 
@@ -538,6 +574,7 @@ export default function MessageBubble({
                   </p>
                 )}
               </div>
+              )
             )}
             {message.incident.execution_results?.escalation && (
               <div className="mb-2 p-2 bg-yellow-50 rounded border border-yellow-200">

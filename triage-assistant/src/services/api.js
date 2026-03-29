@@ -171,9 +171,18 @@ export async function requestDiagnosis(logData, service, context = null) {
  * @param {string} logGroup - Log group name
  * @param {string} alertName - Optional custom alert name
  * @param {string} context - Optional additional context
+ * @param {Object} [extra] - Optional chat_transcript, source_session_id (persisted on incident for replay on load)
  * @returns {Promise<Object>} - Incident creation result with incident_id
  */
-export async function createIncident(logData, service, question, logGroup = null, alertName = null, context = null) {
+export async function createIncident(
+  logData,
+  service,
+  question,
+  logGroup = null,
+  alertName = null,
+  context = null,
+  extra = {}
+) {
   const payload = {
     action: 'create_incident',
     log_data: logData,
@@ -189,6 +198,12 @@ export async function createIncident(logData, service, question, logGroup = null
   }
   if (context) {
     payload.context = context;
+  }
+  if (extra.chat_transcript && Array.isArray(extra.chat_transcript)) {
+    payload.chat_transcript = extra.chat_transcript;
+  }
+  if (extra.source_session_id) {
+    payload.source_session_id = extra.source_session_id;
   }
 
   try {
