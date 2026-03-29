@@ -14,6 +14,7 @@ export default function CloudWatchIncidentsDialog({
   isOpen,
   onClose,
   onLoadIncident,
+  onViewIncident,
   initialSource = 'all'
 }) {
   const [incidents, setIncidents] = useState([]);
@@ -819,12 +820,26 @@ export default function CloudWatchIncidentsDialog({
                             <p className="text-xs text-gray-500 mt-1"><strong>Steps to reproduce:</strong> {steps}{incident.steps_to_reproduce?.length > 100 ? '…' : ''}</p>
                           )}
                         </div>
-                        <button
-                          onClick={() => handleLoadIncident(incident)}
-                          className="text-xs bg-violet-100 hover:bg-violet-200 text-violet-800 font-medium px-3 py-1.5 rounded shrink-0"
-                        >
-                          Load
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {onViewIncident && (() => {
+                            const d = incident.data ? (typeof incident.data === 'string' ? JSON.parse(incident.data) : incident.data) : incident;
+                            const id = d.incident_id;
+                            return id ? (
+                              <button
+                                onClick={() => { onClose(); onViewIncident(id); }}
+                                className="text-xs bg-green-100 hover:bg-green-200 text-green-800 font-medium px-3 py-1.5 rounded"
+                              >
+                                View Form
+                              </button>
+                            ) : null;
+                          })()}
+                          <button
+                            onClick={() => handleLoadIncident(incident)}
+                            className="text-xs bg-violet-100 hover:bg-violet-200 text-violet-800 font-medium px-3 py-1.5 rounded"
+                          >
+                            Load
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -982,6 +997,18 @@ export default function CloudWatchIncidentsDialog({
                           >
                             🗑️ Delete
                           </button>
+                          {onViewIncident && incidentId && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onClose();
+                                onViewIncident(incidentId);
+                              }}
+                              className="px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors whitespace-nowrap"
+                            >
+                              View Form
+                            </button>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();

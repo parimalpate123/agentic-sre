@@ -17,7 +17,7 @@ import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSa
 import { incidentToMessage } from '../utils/incidentParser';
 import { PREDEFINED_QUESTIONS } from './SuggestedQuestions';
 
-const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel, onSessionCreated, onUntriagedCountChange, activeMode: activeModeprop = 'ask', onModeChange }, ref) {
+const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel, onSessionCreated, onUntriagedCountChange, activeMode: activeModeprop = 'ask', onModeChange, onViewIncident }, ref) {
   const { sessionId: routeSessionId } = useParams();
   const navigate = useNavigate();
   // activeMode is lifted to ChatLayout — received via props so sidebar and chat share the same state
@@ -507,6 +507,10 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           const mode = Object.keys(prev).find(k => prev[k].some(m => m.id === message.id)) || activeMode;
           return { ...prev, [mode]: prev[mode].map(msg => msg.id === message.id ? { ...msg, text: incidentAnalysisText, incident: incidentObj } : msg) };
         });
+        // Open the structured incident form view
+        if (result.incident_id && onViewIncident) {
+          onViewIncident(result.incident_id);
+        }
       }
       
       // Check if approval is needed (code_fix and service known)
@@ -1894,6 +1898,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         isOpen={showCloudWatchIncidentsDialog}
         onClose={() => setShowCloudWatchIncidentsDialog(false)}
         onLoadIncident={handleLoadCloudWatchIncident}
+        onViewIncident={onViewIncident}
         initialSource={defaultIncidentSource}
       />
     </div>
