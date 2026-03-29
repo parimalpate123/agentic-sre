@@ -6,7 +6,12 @@
 
 import { useState, useEffect } from 'react';
 import { fetchIncidents, deleteIncident, reanalyzeIncident, getRemediationStatus } from '../services/api';
-import { incidentToMessage, parseIncidentData, getIncidentLoadMessages } from '../utils/incidentParser';
+import {
+  incidentToMessage,
+  parseIncidentData,
+  getIncidentLoadMessages,
+  normalizeRemediationStepText,
+} from '../utils/incidentParser';
 import { normalizeCloudWatchIncident, normalizeServiceNowTicket, normalizeJiraIssue } from '../utils/incidentNormalizer';
 import { MOCK_SERVICENOW_TICKETS, MOCK_JIRA_ISSUES } from '../data/mockIncidents';
 
@@ -1099,10 +1104,19 @@ export default function CloudWatchIncidentsDialog({
                                   {recommendedAction.steps && recommendedAction.steps.length > 0 && (
                                     <ol className="mt-1 ml-4 list-decimal space-y-0.5">
                                       {recommendedAction.steps.map((step, i) => (
-                                        <li key={i}>{typeof step === 'string' ? step : step.description || step.action || JSON.stringify(step)}</li>
+                                        <li key={i}>{normalizeRemediationStepText(step)}</li>
                                       ))}
                                     </ol>
                                   )}
+                                  {executionType === 'code_fix' &&
+                                    recommendedAction.action_type &&
+                                    String(recommendedAction.action_type).toLowerCase().includes('rollback') && (
+                                      <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200/80 rounded px-2 py-1.5 mt-2 leading-snug">
+                                        <span className="font-semibold">Note:</span> Remediation may follow a code-fix/PR
+                                        path below while the recommendation above reflects initial analysis (e.g. rollback
+                                        vs forward fix). Prefer the active lifecycle unless ops chooses otherwise.
+                                      </p>
+                                    )}
                                 </>
                               ) : (
                                 <p className="whitespace-pre-wrap">{recommendedAction}</p>

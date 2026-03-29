@@ -1,4 +1,5 @@
 import React from 'react';
+import { normalizeRemediationStepText } from '../utils/incidentParser';
 
 /**
  * Displays diagnosis results with root cause analysis
@@ -120,7 +121,9 @@ export default function DiagnosisView({ diagnosis }) {
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Recommended Next Steps</h3>
             <ol className="list-decimal list-inside space-y-1">
               {next_steps.map((step, index) => (
-                <li key={index} className="text-sm text-gray-600">{step}</li>
+                <li key={index} className="text-sm text-gray-600">
+                  {normalizeRemediationStepText(step)}
+                </li>
               ))}
             </ol>
           </div>

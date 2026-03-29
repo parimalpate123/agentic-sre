@@ -138,7 +138,7 @@ export function parseIncidentData(data) {
 }
 
 /** True when stored executive_summary already embeds log analysis, root cause, and remediation text. */
-function executiveSummaryIsFullNarrative(text) {
+export function executiveSummaryIsFullNarrative(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim();
   if (t.length < 280) return false;
@@ -154,6 +154,25 @@ function executiveSummaryIsFullNarrative(text) {
   ];
   const hits = markers.filter((m) => u.includes(m)).length;
   return hits >= 2 || (t.length >= 650 && hits >= 1) || t.length >= 1600;
+}
+
+/**
+ * Agent step strings often include "1. " (or repeated "1. 1. ") while the UI uses <ol>.
+ * Strip leading numeric ordinals for display inside ordered lists.
+ * @param {string|{description?:string,action?:string}} step
+ * @returns {string}
+ */
+export function normalizeRemediationStepText(step) {
+  if (step == null) return '';
+  const raw =
+    typeof step === 'string'
+      ? step
+      : step.description || step.action || JSON.stringify(step);
+  let s = String(raw).trim();
+  while (/^\d+\.\s+/.test(s)) {
+    s = s.replace(/^\d+\.\s+/, '');
+  }
+  return s;
 }
 
 /** Markdown block for recommended action (object or string). */
@@ -172,15 +191,8 @@ function formatRecommendedActionMarkdown(recommendedAction) {
       actionText +=
         action.steps
           .map((step, i) => {
-            const stepText =
-              typeof step === 'string'
-                ? step
-                : step.description || step.action || JSON.stringify(step);
-            const trimmed = String(stepText).trim();
-            if (/^\d+\.\s/.test(trimmed)) {
-              return trimmed;
-            }
-            return `${i + 1}. ${stepText}`;
+            const body = normalizeRemediationStepText(step);
+            return `${i + 1}. ${body}`;
           })
           .join('\n') + '\n';
     }

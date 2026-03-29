@@ -134,6 +134,8 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
       loadChatSession(routeSessionId)
         .then((session) => {
           if (cancelled) return;
+          // Messages are stored verbatim; each message.incident should include full_state when
+          // investigations were saved (see createIncident payload and incidentToMessage).
           if (session.messages?.length) setModeMessages(prev => ({ ...prev, ask: session.messages }));
           if (session.incident_data) setPendingIncidentData(session.incident_data);
           if (session.remediation_statuses) {
