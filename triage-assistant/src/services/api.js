@@ -634,6 +634,36 @@ export async function deleteIncident(incidentId) {
 }
 
 /**
+ * Acknowledge an alarm-triggered incident (DynamoDB alarm_acknowledged flag; reduces sidebar bell count).
+ * @param {string} incidentId
+ * @returns {Promise<Object>}
+ */
+export async function acknowledgeAlarmIncident(incidentId) {
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'acknowledge_alarm_incident',
+        incident_id: incidentId,
+      }),
+    });
+
+    const data = await response.json();
+    const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+
+    if (!response.ok) {
+      throw new Error(result.error || `API error: ${response.status} ${response.statusText}`);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error acknowledging incident:', error);
+    throw error;
+  }
+}
+
+/**
  * Re-analyze an existing incident
  * Re-runs the investigation workflow and updates the incident with new results
  * 
@@ -701,6 +731,7 @@ export default {
   getRemediationStatus,
   fetchIncidents,
   deleteIncident,
+  acknowledgeAlarmIncident,
   reanalyzeIncident,
   saveChatSession,
   loadChatSession,

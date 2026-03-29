@@ -571,6 +571,36 @@ class Storage:
             logger.error(f"Failed to update incident status: {str(e)}", exc_info=True)
             return False
 
+    def acknowledge_alarm_incident(self, incident_id: str) -> bool:
+        """
+        Mark an alarm-triggered incident as acknowledged (sidebar bell / triage).
+
+        Sets top-level DynamoDB attributes so list_incidents returns them without
+        parsing nested investigation JSON.
+        """
+        logger.info(f"Acknowledging alarm incident {incident_id}")
+
+        try:
+            now = datetime.utcnow().isoformat()
+            self.dynamodb.update_item(
+                TableName=self.incidents_table,
+                Key={'incident_id': {'S': incident_id}},
+                UpdateExpression=(
+                    'SET alarm_acknowledged = :ack, '
+                    'alarm_acknowledged_at = :ack_at, '
+                    'updated_at = :updated_at'
+                ),
+                ExpressionAttributeValues={
+                    ':ack': {'BOOL': True},
+                    ':ack_at': {'S': now},
+                    ':updated_at': {'S': now},
+                },
+            )
+            return True
+        except ClientError as e:
+            logger.error(f"Failed to acknowledge incident {incident_id}: {str(e)}", exc_info=True)
+            return False
+
     def delete_incident(self, incident_id: str) -> bool:
         """
         Delete an incident from DynamoDB

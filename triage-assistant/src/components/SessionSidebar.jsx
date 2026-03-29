@@ -129,7 +129,9 @@ export default function SessionSidebar({ onRefreshTrigger, onSampleQuestionClick
             <div className="text-xs font-semibold text-amber-800 leading-tight">
               {untriagedCount} new incident{untriagedCount !== 1 ? 's' : ''} today
             </div>
-            <div className="text-[10px] text-amber-600 leading-tight mt-0.5">Auto-triggered · new since last review</div>
+            <div className="text-[10px] text-amber-600 leading-tight mt-0.5">
+              Auto-triggered · acknowledge in Incidents to clear
+            </div>
           </div>
           <svg className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

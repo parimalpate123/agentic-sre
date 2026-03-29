@@ -22,6 +22,7 @@ from create_github_issue_handler import lambda_handler as create_github_issue_ha
 from list_incidents_handler import list_incidents_handler
 from cloudwatch_alarm_handler import cloudwatch_alarm_handler
 from delete_incident_handler import lambda_handler as delete_incident_handler
+from acknowledge_incident_handler import lambda_handler as acknowledge_incident_handler
 from reanalyze_incident_handler import reanalyze_incident_handler
 
 logger = logging.getLogger()
@@ -136,6 +137,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Delete incident
             logger.info(f"Routing to delete_incident_handler (delete_incident action detected)")
             response = delete_incident_handler(event, context)
+        elif action == 'acknowledge_alarm_incident':
+            logger.info("Routing to acknowledge_incident_handler (acknowledge_alarm_incident)")
+            response = acknowledge_incident_handler(event, context)
         elif action == 'reanalyze_incident':
             # Re-analyze existing incident
             logger.info(f"Routing to reanalyze_incident_handler (reanalyze_incident action detected)")

@@ -17,6 +17,28 @@ import { askQuestion, fetchLogGroups, requestDiagnosis, createIncident, manageSa
 import { incidentToMessage } from '../utils/incidentParser';
 import { PREDEFINED_QUESTIONS } from './SuggestedQuestions';
 
+/** Open CloudWatch alarm incidents in the last 24h that count toward the sidebar bell (excludes resolved / acknowledged). */
+function calcAlarmBellCount(incidents) {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  return incidents.filter((inc) => {
+    const st = String(inc.status ?? '').toLowerCase();
+    if (st === 'resolved' || st === 'closed') return false;
+    if (inc.alarm_acknowledged === true || inc.alarm_acknowledged === 'true') return false;
+    if (inc.alarm_acknowledged_at) return false;
+    let raw = inc;
+    try {
+      raw = inc.data ? (typeof inc.data === 'string' ? JSON.parse(inc.data) : inc.data) : inc;
+    } catch {
+      raw = inc;
+    }
+    const created = raw?.created_at || raw?.timestamp || inc.created_at;
+    if (!created) return true;
+    const t = new Date(created).getTime();
+    if (Number.isNaN(t)) return true;
+    return t >= cutoff;
+  }).length;
+}
+
 const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onToggleFullScreen, onShowUtilityPanel, onSessionCreated, onUntriagedCountChange, activeMode: activeModeprop = 'ask', onModeChange }, ref) {
   const { sessionId: routeSessionId } = useParams();
   const navigate = useNavigate();
@@ -163,57 +185,41 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
     }
   }, [routeSessionId]);
 
-  // Mark incidents as "seen" the moment the user opens the dialog — this is how count resets
-  useEffect(() => {
-    if (showCloudWatchIncidentsDialog) {
-      localStorage.setItem('tars_incidents_last_viewed', new Date().toISOString());
-    }
-  }, [showCloudWatchIncidentsDialog]);
-
-  // Helper: count today's incidents created AFTER the last time the user viewed the dialog
-  const calcUntriagedCount = (incidents) => {
-    const today = new Date().toDateString();
-    const lastViewed = localStorage.getItem('tars_incidents_last_viewed');
-    const lastViewedDate = lastViewed ? new Date(lastViewed) : null;
-    return incidents.filter((inc) => {
-      const raw = inc.data ? (typeof inc.data === 'string' ? JSON.parse(inc.data) : inc.data) : inc;
-      const created = raw?.created_at || raw?.timestamp || inc.created_at;
-      if (!created) return !lastViewedDate; // no timestamp: show only if never viewed
-      const createdDate = new Date(created);
-      if (createdDate.toDateString() !== today) return false;       // not today
-      if (lastViewedDate && createdDate <= lastViewedDate) return false; // already seen
-      return true;
-    }).length;
-  };
-
-  // Fetch untriaged alarm count for bell icon — re-runs when dialog closes (and lastViewed is fresh)
-  useEffect(() => {
-    let cancelled = false;
-    fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'open' })
-      .then((incidents) => {
-        if (cancelled) return;
-        const count = calcUntriagedCount(incidents);
+  const refreshAlarmBellCount = useCallback(() => {
+    fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'all' })
+      .then((rows) => {
+        const count = calcAlarmBellCount(rows);
         setUntriagedCount(count);
         onUntriagedCountChange?.(count);
       })
-      .catch(() => { if (!cancelled) { setUntriagedCount(0); onUntriagedCountChange?.(0); } });
-    return () => { cancelled = true; };
+      .catch(() => {});
+  }, [onUntriagedCountChange]);
+
+  // Bell count: open CloudWatch rows from API, minus acknowledged / resolved / stale (>24h)
+  useEffect(() => {
+    let cancelled = false;
+    fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'all' })
+      .then((rows) => {
+        if (cancelled) return;
+        const count = calcAlarmBellCount(rows);
+        setUntriagedCount(count);
+        onUntriagedCountChange?.(count);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUntriagedCount(0);
+          onUntriagedCountChange?.(0);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [showCloudWatchIncidentsDialog, onUntriagedCountChange]);
 
-  // Keep untriaged count live — re-poll every 60s in the background
   useEffect(() => {
-    const poll = () => {
-      fetchIncidents({ limit: 100, source: 'cloudwatch_alarm', status: 'open' })
-        .then((incidents) => {
-          const count = calcUntriagedCount(incidents);
-          setUntriagedCount(count);
-          onUntriagedCountChange?.(count);
-        })
-        .catch(() => {});
-    };
-    const id = setInterval(poll, 120_000);
+    const id = setInterval(refreshAlarmBellCount, 120_000);
     return () => clearInterval(id);
-  }, [onUntriagedCountChange]);
+  }, [refreshAlarmBellCount]);
 
   // Fetch log groups on mount (CloudWatch is always selected for now)
   useEffect(() => {
@@ -1454,7 +1460,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
           return prev;
         });
       }
-      setUntriagedCount((c) => (c > 0 ? c - 1 : 0));
+      refreshAlarmBellCount();
     } catch (error) {
       console.error('Failed to refresh incidents:', error);
     }
@@ -1916,6 +1922,7 @@ const ChatWindow = forwardRef(function ChatWindow({ isFullScreen = false, onTogg
         onClose={() => setShowCloudWatchIncidentsDialog(false)}
         onLoadIncident={handleLoadCloudWatchIncident}
         initialSource={defaultIncidentSource}
+        onAlarmAcknowledged={refreshAlarmBellCount}
       />
     </div>
   );

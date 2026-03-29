@@ -5,7 +5,13 @@
  */
 
 import { useState, useEffect } from 'react';
-import { fetchIncidents, deleteIncident, reanalyzeIncident, getRemediationStatus } from '../services/api';
+import {
+  fetchIncidents,
+  deleteIncident,
+  reanalyzeIncident,
+  getRemediationStatus,
+  acknowledgeAlarmIncident,
+} from '../services/api';
 import {
   incidentToMessage,
   parseIncidentData,
@@ -15,11 +21,19 @@ import {
 import { normalizeCloudWatchIncident, normalizeServiceNowTicket, normalizeJiraIssue } from '../utils/incidentNormalizer';
 import { MOCK_SERVICENOW_TICKETS, MOCK_JIRA_ISSUES } from '../data/mockIncidents';
 
+function isAlarmAcknowledgedRow(incident) {
+  if (!incident || typeof incident !== 'object') return false;
+  if (incident.alarm_acknowledged === true || incident.alarm_acknowledged === 'true') return true;
+  if (incident.alarm_acknowledged_at) return true;
+  return false;
+}
+
 export default function CloudWatchIncidentsDialog({
   isOpen,
   onClose,
   onLoadIncident,
-  initialSource = 'all'
+  initialSource = 'all',
+  onAlarmAcknowledged = null,
 }) {
   const [incidents, setIncidents] = useState([]);
   const [allIncidents, setAllIncidents] = useState([]); // Store all incidents for client-side filtering
@@ -297,6 +311,22 @@ export default function CloudWatchIncidentsDialog({
     } catch (err) {
       console.error('Error deleting incident:', err);
       setError(`Failed to delete incident: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAcknowledgeIncident = async (incidentId, e) => {
+    if (e) e.stopPropagation();
+    setIsLoading(true);
+    setError(null);
+    try {
+      await acknowledgeAlarmIncident(incidentId);
+      await loadIncidents(true);
+      onAlarmAcknowledged?.();
+    } catch (err) {
+      console.error('Error acknowledging incident:', err);
+      setError(err.message || 'Failed to acknowledge incident');
     } finally {
       setIsLoading(false);
     }
@@ -902,6 +932,9 @@ export default function CloudWatchIncidentsDialog({
                 const isExpanded = expandedIncident === incidentId;
                 const remediationStatus = remediationStatuses[incidentId];
                 const currentStageInfo = getCurrentStage(parsed, remediationStatus);
+                const alarmAcknowledged = isAlarmAcknowledgedRow(incident);
+                const showAcknowledge =
+                  parsed.source === 'cloudwatch_alarm' && !alarmAcknowledged;
                 
                 // Get issue and PR URLs
                 const githubIssue = parsed.execution_results?.github_issue || remediationStatus?.issue;
@@ -950,6 +983,11 @@ export default function CloudWatchIncidentsDialog({
                             <span className={`px-2 py-0.5 text-xs font-medium rounded border ${currentStageInfo.color}`}>
                               {currentStageInfo.icon} {currentStageInfo.text}
                             </span>
+                            {alarmAcknowledged && (
+                              <span className="px-2 py-0.5 text-xs font-medium rounded border bg-slate-100 text-slate-700">
+                                Acknowledged
+                              </span>
+                            )}
                             {timestamp && (
                               <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
                                 🕐 {formatDate(timestamp)}
@@ -1016,7 +1054,18 @@ export default function CloudWatchIncidentsDialog({
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
+                          {showAcknowledge && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleAcknowledgeIncident(incidentId, e)}
+                              disabled={isLoading}
+                              className="px-3 py-1.5 bg-slate-600 text-white text-xs rounded hover:bg-slate-700 transition-colors whitespace-nowrap disabled:opacity-50"
+                              title="Mark as acknowledged — removes this incident from the Auto trigger sidebar count"
+                            >
+                              Acknowledge
+                            </button>
+                          )}
                           <button
                             onClick={(e) => handleReanalyzeIncident(incidentId, e)}
                             disabled={isLoading}
