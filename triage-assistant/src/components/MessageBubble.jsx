@@ -9,6 +9,8 @@ import DiagnosisView from './DiagnosisView';
 import RemediationStatus from './RemediationStatus';
 import SourcePanel from './SourcePanel';
 import ChatMarkdown from './ChatMarkdown';
+import IncidentRecordPanel from './IncidentRecordPanel';
+import IncidentSummaryPanel from './IncidentSummaryPanel';
 
 export default function MessageBubble({ 
   message, 
@@ -95,6 +97,21 @@ export default function MessageBubble({
             : 'bg-white text-gray-800 rounded-bl-md border border-gray-200/60 shadow-sm'
         }`}
       >
+        {!isUser && message.incident && (
+          <>
+            <IncidentRecordPanel
+              incident={message.incident}
+              remediationStatus={remediationStatus}
+              messageTimestamp={message.timestamp}
+            />
+            <IncidentSummaryPanel
+              incident={message.incident}
+              messageText={message.text}
+              formatMarkdown={message.formatMarkdown}
+            />
+          </>
+        )}
+
         {/* Search Mode Badge (for assistant messages) */}
         {!isUser && badge && (
           <div className="flex items-center gap-2 mb-2">
@@ -282,16 +299,7 @@ export default function MessageBubble({
           </>
         )}
 
-        {/* Show incident analysis text BEFORE Execution Results */}
-        {!isUser && message.incident && message.text && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            {message.formatMarkdown ? (
-              <ChatMarkdown>{message.text}</ChatMarkdown>
-            ) : (
-              <p className="text-sm whitespace-pre-wrap">{message.text}</p>
-            )}
-          </div>
-        )}
+        {/* Incident narrative lives in IncidentSummaryPanel above */}
 
         {/* Remediation Status (only for code_fix actions with GitHub issue created) */}
         {!isUser && 
