@@ -1,0 +1,221 @@
+# ── Scale ECS Services Up/Down ────────────────────────────────────────────────
+#
+# Use this to save costs when not demoing. Trigger from GitHub Actions UI.
+#   Scale Down → ECS to 0 tasks (~$0 Fargate/day, NAT GW fixed ~$1.08/day)
+#   Scale Up   → ECS to desired count, ready for demos in ~60s
+#   Status     → check current state of all services (no changes)
+#
+# Cost breakdown when scaled down:
+#   Fargate:     ~$0/day  (was ~$2-4/day for 4 services)
+#   ECR storage: ~$0.01/day (3 repos × ~1GB × $0.10/GB/month)
+#   NAT Gateway: ~$1.08/day fixed (cannot be stopped without destroying infra)
+#   Lambda:      pay-per-invocation, ~$0 when idle
+#
+# ECR note: Lifecycle policies already keep last 5 images per repo.
+#   Use "Clean old ECR images" option to trim to latest only and save storage.
+#
+# Note: Elasticsearch + ES MCP are off by default (enable_elasticsearch_mcp=false).
+#   Only enable if you deployed them via Terraform.
+
+name: Scale Services
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - status
+          - down
+          - up
+      desired_count:
+        description: "Task count per service (only for 'up'). 1 is fine for demos."
+        required: false
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+      include_elasticsearch:
+        description: "Include Elasticsearch + ES MCP services? (only if you deployed them)"
+        required: false
+        default: false
+        type: boolean
+      clean_ecr_images:
+        description: "Delete old ECR images (keep only :latest)? Reduces storage cost."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: sre-poc-mcp-cluster
+
+jobs:
+  scale:
+    name: "Scale ${{ inputs.action }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── Scale ECS services ────────────────────────────────────────────────
+      - name: Scale ECS services
+        if: ${{ inputs.action != 'status' }}
+        run: |
+          SERVICES=(
+            sre-poc-mcp-server
+            sre-poc-incident-mcp-server
+          )
+
+          if [ "${{ inputs.include_elasticsearch }}" = "true" ]; then
+            SERVICES+=(
+              sre-poc-elasticsearch
+              sre-poc-es-mcp-server
+            )
+          fi
+
+          if [ "${{ inputs.action }}" = "down" ]; then
+            COUNT=0
+          else
+            COUNT=${{ inputs.desired_count }}
+          fi
+
+          echo "=== Scaling all services to $COUNT task(s) ==="
+          echo ""
+
+          for svc in "${SERVICES[@]}"; do
+            echo -n "  $svc → $COUNT ... "
+            aws ecs update-service \
+              --cluster "${{ env.ECS_CLUSTER }}" \
+              --service "$svc" \
+              --desired-count "$COUNT" \
+              --region "${{ env.AWS_REGION }}" \
+              --no-cli-pager > /dev/null 2>&1 && echo "✓" || echo "⚠ skipped (not deployed)"
+          done
+
+          echo ""
+          if [ "$COUNT" = "0" ]; then
+            echo "All services scaled to 0. Fargate charges stop once tasks drain (~1-2 min)."
+          else
+            echo "All services scaling to $COUNT. Tasks should be running within ~60 seconds."
+          fi
+
+      # ── Clean old ECR images (optional) ──────────────────────────────────
+      - name: Clean old ECR images
+        if: ${{ inputs.clean_ecr_images == true || inputs.clean_ecr_images == 'true' }}
+        run: |
+          REPOS=(
+            sre-poc-mcp-server
+            sre-poc-incident-mcp-server
+            sre-poc-es-mcp-server
+          )
+
+          echo "=== Cleaning old ECR images (keeping :latest only) ==="
+          echo ""
+
+          for repo in "${REPOS[@]}"; do
+            echo "  $repo:"
+
+            # Get all image digests that are NOT tagged :latest
+            OLD_IMAGES=$(aws ecr list-images \
+              --repository-name "$repo" \
+              --filter tagStatus=UNTAGGED \
+              --query 'imageIds[*]' \
+              --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
+
+            # Also get tagged images that are not :latest
+            TAGGED_OLD=$(aws ecr list-images \
+              --repository-name "$repo" \
+              --filter tagStatus=TAGGED \
+              --query 'imageIds[?imageTag!=`latest`]' \
+              --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
+
+            # Combine and delete
+            ALL_OLD=$(echo "$OLD_IMAGES $TAGGED_OLD" | jq -s 'add | map(select(. != null)) | unique' 2>/dev/null)
+            COUNT=$(echo "$ALL_OLD" | jq 'length' 2>/dev/null || echo "0")
+
+            if [ "$COUNT" = "0" ] || [ -z "$ALL_OLD" ] || [ "$ALL_OLD" = "null" ] || [ "$ALL_OLD" = "[]" ]; then
+              echo "    ✓ Nothing to clean"
+            else
+              echo "$ALL_OLD" | aws ecr batch-delete-image \
+                --repository-name "$repo" \
+                --image-ids file:///dev/stdin \
+                --region "${{ env.AWS_REGION }}" \
+                --no-cli-pager > /dev/null 2>&1 && echo "    ✓ Deleted $COUNT old image(s)" || echo "    ⚠ Delete failed or repo not found"
+            fi
+          done
+
+      # ── Summary ──────────────────────────────────────────────────────────
+      - name: Summary
+        if: ${{ inputs.action != 'status' }}
+        run: |
+          echo ""
+          echo "══════════════════════════════════════════════"
+          if [ "${{ inputs.action }}" = "down" ]; then
+            echo "  SCALED DOWN"
+            echo "  • ECS: all services → 0 tasks"
+            echo ""
+            echo "  Estimated savings vs always-on:"
+            echo "    Fargate: ~\$2-4/day saved"
+            echo "    NAT GW:  ~\$1.08/day fixed (always running)"
+            echo ""
+            echo "  Remember: NAT Gateway still costs ~\$1.08/day."
+            echo "  To save that too, destroy infra when not needed for weeks."
+          else
+            echo "  SCALED UP"
+            echo "  • ECS: all services → ${{ inputs.desired_count }} task(s)"
+            if [ "${{ inputs.include_elasticsearch }}" = "true" ]; then
+              echo "  • Elasticsearch + ES MCP: included"
+            fi
+            echo ""
+            echo "  Services should be healthy within ~60-90 seconds."
+            echo "  Remember to scale down when done!"
+          fi
+          if [ "${{ inputs.clean_ecr_images }}" = "true" ]; then
+            echo "  • ECR: old images cleaned"
+          fi
+          echo "══════════════════════════════════════════════"
+
+      # ── Status (always runs) ─────────────────────────────────────────────
+      - name: ECS status
+        run: |
+          echo "── ECS Cluster: ${{ env.ECS_CLUSTER }} ──"
+          echo ""
+
+          SERVICES="sre-poc-mcp-server sre-poc-incident-mcp-server"
+          if [ "${{ inputs.include_elasticsearch }}" = "true" ]; then
+            SERVICES="$SERVICES sre-poc-elasticsearch sre-poc-es-mcp-server"
+          fi
+
+          aws ecs describe-services \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --services $SERVICES \
+            --region "${{ env.AWS_REGION }}" \
+            --query 'services[].{Name:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Status:status}' \
+            --output table \
+            --no-cli-pager 2>/dev/null || echo "Could not retrieve ECS status"
+
+      - name: ECR status
+        run: |
+          echo ""
+          echo "── ECR Repositories ──"
+          echo ""
+
+          for repo in sre-poc-mcp-server sre-poc-incident-mcp-server sre-poc-es-mcp-server; do
+            IMAGE_COUNT=$(aws ecr list-images \
+              --repository-name "$repo" \
+              --query 'length(imageIds)' \
+              --output text --region "${{ env.AWS_REGION }}" 2>/dev/null || echo "N/A (not deployed)")
+            echo "  $repo: $IMAGE_COUNT image(s)"
+          done

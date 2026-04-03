@@ -1,0 +1,192 @@
+# ── CloudWatch Log Cleaner ────────────────────────────────────────────────────
+#
+# Deletes log streams (the data) from CloudWatch log groups to reduce storage cost.
+# Log groups themselves are preserved so ECS/Lambda can still write to them.
+#
+# Modes:
+#   project-only  → only clears known sre-poc log groups (safe default)
+#   all           → clears ALL log groups in the account (use with caution)
+#
+# CW Logs pricing: $0.03/GB/month ingestion + $0.03/GB/month storage
+# Clearing streams removes stored data → stops storage charges immediately.
+#
+# Note: Running ECS tasks will re-create streams automatically when they log.
+
+name: Clean CloudWatch Logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Which log groups to clean"
+        required: true
+        type: choice
+        default: project-only
+        options:
+          - project-only
+          - all
+      dry_run:
+        description: "Dry run? (list what would be deleted, no actual deletes)"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  clean:
+    name: "Clean CW Logs (${{ inputs.scope }}${{ inputs.dry_run == 'true' && ' · dry-run' || '' }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── Collect log groups ────────────────────────────────────────────────
+      - name: Collect log groups
+        id: collect
+        run: |
+          if [ "${{ inputs.scope }}" = "project-only" ]; then
+            # Known sre-poc log groups (ECS services + Lambda)
+            LOG_GROUPS=(
+              "/ecs/sre-poc-mcp-server"
+              "/ecs/sre-poc-incident-mcp-server"
+              "/ecs/sre-poc-elasticsearch"
+              "/ecs/sre-poc-es-mcp-server"
+              "/aws/lambda/sre-poc-incident-handler"
+              "/aws/lambda/payment-service"
+              "/aws/lambda/order-service"
+              "/aws/lambda/api-gateway"
+              "/aws/lambda/user-service"
+              "/aws/lambda/inventory-service"
+              "/aws/lambda/policy-service"
+              "/aws/lambda/rating-service"
+              "/aws/lambda/notification-service"
+            )
+
+            # Filter to only groups that actually exist
+            EXISTING=()
+            for lg in "${LOG_GROUPS[@]}"; do
+              EXISTS=$(aws logs describe-log-groups \
+                --log-group-name-prefix "$lg" \
+                --query "logGroups[?logGroupName=='$lg'].logGroupName" \
+                --output text --region "${{ env.AWS_REGION }}" 2>/dev/null)
+              if [ -n "$EXISTS" ]; then
+                EXISTING+=("$lg")
+              fi
+            done
+
+            printf '%s\n' "${EXISTING[@]}" > /tmp/log_groups.txt
+
+          else
+            # All log groups in account — paginate through all
+            > /tmp/log_groups.txt
+            NEXT_TOKEN=""
+            while true; do
+              if [ -z "$NEXT_TOKEN" ]; then
+                RESULT=$(aws logs describe-log-groups \
+                  --query '{groups: logGroups[*].logGroupName, next: nextToken}' \
+                  --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
+              else
+                RESULT=$(aws logs describe-log-groups \
+                  --starting-token "$NEXT_TOKEN" \
+                  --query '{groups: logGroups[*].logGroupName, next: nextToken}' \
+                  --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
+              fi
+              echo "$RESULT" | jq -r '.groups[]' >> /tmp/log_groups.txt
+              NEXT_TOKEN=$(echo "$RESULT" | jq -r '.next // empty')
+              [ -z "$NEXT_TOKEN" ] && break
+            done
+          fi
+
+          TOTAL=$(wc -l < /tmp/log_groups.txt | tr -d ' ')
+          echo "Found $TOTAL log group(s) to process:"
+          cat /tmp/log_groups.txt | sed 's/^/  /'
+
+      # ── Delete log streams ────────────────────────────────────────────────
+      - name: Delete log streams
+        run: |
+          DRY_RUN="${{ inputs.dry_run }}"
+          TOTAL_STREAMS=0
+          TOTAL_GROUPS=0
+
+          while IFS= read -r LOG_GROUP; do
+            [ -z "$LOG_GROUP" ] && continue
+
+            echo ""
+            echo "── $LOG_GROUP"
+
+            # Paginate through all streams in this log group
+            STREAMS=()
+            NEXT_TOKEN=""
+            while true; do
+              if [ -z "$NEXT_TOKEN" ]; then
+                RESULT=$(aws logs describe-log-streams \
+                  --log-group-name "$LOG_GROUP" \
+                  --query '{streams: logStreams[*].logStreamName, next: nextToken}' \
+                  --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
+              else
+                RESULT=$(aws logs describe-log-streams \
+                  --log-group-name "$LOG_GROUP" \
+                  --starting-token "$NEXT_TOKEN" \
+                  --query '{streams: logStreams[*].logStreamName, next: nextToken}' \
+                  --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
+              fi
+
+              while IFS= read -r s; do
+                STREAMS+=("$s")
+              done < <(echo "$RESULT" | jq -r '.streams[]? // empty')
+
+              NEXT_TOKEN=$(echo "$RESULT" | jq -r '.next // empty')
+              [ -z "$NEXT_TOKEN" ] && break
+            done
+
+            STREAM_COUNT=${#STREAMS[@]}
+
+            if [ "$STREAM_COUNT" -eq 0 ]; then
+              echo "  (no streams)"
+              continue
+            fi
+
+            echo "  $STREAM_COUNT stream(s) found"
+            TOTAL_GROUPS=$((TOTAL_GROUPS + 1))
+            TOTAL_STREAMS=$((TOTAL_STREAMS + STREAM_COUNT))
+
+            if [ "$DRY_RUN" = "true" ]; then
+              for s in "${STREAMS[@]}"; do
+                echo "  [dry-run] would delete: $s"
+              done
+            else
+              for s in "${STREAMS[@]}"; do
+                aws logs delete-log-stream \
+                  --log-group-name "$LOG_GROUP" \
+                  --log-stream-name "$s" \
+                  --region "${{ env.AWS_REGION }}" \
+                  --no-cli-pager > /dev/null 2>&1 \
+                  && echo "  ✓ deleted: $s" \
+                  || echo "  ⚠ failed:  $s"
+              done
+            fi
+
+          done < /tmp/log_groups.txt
+
+          echo ""
+          echo "══════════════════════════════════════════════"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "  DRY RUN COMPLETE"
+            echo "  Would delete $TOTAL_STREAMS stream(s) across $TOTAL_GROUPS log group(s)"
+            echo "  Re-run with dry_run=false to actually delete."
+          else
+            echo "  DONE"
+            echo "  Deleted $TOTAL_STREAMS stream(s) across $TOTAL_GROUPS log group(s)"
+            echo "  Log groups preserved — ECS/Lambda can still write new logs."
+          fi
+          echo "══════════════════════════════════════════════"
