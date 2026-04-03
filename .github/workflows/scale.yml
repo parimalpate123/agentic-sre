@@ -41,7 +41,7 @@ on:
       include_elasticsearch:
         description: "Include Elasticsearch + ES MCP services? (only if you deployed them)"
         required: false
-        default: false
+        default: true
         type: boolean
       clean_ecr_images:
         description: "Delete old ECR images (keep only :latest)? Reduces storage cost."
