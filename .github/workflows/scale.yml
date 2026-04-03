@@ -1,21 +1,18 @@
 # ── Scale ECS Services Up/Down ────────────────────────────────────────────────
 #
 # Use this to save costs when not demoing. Trigger from GitHub Actions UI.
-#   Scale Down → ECS to 0 tasks (~$0 Fargate/day, NAT GW fixed ~$1.08/day)
-#   Scale Up   → ECS to desired count, ready for demos in ~60s
-#   Status     → check current state of all services (no changes)
+#   Scale Down → ECS to 0, Lambda concurrency=0, EventBridge disabled,
+#                Container Insights off, CW retention → 3 days
+#   Scale Up   → reverse all of the above, ready for demos in ~60-90s
+#   Status     → check current state of all resources (no changes)
 #
 # Cost breakdown when scaled down:
-#   Fargate:     ~$0/day  (was ~$2-4/day for 4 services)
-#   ECR storage: ~$0.01/day (3 repos × ~1GB × $0.10/GB/month)
-#   NAT Gateway: ~$1.08/day fixed (cannot be stopped without destroying infra)
-#   Lambda:      pay-per-invocation, ~$0 when idle
-#
-# ECR note: Lifecycle policies already keep last 5 images per repo.
-#   Use "Clean old ECR images" option to trim to latest only and save storage.
-#
-# Note: Elasticsearch + ES MCP are off by default (enable_elasticsearch_mcp=false).
-#   Only enable if you deployed them via Terraform.
+#   Fargate:            ~$0/day  (was ~$4/day for 4 services)
+#   Lambda invocations: ~$0/day  (concurrency locked to 0)
+#   CloudWatch:         reduced  (3-day retention purges data faster)
+#   Container Insights: ~$0/day  (disabled)
+#   NAT Gateway:        ~$1.08/day fixed (cannot be stopped without destroying infra)
+#   ECR storage:        ~$0.01/day (lifecycle policies keep last 5 images)
 
 name: Scale Services
 
@@ -55,6 +52,8 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECS_CLUSTER: sre-poc-mcp-cluster
+  LAMBDA_FUNCTION: sre-poc-incident-handler
+  EVENTBRIDGE_RULE: sre-poc-alarm-state-change
 
 jobs:
   scale:
@@ -68,6 +67,31 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      # ── Scale DOWN: disable EventBridge first (stop triggers before ECS goes down) ──
+      - name: Disable EventBridge rule
+        if: ${{ inputs.action == 'down' }}
+        run: |
+          echo "── EventBridge ──"
+          aws events disable-rule \
+            --name "${{ env.EVENTBRIDGE_RULE }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --no-cli-pager > /dev/null \
+            && echo "  ✓ Rule disabled: ${{ env.EVENTBRIDGE_RULE }}" \
+            || echo "  ⚠ Could not disable rule (may not exist)"
+
+      # ── Scale DOWN: lock Lambda concurrency to 0 ─────────────────────────
+      - name: Lock Lambda concurrency
+        if: ${{ inputs.action == 'down' }}
+        run: |
+          echo "── Lambda ──"
+          aws lambda put-function-concurrency \
+            --function-name "${{ env.LAMBDA_FUNCTION }}" \
+            --reserved-concurrent-executions 0 \
+            --region "${{ env.AWS_REGION }}" \
+            --no-cli-pager > /dev/null \
+            && echo "  ✓ Reserved concurrency set to 0 — Lambda blocked" \
+            || echo "  ⚠ Could not set concurrency"
 
       # ── Scale ECS services ────────────────────────────────────────────────
       - name: Scale ECS services
@@ -91,9 +115,7 @@ jobs:
             COUNT=${{ inputs.desired_count }}
           fi
 
-          echo "=== Scaling all services to $COUNT task(s) ==="
-          echo ""
-
+          echo "── ECS Services → $COUNT task(s) ──"
           for svc in "${SERVICES[@]}"; do
             echo -n "  $svc → $COUNT ... "
             aws ecs update-service \
@@ -104,12 +126,77 @@ jobs:
               --no-cli-pager > /dev/null 2>&1 && echo "✓" || echo "⚠ skipped (not deployed)"
           done
 
-          echo ""
-          if [ "$COUNT" = "0" ]; then
-            echo "All services scaled to 0. Fargate charges stop once tasks drain (~1-2 min)."
+      # ── Container Insights ────────────────────────────────────────────────
+      - name: Configure Container Insights
+        if: ${{ inputs.action != 'status' }}
+        run: |
+          echo "── Container Insights ──"
+          if [ "${{ inputs.action }}" = "down" ]; then
+            SETTING="disabled"
           else
-            echo "All services scaling to $COUNT. Tasks should be running within ~60 seconds."
+            SETTING="enabled"
           fi
+
+          aws ecs update-cluster-settings \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --settings name=containerInsights,value=$SETTING \
+            --region "${{ env.AWS_REGION }}" \
+            --no-cli-pager > /dev/null \
+            && echo "  ✓ Container Insights: $SETTING" \
+            || echo "  ⚠ Could not update Container Insights"
+
+      # ── CloudWatch log retention ──────────────────────────────────────────
+      - name: Set CloudWatch log retention
+        if: ${{ inputs.action != 'status' }}
+        run: |
+          echo "── CloudWatch Log Retention ──"
+          if [ "${{ inputs.action }}" = "down" ]; then
+            DAYS=3
+          else
+            DAYS=7
+          fi
+
+          LOG_GROUPS=(
+            "/ecs/sre-poc-mcp-server"
+            "/ecs/sre-poc-incident-mcp-server"
+            "/ecs/sre-poc-elasticsearch"
+            "/ecs/sre-poc-es-mcp-server"
+            "/aws/lambda/sre-poc-incident-handler"
+          )
+
+          for lg in "${LOG_GROUPS[@]}"; do
+            aws logs put-retention-policy \
+              --log-group-name "$lg" \
+              --retention-in-days $DAYS \
+              --region "${{ env.AWS_REGION }}" \
+              --no-cli-pager > /dev/null 2>&1 \
+              && echo "  ✓ $lg → ${DAYS}d" \
+              || echo "  ⚠ $lg (not found, skipping)"
+          done
+
+      # ── Scale UP: restore Lambda concurrency ─────────────────────────────
+      - name: Restore Lambda concurrency
+        if: ${{ inputs.action == 'up' }}
+        run: |
+          echo "── Lambda ──"
+          aws lambda delete-function-concurrency \
+            --function-name "${{ env.LAMBDA_FUNCTION }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --no-cli-pager > /dev/null \
+            && echo "  ✓ Reserved concurrency removed — Lambda unrestricted" \
+            || echo "  ⚠ Could not restore concurrency"
+
+      # ── Scale UP: re-enable EventBridge (after ECS is starting) ──────────
+      - name: Enable EventBridge rule
+        if: ${{ inputs.action == 'up' }}
+        run: |
+          echo "── EventBridge ──"
+          aws events enable-rule \
+            --name "${{ env.EVENTBRIDGE_RULE }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --no-cli-pager > /dev/null \
+            && echo "  ✓ Rule enabled: ${{ env.EVENTBRIDGE_RULE }}" \
+            || echo "  ⚠ Could not enable rule"
 
       # ── Clean old ECR images (optional) ──────────────────────────────────
       - name: Clean old ECR images
@@ -121,27 +208,23 @@ jobs:
             sre-poc-es-mcp-server
           )
 
-          echo "=== Cleaning old ECR images (keeping :latest only) ==="
-          echo ""
+          echo "── ECR: Cleaning old images (keeping :latest only) ──"
 
           for repo in "${REPOS[@]}"; do
             echo "  $repo:"
 
-            # Get all image digests that are NOT tagged :latest
             OLD_IMAGES=$(aws ecr list-images \
               --repository-name "$repo" \
               --filter tagStatus=UNTAGGED \
               --query 'imageIds[*]' \
               --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
 
-            # Also get tagged images that are not :latest
             TAGGED_OLD=$(aws ecr list-images \
               --repository-name "$repo" \
               --filter tagStatus=TAGGED \
               --query 'imageIds[?imageTag!=`latest`]' \
               --output json --region "${{ env.AWS_REGION }}" 2>/dev/null)
 
-            # Combine and delete
             ALL_OLD=$(echo "$OLD_IMAGES $TAGGED_OLD" | jq -s 'add | map(select(. != null)) | unique' 2>/dev/null)
             COUNT=$(echo "$ALL_OLD" | jq 'length' 2>/dev/null || echo "0")
 
@@ -152,7 +235,9 @@ jobs:
                 --repository-name "$repo" \
                 --image-ids file:///dev/stdin \
                 --region "${{ env.AWS_REGION }}" \
-                --no-cli-pager > /dev/null 2>&1 && echo "    ✓ Deleted $COUNT old image(s)" || echo "    ⚠ Delete failed or repo not found"
+                --no-cli-pager > /dev/null 2>&1 \
+                && echo "    ✓ Deleted $COUNT old image(s)" \
+                || echo "    ⚠ Delete failed or repo not found"
             fi
           done
 
@@ -164,26 +249,29 @@ jobs:
           echo "══════════════════════════════════════════════"
           if [ "${{ inputs.action }}" = "down" ]; then
             echo "  SCALED DOWN"
-            echo "  • ECS: all services → 0 tasks"
+            echo "  • ECS:               all services → 0 tasks"
+            echo "  • Lambda:            concurrency locked to 0"
+            echo "  • EventBridge:       rule disabled"
+            echo "  • Container Insights: disabled"
+            echo "  • CW log retention:  set to 3 days"
             echo ""
-            echo "  Estimated savings vs always-on:"
-            echo "    Fargate: ~\$2-4/day saved"
-            echo "    NAT GW:  ~\$1.08/day fixed (always running)"
-            echo ""
-            echo "  Remember: NAT Gateway still costs ~\$1.08/day."
-            echo "  To save that too, destroy infra when not needed for weeks."
+            echo "  Estimated savings: ~\$4-6/day (Fargate + CW)"
+            echo "  NAT Gateway:        ~\$1.08/day fixed (always on)"
           else
             echo "  SCALED UP"
-            echo "  • ECS: all services → ${{ inputs.desired_count }} task(s)"
+            echo "  • ECS:               all services → ${{ inputs.desired_count }} task(s)"
+            echo "  • Lambda:            concurrency unrestricted"
+            echo "  • EventBridge:       rule enabled"
+            echo "  • Container Insights: enabled"
+            echo "  • CW log retention:  restored to 7 days"
             if [ "${{ inputs.include_elasticsearch }}" = "true" ]; then
               echo "  • Elasticsearch + ES MCP: included"
             fi
             echo ""
-            echo "  Services should be healthy within ~60-90 seconds."
-            echo "  Remember to scale down when done!"
+            echo "  Services healthy in ~60-90s. Remember to scale down when done!"
           fi
           if [ "${{ inputs.clean_ecr_images }}" = "true" ]; then
-            echo "  • ECR: old images cleaned"
+            echo "  • ECR:               old images cleaned"
           fi
           echo "══════════════════════════════════════════════"
 
@@ -191,31 +279,46 @@ jobs:
       - name: ECS status
         run: |
           echo "── ECS Cluster: ${{ env.ECS_CLUSTER }} ──"
-          echo ""
-
           SERVICES="sre-poc-mcp-server sre-poc-incident-mcp-server"
           if [ "${{ inputs.include_elasticsearch }}" = "true" ]; then
             SERVICES="$SERVICES sre-poc-elasticsearch sre-poc-es-mcp-server"
           fi
-
           aws ecs describe-services \
             --cluster "${{ env.ECS_CLUSTER }}" \
             --services $SERVICES \
             --region "${{ env.AWS_REGION }}" \
-            --query 'services[].{Name:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Status:status}' \
+            --query 'services[].{Name:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount}' \
             --output table \
             --no-cli-pager 2>/dev/null || echo "Could not retrieve ECS status"
+
+      - name: Lambda + EventBridge status
+        run: |
+          echo ""
+          echo "── Lambda ──"
+          aws lambda get-function-concurrency \
+            --function-name "${{ env.LAMBDA_FUNCTION }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --no-cli-pager 2>/dev/null \
+            | jq -r '"  Reserved concurrency: \(.ReservedConcurrentExecutions // "unrestricted")"' \
+            || echo "  Could not retrieve Lambda concurrency"
+
+          echo ""
+          echo "── EventBridge ──"
+          aws events describe-rule \
+            --name "${{ env.EVENTBRIDGE_RULE }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --no-cli-pager 2>/dev/null \
+            | jq -r '"  \(.Name): \(.State)"' \
+            || echo "  Could not retrieve EventBridge rule"
 
       - name: ECR status
         run: |
           echo ""
           echo "── ECR Repositories ──"
-          echo ""
-
           for repo in sre-poc-mcp-server sre-poc-incident-mcp-server sre-poc-es-mcp-server; do
             IMAGE_COUNT=$(aws ecr list-images \
               --repository-name "$repo" \
               --query 'length(imageIds)' \
-              --output text --region "${{ env.AWS_REGION }}" 2>/dev/null || echo "N/A (not deployed)")
+              --output text --region "${{ env.AWS_REGION }}" 2>/dev/null || echo "N/A")
             echo "  $repo: $IMAGE_COUNT image(s)"
           done
